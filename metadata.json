@@ -1,0 +1,6 @@
+{
+  "name": "Powder & Particle Simulator",
+  "description": "A high-performance powder physics grid simulation and separate particle sandbox with 500 element slots, custom behavior editor, map workshop, cloud saves, and real-time multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
