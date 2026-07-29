@@ -1,0 +1,8 @@
+{
+  "name": "Remix Powder \u0026 Particle Simulator",
+  "description": "High-performance physics sandbox with dual simulation engines (Cellular Automata Powder Grid \u0026 Rigid-Body Particle Dynamics), a 500-slot Custom Element \u0026 Reaction Editor, Map Workshop, Real-time Multiplayer collaboration, Thermal/Pressure Diagnostics, and Cloud Save persistence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
