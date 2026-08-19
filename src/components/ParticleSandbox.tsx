@@ -6,8 +6,10 @@ import { AnalyticsDashboardModal, AnalyticsFrameData } from './AnalyticsDashboar
 import {
   Play, Pause, FastForward, Trash2, Sparkles, Orbit, Waves, Magnet, Activity,
   Sliders, X, Settings2, Zap, RefreshCw, Compass, Shield,
-  Crosshair, Palette, Layers, Flame, Maximize2, Wrench, Gauge, BarChart3
+  Crosshair, Palette, Layers, Flame, Maximize2, Wrench, Gauge, BarChart3,
+  Undo2, Redo2, Camera, Video, VideoOff
 } from 'lucide-react';
+import { CanvasRecorder, captureCanvasScreenshot } from '../utils/canvasRecorder';
 
 interface ParticleSandboxProps {
   engine: ParticleEngine;
@@ -74,6 +76,29 @@ export const ParticleSandbox: React.FC<ParticleSandboxProps> = ({ engine }) => {
   const [colorMode, setColorMode] = useState<'element' | 'velocity' | 'charge' | 'rainbow' | 'density' | 'lifespan'>('element');
   const [particleSize, setParticleSize] = useState<number>(2);
   const [decaySpeed, setDecaySpeed] = useState<number>(0);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [undoTick, setUndoTick] = useState<number>(0);
+
+  // Keyboard shortcuts for particle sandbox
+  useEffect(()=> {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) { if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); } }
+        else { if (engine.canUndo()) { engine.undo(); setUndoTick(t=>t+1); } }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); }
+      } else if (e.key === ' ') { e.preventDefault(); setIsPaused(v=>!v); }
+      else if (e.key.toLowerCase() === 'c' && !e.ctrlKey) { handleClear(); }
+      else if (e.key.toLowerCase() === 's' && !e.ctrlKey) { handleScreenshot(); }
+      else if (e.key.toLowerCase() === 'r' && !e.ctrlKey) { handleToggleRecording(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return ()=> window.removeEventListener('keydown', onKeyDown);
+  }, [engine]);
 
   // Capture periodic Recharts Telemetry
   useEffect(() => {
@@ -97,6 +122,7 @@ export const ParticleSandbox: React.FC<ParticleSandboxProps> = ({ engine }) => {
     y: 0,
     active: false
   });
+  const recorderRef = useRef<CanvasRecorder | null>(null);
 
   const frameTimesRef = useRef<number[]>([]);
   const frameCountRef = useRef<number>(0);
@@ -116,7 +142,17 @@ export const ParticleSandbox: React.FC<ParticleSandboxProps> = ({ engine }) => {
   const handleAddDnaHelix = () => { setGravityY(0); engine.spawnDnaHelix(280); };
   const handleAddCosmicFountain = () => { setGravityY(0.3); engine.spawnCosmicFountain(250); };
   const handleAddSynchrotron = () => { setGravityY(0); engine.spawnSynchrotron(300); };
-  const handleClear = () => engine.clear();
+  const handleClear = () => { engine.clear(); setUndoTick(t=>t+1); };
+  const handleScreenshot = () => {
+    const canvas = canvasRef.current;
+    if (canvas) captureCanvasScreenshot(canvas, `particle-lab-${Date.now()}.png`);
+  };
+  const handleToggleRecording = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (!recorderRef.current) recorderRef.current = new CanvasRecorder(canvas, (rec)=> setIsRecording(rec));
+    recorderRef.current.toggle(30);
+  };
 
   // Mouse Handlers - High performance ref updates with 0ms React latency
   const handlePointerDown = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
@@ -277,6 +313,13 @@ export const ParticleSandbox: React.FC<ParticleSandboxProps> = ({ engine }) => {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <div className="hidden sm:flex items-center rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900/90 backdrop-blur-md shadow-lg">
+              <button onClick={()=> { if (engine.canUndo()) { engine.undo(); setUndoTick(t=>t+1); }}} disabled={!engine.canUndo()} className={`p-1.5 ${engine.canUndo() ? 'text-cyan-300 hover:bg-neutral-800' : 'text-neutral-600'}`} title="Undo (Ctrl+Z)"><Undo2 className="w-3.5 h-3.5" /></button>
+              <div className="w-px h-4 bg-neutral-800" />
+              <button onClick={()=> { if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); }}} disabled={!engine.canRedo()} className={`p-1.5 ${engine.canRedo() ? 'text-cyan-300 hover:bg-neutral-800' : 'text-neutral-600'}`} title="Redo (Ctrl+Shift+Z)"><Redo2 className="w-3.5 h-3.5" /></button>
+            </div>
+            <button onClick={handleScreenshot} className="p-1.5 rounded-xl bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 shadow-lg backdrop-blur-md" title="Screenshot (S)"><Camera className="w-3.5 h-3.5" /></button>
+            <button onClick={handleToggleRecording} className={`p-1.5 rounded-xl border shadow-lg backdrop-blur-md ${isRecording ? 'bg-red-600 text-white border-red-500 animate-pulse' : 'bg-neutral-900/90 text-red-300 border-neutral-800 hover:bg-neutral-800'}`} title={isRecording ? 'Stop Recording (R)' : 'Record Video (R)'}>{isRecording ? <VideoOff className="w-3.5 h-3.5"/> : <Video className="w-3.5 h-3.5"/>}</button>
             {/* Start / Stop Button */}
             <button
               onClick={() => setIsPaused(!isPaused)}

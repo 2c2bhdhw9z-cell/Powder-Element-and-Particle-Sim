@@ -11,6 +11,8 @@ import { CustomElementEditor } from './components/CustomElementEditor';
 import { WorkshopModal } from './components/WorkshopModal';
 import { MultiplayerModal } from './components/MultiplayerModal';
 import { CloudSavesModal } from './components/CloudSavesModal';
+import { OnboardingModal, useOnboarding } from './components/OnboardingModal';
+import { ShortcutsHelpModal } from './components/ShortcutsHelpModal';
 
 export default function App() {
   // Global Physics Engine Instances
@@ -27,6 +29,8 @@ export default function App() {
   const [showEditor, setShowEditor] = useState<boolean>(false);
   const [showMultiplayer, setShowMultiplayer] = useState<boolean>(false);
   const [showCloudSaves, setShowCloudSaves] = useState<boolean>(false);
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
+  const [onboardingOpen, closeOnboarding, openOnboarding] = useOnboarding();
 
   // Multiplayer State
   const [roomId, setRoomId] = useState<string>('default-sandbox');
@@ -260,6 +264,8 @@ export default function App() {
         onOpenEditor={() => setShowEditor(true)}
         onOpenMultiplayer={() => setShowMultiplayer(true)}
         onOpenCloudSaves={() => setShowCloudSaves(true)}
+        onOpenShortcuts={() => setShowShortcuts(true)}
+        onOpenOnboarding={openOnboarding}
         isMultiplayerActive={isConnected}
         connectedUsersCount={connectedUsers.length}
       />
@@ -325,6 +331,10 @@ export default function App() {
           onLoadSave={handleLoadSave}
         />
       )}
+
+      {/* Onboarding & Shortcuts */}
+      <OnboardingModal isOpen={onboardingOpen} onClose={closeOnboarding} onStartPowder={()=> { setActiveMode('powder'); closeOnboarding(); }} onStartParticle={()=> { setActiveMode('particle'); closeOnboarding(); }} />
+      <ShortcutsHelpModal isOpen={showShortcuts} onClose={()=> setShowShortcuts(false)} />
     </div>
   );
 }

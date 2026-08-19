@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, Atom, Globe, Sliders, Users, Save, Sparkles } from 'lucide-react';
+import { Flame, Atom, Globe, Sliders, Users, Save, Sparkles, Keyboard, HelpCircle } from 'lucide-react';
 
 interface HeaderProps {
   activeMode: 'powder' | 'particle';
@@ -8,6 +8,8 @@ interface HeaderProps {
   onOpenEditor: () => void;
   onOpenMultiplayer: () => void;
   onOpenCloudSaves: () => void;
+  onOpenShortcuts?: () => void;
+  onOpenOnboarding?: () => void;
   isMultiplayerActive: boolean;
   connectedUsersCount: number;
 }
@@ -19,6 +21,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenEditor,
   onOpenMultiplayer,
   onOpenCloudSaves,
+  onOpenShortcuts,
+  onOpenOnboarding,
   isMultiplayerActive,
   connectedUsersCount
 }) => {
@@ -102,6 +106,23 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Save className="w-3.5 h-3.5" />
           Cloud Saves
+        </button>
+
+        <button
+          onClick={onOpenShortcuts}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 text-xs font-medium transition-all"
+          title="Keyboard Shortcuts (H)"
+        >
+          <Keyboard className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Shortcuts</span>
+        </button>
+
+        <button
+          onClick={onOpenOnboarding}
+          className="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-400 border border-neutral-700"
+          title="Show Onboarding Tour"
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
         </button>
       </div>
     </header>

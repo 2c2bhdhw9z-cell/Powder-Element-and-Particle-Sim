@@ -25,6 +25,10 @@ export class ParticleEngine {
   public showTrails: boolean = true;
   public decaySpeed: number = 0; // 0 = infinite life
 
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  private maxUndoSteps: number = 20;
+
   public imgData: ImageData | null = null;
   public buf32: Uint32Array | null = null;
 
@@ -42,7 +46,56 @@ export class ParticleEngine {
   }
 
   public clear() {
+    this.pushUndo();
     this.particles = [];
+  }
+
+  // --- Undo / Redo for Particle snapshots ---
+  public serializeParticles(): string {
+    try { return JSON.stringify(this.particles); } catch { return '[]'; }
+  }
+  public deserializeParticles(json: string) {
+    try {
+      const arr = JSON.parse(json);
+      if (Array.isArray(arr)) this.particles = arr;
+    } catch {}
+  }
+  public pushUndo() {
+    try {
+      const snap = this.serializeParticles();
+      this.undoStack.push(snap);
+      if (this.undoStack.length > this.maxUndoSteps) this.undoStack.shift();
+      this.redoStack = [];
+    } catch {}
+  }
+  public canUndo(): boolean { return this.undoStack.length > 0; }
+  public canRedo(): boolean { return this.redoStack.length > 0; }
+  public undo(): boolean {
+    if (this.undoStack.length === 0) return false;
+    this.redoStack.push(this.serializeParticles());
+    const prev = this.undoStack.pop()!;
+    this.deserializeParticles(prev);
+    return true;
+  }
+  public redo(): boolean {
+    if (this.redoStack.length === 0) return false;
+    this.undoStack.push(this.serializeParticles());
+    const next = this.redoStack.pop()!;
+    this.deserializeParticles(next);
+    return true;
+  }
+  public clearHistory() { this.undoStack = []; this.redoStack = []; }
+  public captureThumbnail(): string {
+    try {
+      if (typeof document === 'undefined') return '';
+      const canvas = document.createElement('canvas');
+      canvas.width = this.width;
+      canvas.height = this.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      this.render(ctx);
+      return canvas.toDataURL('image/png');
+    } catch { return ''; }
   }
 
   // Fast ABGR Uint32 color converter for Little-Endian ImageData
@@ -119,6 +172,7 @@ export class ParticleEngine {
 
   // Fast Batch Spawner for up to 1,000,000 particles
   public spawnBatch(count: number, color?: string) {
+    this.pushUndo();
     const spaceLeft = this.maxParticles - this.particles.length;
     const toSpawn = Math.min(count, Math.max(0, spaceLeft));
     if (toSpawn <= 0) return;
@@ -171,6 +225,7 @@ export class ParticleEngine {
 
   // Spawner Presets
   public spawnBurst(count: number = 100, x?: number, y?: number) {
+    this.pushUndo();
     const cx = x !== undefined ? x : this.width / 2;
     const cy = y !== undefined ? y : this.height / 2;
 

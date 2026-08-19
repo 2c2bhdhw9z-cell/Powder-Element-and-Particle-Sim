@@ -20,8 +20,15 @@ export class PowderEngine {
   public gravityY: number = 1; // 1 = normal down, -1 = up, 0 = zero-g
   public ambientTemp: number = 20; // 20°C
   public windX: number = 0;
+  public pressureEnabled: boolean = false;
+  public heatConductionEnabled: boolean = true;
   public frameCount: number = 0;
   public textureMode: 'diagonal_matrix' | 'natural_grain' | 'organic_flow' | 'flat' = 'natural_grain';
+
+  // Undo / Redo History (serialized snapshots)
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  private maxUndoSteps: number = 25;
 
   // Render color buffer cache for fast canvas rendering
   private colorBuffer: Uint32Array;
@@ -97,7 +104,83 @@ export class PowderEngine {
   }
 
   public clear() {
+    this.pushUndo();
     this.resetGrid();
+  }
+
+  // --- Undo / Redo History ---
+  public pushUndo() {
+    try {
+      const snap = this.serializeState();
+      this.undoStack.push(snap);
+      if (this.undoStack.length > this.maxUndoSteps) this.undoStack.shift();
+      this.redoStack = [];
+    } catch (e) {}
+  }
+
+  public canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  public canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  public undo(): boolean {
+    if (this.undoStack.length === 0) return false;
+    const current = this.serializeState();
+    this.redoStack.push(current);
+    const prev = this.undoStack.pop()!;
+    this.deserializeState(prev);
+    return true;
+  }
+
+  public redo(): boolean {
+    if (this.redoStack.length === 0) return false;
+    const current = this.serializeState();
+    this.undoStack.push(current);
+    const next = this.redoStack.pop()!;
+    this.deserializeState(next);
+    return true;
+  }
+
+  public clearHistory() {
+    this.undoStack = [];
+    this.redoStack = [];
+  }
+
+  public captureThumbnail(maxW: number = 320): string {
+    try {
+      if (typeof document === 'undefined') return '';
+      const canvas = document.createElement('canvas');
+      canvas.width = this.width;
+      canvas.height = this.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return '';
+      this.renderToCanvas(ctx, 'normal');
+      if (this.width > maxW) {
+        const scale = maxW / this.width;
+        const out = document.createElement('canvas');
+        out.width = maxW;
+        out.height = Math.round(this.height * scale);
+        const octx = out.getContext('2d');
+        if (!octx) return canvas.toDataURL('image/png');
+        octx.imageSmoothingEnabled = false;
+        octx.drawImage(canvas, 0, 0, out.width, out.height);
+        return out.toDataURL('image/png');
+      }
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  public getWind(): number {
+    return this.windX;
+  }
+
+  public setWind(v: number) {
+    this.windX = Math.max(-5, Math.min(5, v));
   }
 
   public getIndex(x: number, y: number): number {
@@ -149,7 +232,7 @@ export class PowderEngine {
     this.gridVisited[idx2] = 1;
   }
 
-  // Draw Brush on Grid
+  // Draw Brush on Grid — auto push undo on stroke start externally for grouping
   public drawBrush(
     centerX: number,
     centerY: number,
@@ -244,6 +327,16 @@ export class PowderEngine {
   public step() {
     this.frameCount++;
     this.gridVisited.fill(0);
+
+    // Lightweight heat diffusion every 2 ticks when enabled
+    if (this.heatConductionEnabled && this.frameCount % 2 === 0) {
+      this.diffuseHeat();
+    }
+
+    // Wind drift for light gases/smoke every 3 ticks
+    if (this.windX !== 0 && this.frameCount % 3 === 0) {
+      this.applyWindDrift();
+    }
 
     const portalsA: [number, number][] = [];
     const portalsB: [number, number][] = [];
@@ -369,6 +462,44 @@ export class PowderEngine {
           } else {
             this.setElementAt(nx, ny, 4, 400); // Ignite fire
           }
+        }
+      }
+    }
+
+    // 1.5 Electricity Conduction along Metal Wires & Conductive Liquids
+    if (type === 16) {
+      const condNeighbors = [[x+1,y],[x-1,y],[x,y+1],[x,y-1],[x+1,y+1],[x+1,y-1],[x-1,y+1],[x-1,y-1]];
+      for (const [nx, ny] of condNeighbors) {
+        if (!this.isValid(nx, ny)) continue;
+        const nIdx = this.getIndex(nx, ny);
+        const nType = this.gridType[nIdx];
+        if (nType === EMPTY_ELEMENT_ID) continue;
+        const nDef = this.registry.getElement(nType);
+        if (nDef.isConductor || nType === 17 || nType === 27) {
+          // Propagate spark beyond the conductor
+          const beyond = [[nx+1,ny],[nx-1,ny],[nx,ny+1],[nx,ny-1]];
+          for (const [tx, ty] of beyond) {
+            if (!this.isValid(tx, ty)) continue;
+            if (tx === x && ty === y) continue;
+            const tIdx = this.getIndex(tx, ty);
+            const tType = this.gridType[tIdx];
+            if (tType === EMPTY_ELEMENT_ID && Math.random() < 0.45) {
+              this.setElementAt(tx, ty, 16, 1000, 5);
+              this.gridVisited[tIdx] = 1;
+            } else if (tType !== EMPTY_ELEMENT_ID && tType !== 17 && tType !== 27 && tType !== 16) {
+              const tDef = this.registry.getElement(tType);
+              if (tDef.flammability && Math.random() < 0.3) {
+                // Electrical heat can ignite
+                this.setElementAt(tx, ty, 4, 600, 20);
+              }
+              if (tType === 10 || tType === 15 || tType === 28) {
+                // Detonate explosives via electricity
+                this.triggerExplosion(tx, ty, 16, 18, 2500);
+              }
+            }
+          }
+          // Also electrify the conductor tile itself briefly with visual heat tint
+          this.gridTemp[nIdx] = Math.max(this.gridTemp[nIdx], 800);
         }
       }
     }
@@ -791,6 +922,72 @@ export class PowderEngine {
             }
             return;
           }
+        }
+      }
+    }
+  }
+
+  // Heat conduction diffusion between conductive neighbors
+  private diffuseHeat() {
+    // Simple 4-neighbor averaging with conductivity weighting, sampled sparsely for performance
+    for (let y = 1; y < this.height - 1; y += 2) {
+      for (let x = 1; x < this.width - 1; x += 2) {
+        const idx = this.getIndex(x, y);
+        const type = this.gridType[idx];
+        if (type === EMPTY_ELEMENT_ID) continue;
+        const def = this.registry.getElement(type);
+        const cond = def.heatConductivity ?? 0;
+        if (cond <= 0.05) continue;
+        const t = this.gridTemp[idx];
+        // average with 4 neighbors
+        let sum = t;
+        let cnt = 1;
+        const neigh = [this.getIndex(x+1,y), this.getIndex(x-1,y), this.getIndex(x,y+1), this.getIndex(x,y-1)];
+        for (const nIdx of neigh) {
+          if (nIdx >=0 && nIdx < this.gridTemp.length) {
+            sum += this.gridTemp[nIdx];
+            cnt++;
+          }
+        }
+        const avg = sum / cnt;
+        const delta = (avg - t) * cond * 0.15;
+        this.gridTemp[idx] = t + delta;
+        // also push a little to neighbors to conserve
+        for (const nIdx of neigh) {
+          if (nIdx >=0 && nIdx < this.gridTemp.length) {
+            this.gridTemp[nIdx] -= delta * 0.15;
+          }
+        }
+      }
+    }
+  }
+
+  // Horizontal wind drift for gases and light powders
+  private applyWindDrift() {
+    const w = this.windX;
+    if (w === 0) return;
+    const dir = w > 0 ? 1 : -1;
+    const strength = Math.abs(w);
+    // scan and nudge light elements sideways if empty
+    for (let y = 0; y < this.height; y++) {
+      // iterate opposite to wind to avoid double move
+      const startX = dir > 0 ? this.width - 2 : 1;
+      const endX = dir > 0 ? -1 : this.width;
+      const stepX = dir > 0 ? -1 : 1;
+      for (let x = startX; x !== endX; x += stepX) {
+        const idx = this.getIndex(x, y);
+        const type = this.gridType[idx];
+        if (type === EMPTY_ELEMENT_ID) continue;
+        const def = this.registry.getElement(type);
+        const isLight = def.state === 'gas' || def.state === 'plasma' || def.density < 12;
+        if (!isLight) continue;
+        if (Math.random() > 0.4 * strength) continue;
+        const nx = x + dir;
+        if (!this.isValid(nx, y)) continue;
+        const nIdx = this.getIndex(nx, y);
+        if (this.gridType[nIdx] === EMPTY_ELEMENT_ID) {
+          this.swapCells(idx, nIdx);
+          this.gridVisited[nIdx] = 1;
         }
       }
     }

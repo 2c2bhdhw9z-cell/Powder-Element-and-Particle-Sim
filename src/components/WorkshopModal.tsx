@@ -79,6 +79,10 @@ export const WorkshopModal: React.FC<WorkshopModalProps> = ({
     if (!uploadTitle.trim()) return;
 
     const serialized = engine.serializeState();
+    let thumbnail = '';
+    try {
+      thumbnail = engine.captureThumbnail ? engine.captureThumbnail() : '';
+    } catch (e) { thumbnail = ''; }
 
     const newMapPayload: Partial<PresetMap> = {
       title: uploadTitle,
@@ -89,7 +93,8 @@ export const WorkshopModal: React.FC<WorkshopModalProps> = ({
       height: engine.height,
       gravityX: engine.gravityX,
       gravityY: engine.gravityY,
-      gridDataBase64: serialized
+      gridDataBase64: serialized,
+      thumbnail
     };
 
     try {
@@ -205,8 +210,13 @@ export const WorkshopModal: React.FC<WorkshopModalProps> = ({
               {filteredMaps.map(map => (
                 <div
                   key={map.id}
-                  className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between gap-3 hover:border-purple-500/50 transition-all shadow-md group"
+                  className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 flex flex-col justify-between gap-3 hover:border-purple-500/50 transition-all shadow-md group overflow-hidden"
                 >
+                  {map.thumbnail && (
+                    <div className=" -mx-4 -mt-4 mb-2 h-28 bg-neutral-900 overflow-hidden border-b border-neutral-800">
+                      <img src={map.thumbnail} alt={map.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" style={{ imageRendering: 'pixelated' }} />
+                    </div>
+                  )}
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-bold text-sm text-purple-200 group-hover:text-purple-300 truncate">

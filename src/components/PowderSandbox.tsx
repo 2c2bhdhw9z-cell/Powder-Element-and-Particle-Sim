@@ -6,12 +6,14 @@ import { DebugMenuModal } from './DebugMenuModal';
 import { PerformanceMenuModal } from './PerformanceMenuModal';
 import { AnalyticsDashboardModal, AnalyticsFrameData } from './AnalyticsDashboardModal';
 import { soundEngine } from '../utils/audioEngine';
+import { CanvasRecorder, captureCanvasScreenshot } from '../utils/canvasRecorder';
 import {
   Play, Pause, FastForward, RotateCcw, Trash2, StepForward,
   ArrowDown, ArrowUp, ArrowLeft, ArrowRight,
   Circle, Square, Pipette, PaintBucket, Eraser, Wind, Pencil, Sparkles,
   Wrench, Gauge, ChevronDown, Layers, Sliders, BarChart3, Flame, Volume2, VolumeX,
-  Rewind, History, Bomb, Zap, Droplet, Thermometer, Radio, Check, X
+  Rewind, History, Bomb, Zap, Droplet, Thermometer, Radio, Check, X,
+  Undo2, Redo2, Camera, Video, VideoOff, Keyboard, Share2
 } from 'lucide-react';
 
 interface PowderSandboxProps {
@@ -97,6 +99,9 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>('C');
   const [spawnCount, setSpawnCount] = useState<number>(10000);
   const [textureMode, setTextureMode] = useState<'diagonal_matrix' | 'natural_grain' | 'organic_flow' | 'flat'>('natural_grain');
+  const [windX, setWindX] = useState<number>(0);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [undoTick, setUndoTick] = useState<number>(0);
 
   const formatTemp = useCallback((celsius: number) => {
     if (tempUnit === 'F') {
@@ -135,6 +140,8 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
   // Drawing Interaction Refs
   const isDrawingRef = useRef<boolean>(false);
   const lastPosRef = useRef<{ x: number; y: number } | null>(null);
+  const hasPushedUndoRef = useRef<boolean>(false);
+  const recorderRef = useRef<CanvasRecorder | null>(null);
 
   // FPS Tracking
   const frameTimesRef = useRef<number[]>([]);
@@ -239,10 +246,79 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
     lastPosRef.current = { x: gx, y: gy };
   }, [brushShape, brushSize, selectedElement, engine, onEmitDraw, soundEnabled]);
 
+  // Snapshot helper for undo grouping
+  const triggerUndoPush = useCallback(() => {
+    if (!hasPushedUndoRef.current) {
+      engine.pushUndo();
+      hasPushedUndoRef.current = true;
+      setUndoTick(t=> t+1);
+    }
+  }, [engine]);
+
+  // Screenshot & Recording handlers
+  const handleScreenshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    captureCanvasScreenshot(canvas, `powder-lab-${Date.now()}.png`);
+    soundEngine.playCollisionChime();
+  }, []);
+
+  const handleToggleRecording = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    if (!recorderRef.current) {
+      recorderRef.current = new CanvasRecorder(canvas, (rec)=> setIsRecording(rec));
+    }
+    recorderRef.current.toggle(30);
+  }, []);
+
+  // Global keyboard shortcuts for powder sandbox
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); }
+        } else {
+          if (engine.canUndo()) { engine.undo(); setUndoTick(t=>t+1); }
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); }
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        setIsPaused(v=> !v);
+      } else if (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey) {
+        engine.clear(); setUndoTick(t=>t+1);
+      } else if (e.key.toLowerCase() === 's' && !e.ctrlKey && !e.metaKey) {
+        handleScreenshot();
+      } else if (e.key.toLowerCase() === 'r' && !e.ctrlKey && !e.metaKey) {
+        handleToggleRecording();
+      } else if (e.key.toLowerCase() === 'h') {
+        setHeatmapMode(m=> m==='normal' ? 'temp_overlay' : m==='temp_overlay' ? 'temp' : 'normal');
+      } else if (e.key === '[') {
+        setBrushSize(s=> Math.max(1, s-1));
+      } else if (e.key === ']') {
+        setBrushSize(s=> Math.min(25, s+1));
+      } else if (e.key.toLowerCase() === 'e') {
+        setBrushShape('eraser');
+      } else if (e.key.toLowerCase() === 'b' && !e.shiftKey) {
+        setBrushShape('circle');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return ()=> window.removeEventListener('keydown', onKeyDown);
+  }, [engine, handleScreenshot, handleToggleRecording]);
+
   // Pointer Handlers
   const handlePointerDown = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const coords = getGridCoords(e);
     if (!coords) return;
+
+    // Push undo snapshot at stroke start (grouped per stroke)
+    if (brushShape !== 'picker') triggerUndoPush();
 
     isDrawingRef.current = true;
     setIsPointerActive(true);
@@ -283,6 +359,9 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
     isDrawingRef.current = false;
     setIsPointerActive(false);
     lastPosRef.current = null;
+    // allow next stroke to push new undo grouping
+    hasPushedUndoRef.current = false;
+    setUndoTick(t=> t+1);
   };
 
   // Capture periodic DVR snapshots and Recharts Telemetry
@@ -683,6 +762,44 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
               >
                 <Sliders className="w-3.5 h-3.5" />
               </button>
+
+              {/* Undo / Redo */}
+              <div className="flex items-center rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900/90 backdrop-blur-md shadow-lg">
+                <button
+                  onClick={()=> { if (engine.canUndo()) { engine.undo(); setUndoTick(t=>t+1); }}}
+                  disabled={!engine.canUndo()}
+                  className={`p-1.5 text-xs font-bold ${engine.canUndo() ? 'text-amber-300 hover:bg-neutral-800' : 'text-neutral-600'}`}
+                  title="Undo (Ctrl+Z)"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-px h-4 bg-neutral-800" />
+                <button
+                  onClick={()=> { if (engine.canRedo()) { engine.redo(); setUndoTick(t=>t+1); }}}
+                  disabled={!engine.canRedo()}
+                  className={`p-1.5 text-xs font-bold ${engine.canRedo() ? 'text-amber-300 hover:bg-neutral-800' : 'text-neutral-600'}`}
+                  title="Redo (Ctrl+Shift+Z)"
+                >
+                  <Redo2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Screenshot & Recording */}
+              <button
+                onClick={handleScreenshot}
+                className="p-1.5 rounded-xl bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 shadow-lg backdrop-blur-md"
+                title="Screenshot PNG (S)"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleToggleRecording}
+                className={`p-1.5 rounded-xl border shadow-lg backdrop-blur-md text-xs font-bold ${isRecording ? 'bg-red-600 text-white border-red-500 animate-pulse' : 'bg-neutral-900/90 text-red-300 border-neutral-800 hover:bg-neutral-800'}`}
+                title={isRecording ? 'Stop Recording (R)' : 'Start Recording WebM (R)'}
+              >
+                {isRecording ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+              </button>
+
             {/* Start / Stop Button */}
             <button
               onClick={() => setIsPaused(!isPaused)}
@@ -772,9 +889,9 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
 
             {/* PROMINENT CLEAR BUTTON */}
             <button
-              onClick={() => engine.clear()}
+              onClick={() => { engine.clear(); setUndoTick(t=>t+1); }}
               className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs shadow-lg shadow-red-600/30 transition-all border border-red-400/50 active:scale-95 shrink-0"
-              title="Clear Powder Canvas Grid"
+              title="Clear Powder Canvas Grid (C)"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Clear</span>
@@ -1086,6 +1203,35 @@ export const PowderSandbox: React.FC<PowderSandboxProps> = ({
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Wind Control */}
+            <div className="p-3.5 rounded-xl bg-neutral-950/90 border border-neutral-800/80 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-blue-300 flex items-center gap-1.5">
+                  <Wind className="w-3.5 h-3.5" />
+                  <span>Horizontal Wind Drift:</span>
+                </span>
+                <span className="text-blue-300 font-mono">{windX >0 ? `→ ${windX.toFixed(1)}` : windX <0 ? `← ${Math.abs(windX).toFixed(1)}` : '0'}</span>
+              </div>
+              <input
+                type="range"
+                min="-5"
+                max="5"
+                step="0.5"
+                value={windX}
+                onChange={(e)=> {
+                  const v = parseFloat(e.target.value);
+                  setWindX(v);
+                  engine.setWind(v);
+                }}
+                className="w-full accent-blue-500 h-2 bg-neutral-800 rounded-lg cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-500 font-mono"><span>← West</span><span>Calm</span><span>East →</span></div>
+              <label className="flex items-center gap-2 text-xs text-neutral-300 mt-1">
+                <input type="checkbox" checked={engine.heatConductionEnabled} onChange={(e)=> {engine.heatConductionEnabled = e.target.checked; setUndoTick(t=>t+1);}} className="rounded" />
+                <span>Heat Conduction Diffusion</span>
+              </label>
             </div>
 
             {/* Simulation Speed */}
