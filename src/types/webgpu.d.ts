@@ -35,8 +35,12 @@ interface GPUBuffer {
 interface GPUComputePipeline {
   getBindGroupLayout?(i: number): GPUBindGroupLayout;
 }
-interface GPURenderPipeline {}
-interface GPUBindGroupLayout {}
+interface GPURenderPipeline {
+  destroy(): void;
+}
+interface GPUBindGroupLayout {
+  destroy(): void;
+}
 interface GPUCanvasContext {
   canvas: HTMLCanvasElement;
   configure(d: unknown): void;

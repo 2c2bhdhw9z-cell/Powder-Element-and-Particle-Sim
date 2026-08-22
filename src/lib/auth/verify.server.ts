@@ -1,3 +1,4 @@
+import { debug } from "@/lib/debug";
 import { getRequest } from "@tanstack/react-start/server";
 import { auth, authConfigured } from "./server";
 
@@ -18,7 +19,7 @@ const databaseConfigured = Boolean(process.env.DATABASE_URL?.trim());
 export { authConfigured };
 
 if (databaseConfigured && !authConfigured) {
-  console.error(
+  debug.error(
     "[auth] DATABASE_URL is set but auth is disabled (VITE_AUTH_ENABLED=false) " +
       "— requireUserId() will reject every request (fail closed) rather than " +
       "share one dev user on a real database.",

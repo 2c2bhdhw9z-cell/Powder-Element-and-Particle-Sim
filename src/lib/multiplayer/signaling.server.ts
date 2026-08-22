@@ -1,6 +1,7 @@
 /**
  * WebRTC signaling over the app database (Neon deployed, PGLite in preview).
  */
+import { debug } from "@/lib/debug";
 import { z } from "zod";
 import { getSql, type Sql } from "@/lib/db";
 import type { PeerRow, RtcPollResponse, SignalRow } from "./p2p";
@@ -175,7 +176,7 @@ export async function handleSignaling(request: Request): Promise<Response> {
     if (request.method === "POST") return await handlePost(request);
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
-    console.error("[rtc] signaling error:", error);
+    debug.error("[rtc] signaling error:", error);
     return json({ error: "signaling failed" }, 500);
   }
 }

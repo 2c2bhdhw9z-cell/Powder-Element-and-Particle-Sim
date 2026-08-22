@@ -1,4 +1,5 @@
 /** Which database backend is active. */
+import { debug } from "@/lib/debug";
 export type DbSource = "neon" | "pglite";
 
 // An empty/whitespace DATABASE_URL (an easy misconfig in deploy UIs) must mean
@@ -232,7 +233,7 @@ const globalBoot = globalThis as typeof globalThis & {
 if (typeof window === "undefined" && dbSource === "pglite") {
   globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
     globalBoot.__pgBootstrapPromise__ = undefined;
-    console.error("[db] PGLite bootstrap failed:", err);
+    debug.error("[db] PGLite bootstrap failed:", err);
     throw err;
   });
 }

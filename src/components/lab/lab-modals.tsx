@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Overlay } from "./overlay";
-import { GlassSheet } from "./glass-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getPowderEngine, getParticleEngine, getRegistry } from "@/sim/engines";
@@ -68,16 +67,16 @@ export function SavesOverlay({
   const [rows, setRows] = useState<{ id: string; name: string; mode: string; created_at: string }[]>([]);
   const [msg, setMsg] = useState("");
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     if (!user) return;
     listSaves()
       .then(setRows)
       .catch(() => setRows([]));
-  };
+  }, [user]);
 
   useEffect(() => {
     if (open && user) refresh();
-  }, [open, user]);
+  }, [open, user, refresh]);
 
   return (
     <Overlay open={open} onClose={onClose} title="Saves">
@@ -226,10 +225,7 @@ export function WorkshopOverlay({
             }
             return rows.map((m) => (
             <li key={m.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-              {m.thumbnail ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.thumbnail} alt="" className="h-28 w-full object-cover" />
-              ) : null}
+              {m.thumbnail ? <img src={m.thumbnail} alt="" className="h-28 w-full object-cover" /> : null}
               <div className="p-3">
               <p className="font-medium">{m.title}</p>
               <p className="text-xs text-muted">

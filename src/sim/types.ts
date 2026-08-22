@@ -93,5 +93,5 @@ export interface MultiplayerEvent {
   userId: string;
   userName?: string;
   userColor?: string;
-  payload: any;
+  payload: unknown;
 }

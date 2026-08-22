@@ -180,8 +180,8 @@ export class Swarm {
       let py = xy[i2 + 1];
       let vx = vel[i2];
       let vy = vel[i2 + 1];
-      let cx = (px / cell) | 0;
-      let cy = (py / cell) | 0;
+      const cx = (px / cell) | 0;
+      const cy = (py / cell) | 0;
       for (let oy = -1; oy <= 1; oy++) {
         const ny = cy + oy;
         if (ny < 0 || ny >= rows) continue;
