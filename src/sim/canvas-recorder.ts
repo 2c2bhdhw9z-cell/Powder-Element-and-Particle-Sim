@@ -1,5 +1,7 @@
 // Canvas recording + screenshot utilities for both Powder & Particle engines
 
+import { debug } from "@/lib/debug";
+
 export function downloadDataUrl(dataUrl: string, filename: string) {
   const a = document.createElement('a');
   a.href = dataUrl;
@@ -15,7 +17,7 @@ export function captureCanvasScreenshot(canvas: HTMLCanvasElement, filename = `p
     downloadDataUrl(dataUrl, filename);
     return true;
   } catch (e) {
-    console.error('Screenshot failed', e);
+    debug.error('Screenshot failed', e);
     return false;
   }
 }
@@ -35,9 +37,9 @@ export class CanvasRecorder {
   public start(fps: number = 30) {
     if (this.isRecording) return;
     try {
-      const stream = (this.canvas as any).captureStream ? (this.canvas as any).captureStream(fps) : null;
+      const stream = typeof this.canvas.captureStream === "function" ? this.canvas.captureStream(fps) : null;
       if (!stream) {
-        console.warn("Canvas recording not supported in this browser.");
+        debug.warn("Canvas recording not supported in this browser.");
         return;
       }
       this.chunks = [];
@@ -88,7 +90,7 @@ export class CanvasRecorder {
       this.isRecording = true;
       this.onStateChange?.(true);
     } catch (e) {
-      console.error("Recorder start failed", e);
+      debug.error("Recorder start failed", e);
     }
   }
 
@@ -97,10 +99,10 @@ export class CanvasRecorder {
     try {
       this.recorder.stop();
       // stop all tracks
-      const stream = (this.recorder as any).stream as MediaStream | undefined;
+      const stream: MediaStream | undefined = this.recorder.stream;
       if (stream) stream.getTracks().forEach(t=> t.stop());
     } catch (e) {
-      console.error('Recorder stop failed', e);
+      debug.error('Recorder stop failed', e);
     }
   }
 

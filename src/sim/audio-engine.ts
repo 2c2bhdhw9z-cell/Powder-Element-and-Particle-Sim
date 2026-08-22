@@ -8,7 +8,9 @@ class PhysicsAudioEngine {
 
   private initCtx() {
     if (!this.ctx && typeof window !== 'undefined') {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      // Safari still ships the prefixed constructor; the DOM lib has no typing for it.
+      const w = window as Window & { webkitAudioContext?: typeof AudioContext };
+      const AudioCtx = window.AudioContext || w.webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
       }
@@ -60,7 +62,7 @@ class PhysicsAudioEngine {
 
       whiteNoise.start(now);
       whiteNoise.stop(now + 0.45);
-    } catch (e) {
+    } catch {
       // Audio fallback quiet catch
     }
   }
@@ -87,7 +89,7 @@ class PhysicsAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.08);
-    } catch (e) {}
+    } catch { /* ignore */ }
   }
 
   public playFireCrackle() {
@@ -111,7 +113,7 @@ class PhysicsAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.06);
-    } catch (e) {}
+    } catch { /* ignore */ }
   }
 
   public playFreeze() {
@@ -136,7 +138,7 @@ class PhysicsAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.35);
-    } catch (e) {}
+    } catch { /* ignore */ }
   }
 
   public playMeteor() {
@@ -161,7 +163,7 @@ class PhysicsAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.55);
-    } catch (e) {}
+    } catch { /* ignore */ }
   }
 
   public playCollisionChime() {
@@ -185,7 +187,7 @@ class PhysicsAudioEngine {
 
       osc.start(now);
       osc.stop(now + 0.05);
-    } catch (e) {}
+    } catch { /* ignore */ }
   }
 }
 

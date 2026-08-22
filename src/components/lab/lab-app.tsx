@@ -18,7 +18,6 @@ import {
 } from "./lab-modals";
 import { useP2PRoom } from "@/lib/multiplayer/use-p2p-room";
 import { getParticleEngine, getPowderEngine, getRegistry } from "@/sim/engines";
-import { Button } from "@/components/ui/button";
 import { PerfHud } from "./perf-hud";
 import { telemetry } from "@/sim/telemetry";
 import { wireHybrid } from "@/sim/hybrid";

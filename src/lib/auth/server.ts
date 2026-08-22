@@ -35,6 +35,7 @@ import { getCookie } from "@tanstack/react-start/server";
 import { randomBytes } from "node:crypto";
 import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
+import { debug } from "../debug";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
@@ -122,6 +123,31 @@ const trustedOrigins: string[] = explicitBaseURL
       ...previewAllowedHosts.flatMap((host) => [`https://${host}`, `http://${host}`]),
       ...LOCAL_DEV_ORIGINS,
     ];
+
+/**
+ * Startup configuration audit (server-only, logged once per process).
+ *
+ * Both fallbacks are safe (fail-closed) but easy to miss in a real deploy:
+ *  - preview broker credentials only work on `*.grok-sandbox.com`, so a
+ *    deployed app missing GROK_AUTH_* enforces sign-in that can never succeed;
+ *  - a per-process random auth secret means sessions die on restart and don't
+ *    scale across instances.
+ * Both log unconditionally (via debug.error) so deploy logs surface them.
+ */
+if (authConfigured) {
+  const previewClientFallback = !env("GROK_AUTH_CLIENT_ID") || !env("GROK_AUTH_CLIENT_SECRET");
+  const randomSecretFallback = !env("BETTER_AUTH_SECRET");
+  if (previewClientFallback) {
+    debug.error(
+      "[auth] GROK_AUTH_CLIENT_ID / GROK_AUTH_CLIENT_SECRET are not set — using the shared live-preview client, which only works on *.grok-sandbox.com. Federated sign-in will fail on any other deployment."
+    );
+  }
+  if (randomSecretFallback) {
+    debug.error(
+      "[auth] BETTER_AUTH_SECRET is not set — using a per-process random secret. Sessions will not survive a restart and cannot be shared across instances."
+    );
+  }
+}
 
 const databaseUrl = env("DATABASE_URL");
 

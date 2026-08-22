@@ -10,6 +10,7 @@ Do **not** restore the old `src/engine/` / `ParticleSandbox` / `PowderSandbox` p
 npm install
 npm run dev          # vite, 0.0.0.0:8080
 npm run typecheck
+npm test             # sim core (vitest) + scripts (node --test)
 ```
 
 TanStack Start + Vite. Entry: `src/routes/index.tsx` → `LabApp`.
@@ -18,8 +19,9 @@ TanStack Start + Vite. Entry: `src/routes/index.tsx` → `LabApp`.
 
 | Path | What |
 |---|---|
-| `src/sim/powder-engine.ts` | Cellular automata grid. Reactions, heat, electricity, lava/water |
-| `src/sim/particle-engine.ts` | Swarm + cloth/blob/rope. 1,000,000 cap |
+| `src/sim/powder-engine.ts` | PowderEngine facade (state + tick). Physics lives in `src/sim/powder/*.ts` modules on the `PowderCtx` interface (phase-change, electricity, reactions, explosion, movement, thermals, brush, history, render, diagnostics) |
+| `src/sim/particle-engine.ts` | ParticleEngine facade (state + tick). Physics lives in `src/sim/particle/*.ts` (spawners, step, render, diagnostics) on the `ParticleCtx` interface |
+| `src/sim/__tests__/` | Vitest suite (deterministic, seeded RNG). `npm test` — keep it green when touching sim code |
 | `src/sim/swarm.ts` | CPU SoA pack for huge dumps |
 | `src/sim/swarm-gpu.ts` | WebGPU collide (linked-list). Draw often falls back to WebGL |
 | `src/sim/particle-gl.ts` | WebGL points draw |

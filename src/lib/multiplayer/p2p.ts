@@ -9,6 +9,8 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
+import { debug } from "@/lib/debug";
+
 export type SignalKind = "offer" | "answer" | "ice";
 
 /**
@@ -352,7 +354,7 @@ export class P2PRoom {
       try {
         await slot.pc.addIceCandidate(candidate);
       } catch (err) {
-        if (!slot.ignoreOffer) console.warn("[p2p] addIceCandidate failed:", err);
+        if (!slot.ignoreOffer) debug.warn("[p2p] addIceCandidate failed:", err);
       }
       if (this.closed) return;
     }
@@ -421,7 +423,7 @@ export class P2PRoom {
           await slot.pc.addIceCandidate(candidate);
         } catch (err) {
           // The enclosing catch would swallow a rethrow; log the real signal.
-          if (!slot.ignoreOffer) console.warn("[p2p] addIceCandidate failed:", err);
+          if (!slot.ignoreOffer) debug.warn("[p2p] addIceCandidate failed:", err);
         }
       }
     } catch {
@@ -466,7 +468,7 @@ export class P2PRoom {
         if (attempt >= SIGNAL_RETRY_DELAYS_MS.length) {
           // Delivery gave up; the pair converges on the next offer cycle (or
           // the watchdog rebuilds it). Logged once so failures are visible.
-          console.warn(`[p2p] signal ${kind} to ${to} failed after retries`, err);
+          debug.warn(`[p2p] signal ${kind} to ${to} failed after retries`, err);
           return;
         }
         await new Promise((r) => setTimeout(r, SIGNAL_RETRY_DELAYS_MS[attempt]));

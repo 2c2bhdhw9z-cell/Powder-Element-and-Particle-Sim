@@ -131,6 +131,8 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    // Sandbox live previews proxy through a per-session `*.e2b.app` host.
+    allowedHosts: [".e2b.app"],
   },
   preview: {
     host: "127.0.0.1",
