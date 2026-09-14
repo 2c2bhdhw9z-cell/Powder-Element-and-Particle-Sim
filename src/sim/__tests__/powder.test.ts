@@ -153,38 +153,89 @@ describe("PowderEngine — phase changes & decay", () => {
     expect(hotLava).toBe(1);
   });
 
-  it("hot lava surrounded by enough water resolves to obsidian within a tick budget", () => {
-    const e = makeEngine();
-    // Bedrock box (floor + walls) so the water body can't drain away.
-    for (let x = 10; x <= 22; x++) {
-      e.setElementAt(x, 26, BEDROCK); // floor
+  it("a THIN water layer over a lava pocket still drives it below 700°C and vitrifies (no oscillation)", () => {
+    // Bug 2 regression guard. This reproduces the *thin-water* geometry the fix
+    // targets: a shallow water cap over a small lava pocket, NOT a deep basin.
+    // A deep pool resolves even with the old weak coefficients, so it does not
+    // exercise the bug. Here the water flashes to steam almost immediately, and
+    // the lava must keep shedding heat to steam/obsidian neighbours (the
+    // gap-proportional residual-steam and crust bleed) to cross the 700°C
+    // obsidian threshold. With the old fixed-floor coefficients the lava stalls
+    // near ~1100°C and oscillates forever — this test FAILS on that revert and
+    // PASSES with the committed fix.
+    const e = makeEngine(40, 40);
+    const floorY = 30;
+    const x0 = 17;
+    const x1 = 23;
+    // A narrow bedrock cup (5 cells wide, 4 deep) so the pocket holds together
+    // but is far too shallow to be a heat-sink "basin" of water.
+    for (let x = x0; x <= x1; x++) e.setElementAt(x, floorY, BEDROCK);
+    for (let y = floorY - 4; y <= floorY; y++) {
+      e.setElementAt(x0, y, BEDROCK);
+      e.setElementAt(x1, y, BEDROCK);
     }
-    for (let y = 12; y <= 26; y++) {
-      e.setElementAt(10, y, BEDROCK); // left wall
-      e.setElementAt(22, y, BEDROCK); // right wall
-    }
-    // Fill the basin with water.
-    for (let x = 11; x <= 21; x++)
-      for (let y = 14; y <= 25; y++) e.setElementAt(x, y, WATER);
-    // Drop a hot lava cell into the middle of the pool.
-    e.setElementAt(16, 18, LAVA, 1200);
+    // Small lava pocket: 5 wide × 2 tall = 10 cells at 1300°C.
+    for (let x = x0 + 1; x <= x1 - 1; x++)
+      for (let y = floorY - 2; y <= floorY - 1; y++) e.setElementAt(x, y, LAVA, 1300);
+    // THIN water cap: a single row over the lava. It boils off in a few ticks;
+    // the fight cannot be won by water volume alone.
+    for (let x = x0 + 1; x <= x1 - 1; x++) e.setElementAt(x, floorY - 3, WATER);
+
+    const lavaBefore = countType(e, LAVA);
+    expect(lavaBefore).toBe(10);
 
     const BUDGET = 400;
     let resolvedAt = -1;
     for (let i = 0; i < BUDGET; i++) {
       e.step();
-      if (countType(e, LAVA) === 0) {
-        resolvedAt = i;
-        break;
-      }
+      if (resolvedAt < 0 && countType(e, LAVA) === 0) resolvedAt = i;
     }
 
-    // The fight finishes: no molten lava is left oscillating.
-    expect(countType(e, LAVA)).toBe(0);
+    // Highest remaining lava temperature — with the old coefficients this stays
+    // pinned above ~1100°C (never crosses the 700°C obsidian threshold).
+    let maxLavaTemp = 0;
+    for (let k = 0; k < e.gridType.length; k++)
+      if (e.gridType[k] === LAVA) maxLavaTemp = Math.max(maxLavaTemp, e.gridTemp[k]);
+
+    // The fight finishes: all lava has vitrified within the budget.
     expect(resolvedAt).toBeGreaterThanOrEqual(0);
     expect(resolvedAt).toBeLessThan(BUDGET);
-    // The lava vitrified rather than simply boiling every neighbor to steam.
+    expect(countType(e, LAVA)).toBe(0);
+    // No molten lava left stalled above the vitrification threshold.
+    expect(maxLavaTemp).toBeLessThan(700);
+    // It vitrified into obsidian rather than merely boiling every neighbour away.
     expect(countType(e, OBSIDIAN)).toBeGreaterThan(0);
+  });
+
+  it("once a lava pocket crusts to obsidian it stays obsidian (no re-melt oscillation)", () => {
+    // Complementary guard: after the thin-water fight resolves, running many
+    // more ticks must not re-melt any obsidian back into lava. With the old
+    // coefficients the residual steam/condense loop keeps re-quenching and the
+    // world never settles.
+    const e = makeEngine(40, 40);
+    const floorY = 30;
+    const x0 = 17;
+    const x1 = 23;
+    for (let x = x0; x <= x1; x++) e.setElementAt(x, floorY, BEDROCK);
+    for (let y = floorY - 4; y <= floorY; y++) {
+      e.setElementAt(x0, y, BEDROCK);
+      e.setElementAt(x1, y, BEDROCK);
+    }
+    for (let x = x0 + 1; x <= x1 - 1; x++)
+      for (let y = floorY - 2; y <= floorY - 1; y++) e.setElementAt(x, y, LAVA, 1300);
+    for (let x = x0 + 1; x <= x1 - 1; x++) e.setElementAt(x, floorY - 3, WATER);
+
+    // Resolve the fight.
+    for (let i = 0; i < 400; i++) e.step();
+    expect(countType(e, LAVA)).toBe(0);
+    const obsidianAfterResolve = countType(e, OBSIDIAN);
+    expect(obsidianAfterResolve).toBeGreaterThan(0);
+
+    // Keep simulating: nothing should re-melt.
+    for (let i = 0; i < 200; i++) {
+      e.step();
+      expect(countType(e, LAVA)).toBe(0);
+    }
   });
 
   it("fire decays into smoke after its lifetime, smoke then vanishes", () => {

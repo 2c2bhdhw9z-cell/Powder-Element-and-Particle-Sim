@@ -8,7 +8,8 @@ I read every file of the app. The good news: after the two clean-up passes,
 the code is in genuinely good shape. There are **no** hacky escape hatches
 (`any`, `@ts-ignore`, `eslint-disable`), **no** leftover `TODO`/`FIXME` notes,
 **no** vendor traces, and the whole project passes its own checks — lint,
-types, all 135 tests, and a production build — with nothing red.
+types, all 140 tests (93 node --test + 47 vitest, up from 42 once the two fixes
+below shipped their seeded tests), and a production build — with nothing red.
 
 Of your seven reported bugs, **four of the "menu / screen" ones were already
 fixed** in the earlier passes and I confirmed the fix is really in the code
@@ -19,9 +20,15 @@ Both live in the simulation and both have small, safe fixes with tests. **One
 (the million-particle speed)** is a true "how fast can the phone go" limit, not
 a bug; I explain where the time goes and the realistic levers.
 
-**Total size right now: ~18.5K lines of code you own** (17,938 lines of pure
-TS/TSX/CSS across 95 files; ~17,400 of that is the app's own `src/` + `scripts/`
-+ `server/`). 127 tracked files in total.
+**Total size right now (git-measured, tracked files only):**
+**15,912 lines of TS/TSX/CSS** — or **18,139 lines including the `.mjs`/`.mts`
+build tooling** — across **128 tracked files** in total. Of the TS/TSX,
+**15,293 lines live in `src/`** (the app's own code). Counting method: `git
+ls-files` piped through `wc -l`, so it counts only version-controlled source and
+excludes `node_modules/`, generated build output (`.vercel/output/`), and any
+untracked scratch files. (An earlier draft of this audit quoted ~18.5K "pure
+TS/TSX/CSS", which conflated the build tooling into the TS/TSX/CSS figure; the
+numbers above are the corrected split.)
 
 ---
 
@@ -31,7 +38,7 @@ TS/TSX/CSS across 95 files; ~17,400 of that is the app's own `src/` + `scripts/`
 | --- | --- | --- |
 | Lint (`npm run lint`) | ✅ green | eslint clean, zero warnings |
 | Types (`npm run typecheck`) | ✅ green | `tsc --noEmit` clean |
-| Tests (`npm test`) | ✅ green | 93 node-test + 42 vitest = 135 pass |
+| Tests (`npm test`) | ✅ green | 93 node --test + 47 vitest = 140 pass |
 | Build (`npm run build`) | ✅ green | vite build + Vercel output OK |
 | Vendor traces (`grok`/`app-builder`) | ✅ none | repo-wide grep = 0 |
 | Escape hatches (`any`/`ts-ignore`/`eslint-disable`) | ✅ none | 0 in `src/**` |
@@ -83,6 +90,21 @@ position for liquids/gases so it can't crawl as the fluid moves.
 
 **Acceptance:** pour water and it reads as a smooth body, not a field of
 twinkling pixels; sand/dirt grain texture is unchanged.
+
+**Scope of the shipped fix (intended, wider than "water"):** the fix restricts
+the position-hash color jitter to solid-grain states only — `solid_movable`
+(`SAND`-like powders) and `solid_fixed`. That means it flattens the per-cell
+jitter for **every** non-grain element that carried `colorVariation`, not just
+water: lava (`colorVariation: 35`, the strongest texture), acid, oil, honey,
+nitro liquid, salt water, and the energy states (spark, laser). This is
+deliberate — a flowing liquid re-sampling position noise as it moves is the same
+"glitter" bug regardless of which element it is, so all liquids/energy now
+render as one flat shade in the default `natural_grain` mode. **Gases and plasma
+keep their separate alpha-blend "mist" treatment** applied a few lines below the
+jitter block, so they still read as translucent mist and are unaffected by this
+change. Molten lava losing its speckled texture is the one visible consequence
+worth calling out; it is considered acceptable and correct for the fix, not a
+regression.
 
 ---
 
@@ -302,7 +324,7 @@ All checks below were run on Node 22 and are **green**, identical to the
 | --- | --- |
 | `npm run lint` | ✅ pass |
 | `npm run typecheck` | ✅ pass |
-| `npm test` | ✅ 93 node-test + 42 vitest pass |
+| `npm test` | ✅ 93 node --test + 42 vitest pass (at `7d1a7a4`; the shipped fixes below raise vitest to 47 — see the scorecard above) |
 | `npm run build` | ✅ pass (Vercel output generated) |
 
 ## Recommended action order

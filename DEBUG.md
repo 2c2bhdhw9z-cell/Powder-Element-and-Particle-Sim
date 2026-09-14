@@ -55,9 +55,14 @@ of the debug session on the clean, devendored tree:
    infinite sputter. Fix: pull heat per contact proportional to the lava/water
    gap in `quenchLava`, and raise the residual-steam and obsidian-crust
    heat-bleed coefficients so a skinned-over blob keeps shedding heat. See
-   `src/sim/powder/phase-change.ts` + `reactions.ts`. Locked in by the vitest
-   test "hot lava surrounded by enough water resolves to obsidian within a tick
-   budget" (≤400 steps); the pre-existing threshold test stays green unchanged.
+   `src/sim/powder/phase-change.ts` + `reactions.ts`. Locked in by two seeded
+   vitest tests that reproduce the *thin-water* oscillation case (a shallow
+   water cap over a small lava pocket, not a deep basin): "a THIN water layer
+   over a lava pocket still drives it below 700°C and vitrifies" (≤400 steps,
+   asserts all lava vitrifies and max remaining lava temp < 700°C) and "once a
+   lava pocket crusts to obsidian it stays obsidian" (no re-melt over 200 extra
+   steps). Both FAIL if the three quench coefficients are reverted to baseline
+   and PASS with the fix; the pre-existing threshold test stays green unchanged.
 3. **1,000,000 particles ~10 FPS** — _NOT A BUG (real compute cost)._ With
    WebGPU it's on the GPU; without it (likely on the phone) the CPU fallback in
    `src/sim/swarm.ts` rebuilds a 1M spatial hash and runs collide twice per
@@ -81,13 +86,15 @@ of the debug session on the clean, devendored tree:
 
 ## Codebase health (this session)
 
-- ~18.5K LOC you own (17,938 lines TS/TSX/CSS across 95 files; 127 tracked files).
+- Size you own (git-measured, tracked files via `git ls-files | wc -l`):
+  **15,912 lines of TS/TSX/CSS**, or **18,139 including `.mjs`/`.mts` build
+  tooling**, across **128 tracked files** (15,293 of the TS/TSX lives in `src/`).
 - Zero `any` / `@ts-ignore` / `eslint-disable` / `TODO` / `FIXME` in `src/**`.
 - Zero `grok` / `app-builder` vendor traces. One vendor-flavored identifier
   remains: `isRemintPreviewPair` in `src/lib/preview-embedder-origin.ts` — a
   latent preview-bridge trust-widening (inert while unframed / auth off); gate it
   behind `VITE_PREVIEW_EMBEDDER_ORIGINS` or delete it, and rename.
-- `npm run lint` / `typecheck` / `test` (93 node + 46 vitest) / `build` all green.
+- `npm run lint` / `typecheck` / `test` (93 node --test + 47 vitest) / `build` all green.
 
 ## Rules from the owner
 
