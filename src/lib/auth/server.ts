@@ -5,26 +5,22 @@
  * local email/password, flip the flag in `./email-password` only (see auth skill).
  *
  * The app runs its own Better Auth at `/api/auth/*`, so the session cookie stays
- * on this app's own origin. Sign-in federates to the shared **Grok auth broker**
- * (`GROK_AUTH_ISSUER`) via the `genericOAuth` plugin — the broker brokers the
- * upstream sign-in methods (Google, X, …) and holds their shared secrets; this
- * app only holds its own client id/secret and names the upstream it wants via
- * each provider's `idp` hint.
+ * on this app's own origin. Federated sign-in is OPTIONAL and OFF by default:
+ * when enabled, sign-in federates to an OAuth issuer the OPERATOR supplies
+ * (`GROK_AUTH_ISSUER`) via the `genericOAuth` plugin, using the operator's own
+ * client id/secret. The app ships NO baked issuer/client, so a fresh clone
+ * contacts no external auth host.
  *
- * Tri-mode:
- *   - Deployed: the deployer injects a per-app `GROK_AUTH_*` + `BETTER_AUTH_URL`
- *     + `DATABASE_URL`, so real federated auth is persisted in Postgres.
- *   - Sandbox live preview: no injection -> falls back to the shared **preview
- *     client** (`./preview`) and derives the preview's `https://*.grok-sandbox.com`
- *     origin from the request, so real sign-in works (no demo users). Sessions
- *     and identities persist in the embedded PGLite DB (same DB as app data);
- *     the process restart wipes both. Live-preview iframe clients use a bearer
- *     token (partitioned cookies) — see `client.ts`.
- *   - Explicitly off (`VITE_AUTH_ENABLED=false`): no providers; per-user server
- *     functions fall back to a dev user (see `verify.server.ts`).
+ * Modes:
+ *   - Federated auth ON: the operator provides `GROK_AUTH_ISSUER` +
+ *     `GROK_AUTH_CLIENT_ID` + `GROK_AUTH_CLIENT_SECRET` (and typically
+ *     `BETTER_AUTH_URL` + `DATABASE_URL`), so real federated auth is persisted.
+ *   - Default / off (no `GROK_AUTH_*`, or `VITE_AUTH_ENABLED=false`): no
+ *     providers; per-user server functions fall back to a local dev user (see
+ *     `verify.server.ts`) and NO request is made to any external auth host.
  *
- * NEVER import this from client code — it pulls in `pg` + the preview secret +
- * server-only Better Auth internals. The client uses `@/lib/auth/client`;
+ * NEVER import this from client code — it pulls in `pg` + server-only Better
+ * Auth internals. The client uses `@/lib/auth/client`;
  * components read the user via `@/lib/auth/use-current-user`; server functions get
  * a verified id via `@/lib/auth/middleware`.
  */
@@ -39,12 +35,7 @@ import { debug } from "../debug";
 import { emailAndPasswordEnabled } from "./email-password";
 import { GROK_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
-import {
-  GROK_ISSUER_DEFAULT,
-  PREVIEW_ALLOWED_HOSTS,
-  PREVIEW_CLIENT_ID,
-  PREVIEW_CLIENT_SECRET,
-} from "./preview";
+import { PREVIEW_ALLOWED_HOSTS, PREVIEW_CLIENT_ID, PREVIEW_CLIENT_SECRET } from "./preview";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
 void ensureDbReady();
@@ -73,23 +64,29 @@ const env = (key: string): string | undefined => {
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
 const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 
-// Broker federation creds: the deployer injects a per-app client when deployed;
-// otherwise fall back to the shared live-preview client, which the broker accepts
-// for any `*.grok-sandbox.com` callback (see `./preview`).
-const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
+// Federation creds come from OPERATOR-supplied env ONLY. There is no baked
+// vendor default: if the operator hasn't provided their own issuer + client, the
+// app makes NO call to any external auth host and falls back to the local dev
+// user (see `verify.server.ts`). `PREVIEW_CLIENT_*` themselves read from
+// `GROK_AUTH_CLIENT_ID`/`GROK_AUTH_CLIENT_SECRET` (see `./preview`), so they are
+// empty unless the operator opts in.
+const grokIssuer = env("GROK_AUTH_ISSUER");
 const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
 const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
 
-/** True when federated sign-in is active (real auth is enforced). */
+/**
+ * True when federated sign-in is active (real auth is enforced). Requires the
+ * operator to explicitly provide a real issuer AND client id/secret — there is
+ * no vendor default, so a fresh clone is always `false` (guest / dev-user).
+ */
 export const authConfigured =
-  !authDisabled && Boolean(grokClientId && grokClientSecret);
+  !authDisabled && Boolean(grokIssuer && grokClientId && grokClientSecret);
 
-// This app's own Better Auth origin. When deployed the deployer injects the
-// public URL. In the sandbox live preview there's no fixed URL (each preview gets
-// a dynamic `*.grok-sandbox.com` host), so we hand Better Auth a dynamic baseURL:
-// it derives the origin per-request from the (proxied) host, validated against the
-// preview allowlist, which makes the OAuth `redirect_uri` the concrete preview URL
-// the broker's preview client accepts.
+// This app's own Better Auth origin. When the operator sets `BETTER_AUTH_URL`
+// we use it directly. Otherwise we hand Better Auth a dynamic baseURL: it derives
+// the origin per-request from the (proxied) host, validated against the allowlist,
+// which makes the OAuth `redirect_uri` the concrete request URL. Only relevant
+// when the operator has enabled federated sign-in with their own client.
 const explicitBaseURL = env("BETTER_AUTH_URL");
 // Explicit `string[]` (not a readonly tuple) — Better Auth's DynamicBaseURLConfig
 // requires a mutable `allowedHosts: string[]`.
@@ -127,24 +124,16 @@ const trustedOrigins: string[] = explicitBaseURL
 /**
  * Startup configuration audit (server-only, logged once per process).
  *
- * Both fallbacks are safe (fail-closed) but easy to miss in a real deploy:
- *  - preview broker credentials only work on `*.grok-sandbox.com`, so a
- *    deployed app missing GROK_AUTH_* enforces sign-in that can never succeed;
- *  - a per-process random auth secret means sessions die on restart and don't
- *    scale across instances.
- * Both log unconditionally (via debug.error) so deploy logs surface them.
+ * Only runs when the operator has explicitly enabled federated sign-in. A
+ * per-process random auth secret is safe (fail-closed) but easy to miss: it
+ * means sessions die on restart and don't scale across instances. Logged
+ * unconditionally (via debug.error) so deploy logs surface it.
  */
 if (authConfigured) {
-  const previewClientFallback = !env("GROK_AUTH_CLIENT_ID") || !env("GROK_AUTH_CLIENT_SECRET");
   const randomSecretFallback = !env("BETTER_AUTH_SECRET");
-  if (previewClientFallback) {
-    debug.error(
-      "[auth] GROK_AUTH_CLIENT_ID / GROK_AUTH_CLIENT_SECRET are not set — using the shared live-preview client, which only works on *.grok-sandbox.com. Federated sign-in will fail on any other deployment."
-    );
-  }
   if (randomSecretFallback) {
     debug.error(
-      "[auth] BETTER_AUTH_SECRET is not set — using a per-process random secret. Sessions will not survive a restart and cannot be shared across instances."
+      "[auth] BETTER_AUTH_SECRET is not set — using a per-process random secret. Sessions will not survive a restart and cannot be shared across instances.",
     );
   }
 }
@@ -155,7 +144,7 @@ const databaseUrl = env("DATABASE_URL");
 // Discovery would cost an extra network hop to the broker before the popup can
 // even redirect to Google/X — the live-preview popup felt stuck on the app for
 // that whole round-trip. These paths match the broker's discovery document.
-const issuerBase = grokIssuer.replace(/\/+$/, "");
+const issuerBase = (grokIssuer ?? "").replace(/\/+$/, "");
 const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
 const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
 const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;

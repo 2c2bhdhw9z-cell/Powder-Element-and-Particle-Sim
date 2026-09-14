@@ -1,13 +1,17 @@
 /**
- * Single source of truth for platform head chrome (PWA, extensions.js, OG),
- * shared by the Vite plugin and Nitro middleware. Plain ESM so `node --test`
- * and the Nitro bundler can both consume it.
+ * Single source of truth for the app's head chrome (PWA + OG), shared by the
+ * Vite plugin and Nitro middleware. Plain ESM so `node --test` and the Nitro
+ * bundler can both consume it.
+ *
+ * Removed: the platform used to inject https://grok.com/grok-app-builder/extensions.js
+ * (a "Created with Grok" loader) into every served HTML document, and pointed
+ * OG cards at the og.grok.me image service. This self-hosted app makes no such
+ * calls — it ships its own OG card (public/og.jpg) served from its own host.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const DEFAULT_APP_NAME = "Grok App";
-export const OG_SERVICE_URL_DEFAULT = "https://og.grok.me";
+export const DEFAULT_APP_NAME = "Crucible";
 export const OG_SITE_REL_PATH = "src/lib/og/site.json";
 
 const SHARE_META_KEYS = new Set([
@@ -45,13 +49,6 @@ function unescapeHtml(value) {
     .replaceAll("&quot;", '"')
     .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
-}
-
-/** 6-digit hex for the og.grok.me placeholder, or "" if site.color is missing/invalid. */
-function placeholderCardColor(site = {}) {
-  const raw = String(site.color ?? "").trim();
-  const hex = raw.startsWith("#") ? raw.slice(1) : raw;
-  return /^[0-9a-fA-F]{6}$/.test(hex) ? hex : "";
 }
 
 /**
@@ -183,12 +180,9 @@ export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
   ];
 }
 
-export const GROK_EXTENSIONS_SCRIPT_SRC = "https://grok.com/grok-app-builder/extensions.js";
-
-export function readGrokProjectId() {
-  const fromProcess = typeof process !== "undefined" ? process.env?.VITE_PROJECT_ID : "";
-  return String(fromProcess ?? "").trim();
-}
+// Removed: the platform injected https://grok.com/grok-app-builder/extensions.js
+// (with an optional grok-project-id / grok:app_id) on every page. This
+// self-hosted app makes no such call — do not re-add the beacon.
 
 export function readXCreator() {
   const fromProcess = typeof process !== "undefined" ? process.env?.X_CREATOR : "";
@@ -208,21 +202,6 @@ export function grokXCreatorHeadTags(creator = readXCreator(), creatorId = readX
     `<meta property="x:creator" content="${escapeHtml(name)}">`,
     `<meta property="x:creator:id" content="${escapeHtml(id)}">`,
   ];
-}
-
-/** Platform "Created with Grok" banner — injected into every HTML document. */
-export function grokExtensionsHeadTags(projectId = readGrokProjectId()) {
-  const id = escapeHtml(projectId);
-  const tags = [];
-  if (projectId) {
-    tags.push(`<meta name="grok-project-id" content="${id}">`);
-  }
-  tags.push(
-    `<script src="${GROK_EXTENSIONS_SCRIPT_SRC}"${
-      projectId ? ` data-project-id="${id}"` : ""
-    } defer></script>`,
-  );
-  return tags;
 }
 
 export function readOgSite(cwd = process.cwd()) {
@@ -258,11 +237,6 @@ export function customOgAssetPath(cwd = process.cwd()) {
     return "/og.png";
   }
   return "/og.jpg";
-}
-
-export function ogServiceUrl() {
-  const fromEnv = String(process.env?.VITE_OG_SERVICE_URL ?? "").trim();
-  return (fromEnv || OG_SERVICE_URL_DEFAULT).replace(/\/+$/, "");
 }
 
 export function titleFromDocument(html) {
@@ -309,14 +283,12 @@ export function grokOgHeadTags({
   if (String(site.type ?? "").toLowerCase() === "x:game") {
     tags.push(`<meta property="og:type" content="x:game">`);
   }
-  if (publicHost) {
-    const custom = siteHasCustomCard(site);
+  // Only emit og:image when the app ships its own card, resolved to the app's
+  // OWN public host. Removed: the vendor og.grok.me placeholder card service
+  // (https://og.grok.me/v1/card.png) that was used when no custom card existed.
+  if (publicHost && siteHasCustomCard(site)) {
     const asset = String(site.image ?? "").trim() || "/og.jpg";
-    let image = custom
-      ? `https://${publicHost}${asset.startsWith("/") ? asset : `/${asset}`}`
-      : `${ogServiceUrl()}/v1/card.png?host=${encodeURIComponent(publicHost)}&title=${encodeURIComponent(title)}`;
-    const color = !custom ? placeholderCardColor(site) : "";
-    if (color) image += `&color=${encodeURIComponent(color)}`;
+    const image = `https://${publicHost}${asset.startsWith("/") ? asset : `/${asset}`}`;
     tags.push(`<meta property="og:image" content="${escapeHtml(image)}">`);
     tags.push(`<meta property="og:image:width" content="1200">`);
     tags.push(`<meta property="og:image:height" content="630">`);
@@ -362,7 +334,6 @@ export function normalizeHeadContext(ctx = {}) {
   const appName = resolveOgTitle(site, ctx.appName ?? DEFAULT_APP_NAME, ctx.host ?? "");
   return {
     appName,
-    projectId: ctx.projectId ?? readGrokProjectId(),
     creator: ctx.creator ?? readXCreator(),
     creatorId: ctx.creatorId ?? readXCreatorId(),
     host: ctx.host ?? "",
@@ -373,7 +344,7 @@ export function normalizeHeadContext(ctx = {}) {
 
 export function injectGrokPwaHead(html, ctx = {}) {
   if (typeof html !== "string") return html;
-  const { site, projectId, creator, creatorId, host } = normalizeHeadContext(ctx);
+  const { site, creator, creatorId, host } = normalizeHeadContext(ctx);
   const documentTitle = titleFromDocument(html);
   const appName = resolveOgTitle(
     site,
@@ -396,18 +367,8 @@ export function injectGrokPwaHead(html, ctx = {}) {
     grokOgHeadTags({ host, appName, site, documentTitle }).join(""),
   );
 
-  if (!next.includes("/grok-app-builder/extensions.js")) {
-    missing.push(...grokExtensionsHeadTags(projectId));
-  } else if (projectId && !next.includes('name="grok-project-id"')) {
-    missing.push(`<meta name="grok-project-id" content="${escapeHtml(projectId)}">`);
-  }
-  if (
-    projectId &&
-    !next.includes('property="grok:app_id"') &&
-    !next.includes("property='grok:app_id'")
-  ) {
-    missing.push(`<meta property="grok:app_id" content="${escapeHtml(projectId)}">`);
-  }
+  // Removed: the grok-app-builder/extensions.js beacon and its grok-project-id /
+  // grok:app_id metas were injected here. This self-hosted app injects none.
   const creatorTags = grokXCreatorHeadTags(creator, creatorId);
   if (creatorTags.length > 0) {
     const hasCreator =
@@ -441,7 +402,6 @@ export function createHeadInjector(ctx = {}) {
   const apply = (html) =>
     injectGrokPwaHead(html, {
       appName: normalized.appName,
-      projectId: normalized.projectId,
       creator: normalized.creator,
       creatorId: normalized.creatorId,
       host: normalized.host,

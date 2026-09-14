@@ -73,13 +73,18 @@ export async function getSessionUser(
 /**
  * Resolve the current user id for a server function, or throw when unauthorized.
  * Prefer `authMiddleware` (`./middleware`), which calls this for you.
- * - Auth enabled (default) -> the verified session user id; throws
- *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
- *   sign-in via the baked preview client).
- * - Auth disabled (`VITE_AUTH_ENABLED=false`) + `DATABASE_URL` set -> throw (fail
- *   closed): one shared dev user on a real database would let every visitor
- *   read/write everyone's rows.
- * - Auth disabled + no database -> the shared dev user id.
+ *
+ * Auth is opt-in and OFF by default. It is only "configured" when the operator
+ * supplies their own OAuth provider via env (GROK_AUTH_ISSUER +
+ * GROK_AUTH_CLIENT_ID + GROK_AUTH_CLIENT_SECRET on the server, and
+ * VITE_AUTH_ENABLED=true on the client). There is no baked shared preview
+ * client, so a fresh clone contacts no external auth host.
+ * - Auth configured -> the verified session user id; throws `UnauthorizedError`
+ *   when signed out.
+ * - Auth NOT configured + `DATABASE_URL` set -> throw (fail closed): one shared
+ *   local dev user on a real database would let every visitor read/write
+ *   everyone's rows.
+ * - Auth NOT configured + no database -> the local dev user id (DEV_USER_ID).
  */
 export async function requireUserId(bearerToken?: string): Promise<string> {
   if (!authConfigured) {
