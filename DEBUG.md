@@ -34,15 +34,60 @@ TanStack Start + Vite. Entry: `src/routes/index.tsx` → `LabApp`.
 | `src/components/lab/glass-sheet.tsx`   | Draggable iOS glass sheets. Must scroll. Title at top. Safe area                                                                                                                                                           |
 | `src/components/lab/perf-hud.tsx`      | FPS / graphs. Must not sit _in_ the sim. Must fit under Dynamic Island                                                                                                                                                     |
 
-## Known bugs (user-reported)
+## Known bugs (user-reported) — status after the full-code-read audit
 
-1. **Water looks glittery / glitchy** — sparkle flicker while flowing.
-2. **Lava vs water never finishes** — they stall; neither wins into steam/stone the way it should.
-3. **1,000,000 particles ~10 FPS** — Physics ~103ms. Not a fake 10 FPS cap. Need faster collide / less CPU.
-4. **Black canvas after dump** — GPU present + alpha-0 colors hid dots. WebGL should be the visible path. GPU canvas must not cover it.
-5. **Perf menu clipped** — Dynamic Island / OS chrome ate the top. Sheets need `max-h` ~72dvh, title visible, scrollable.
-6. **Name covered by chrome** — header “Crucible” must sit below safe-area.
-7. **Live room** — guest must _see_ the host universe (powder grid + a sample of the swarm). Sample sizes must match.
+Full root-cause write-up: [docs/DEBUG-AUDIT.md](docs/DEBUG-AUDIT.md). Status as
+of the debug session on the clean, devendored tree:
+
+1. **Water looks glittery / glitchy** — _FIXED (tested)._ Cause: the
+   `colorVariation` jitter in `src/sim/powder/render.ts` is keyed to the live
+   grid `(x, y)`, so a flowing liquid cell re-samples the noise every tick and
+   shimmers (and `organic_flow` adds a `frameCount` term that pulses even still
+   cells). Fix: only apply position-hash jitter to solid-grain states
+   (`solid_movable` / `solid_fixed`); liquids/gases/plasma/energy render flat
+   (gases/plasma still get their alpha blend). Locked in by the vitest suite
+   "render texture invariants (bug 1: no liquid glitter)" — liquids render one
+   flat color regardless of position/frame, sand keeps its speckle.
+2. **Lava vs water never finishes** — _FIXED (tested)._ Cause: `quenchLava`
+   flashes touched water straight to rising steam while lava only loses 55-80°C
+   per contact and must fall below 700°C to vitrify, so thin water boils away
+   before the lava cools; condensing steam rains back and re-quenches → an
+   infinite sputter. Fix: pull heat per contact proportional to the lava/water
+   gap in `quenchLava`, and raise the residual-steam and obsidian-crust
+   heat-bleed coefficients so a skinned-over blob keeps shedding heat. See
+   `src/sim/powder/phase-change.ts` + `reactions.ts`. Locked in by the vitest
+   test "hot lava surrounded by enough water resolves to obsidian within a tick
+   budget" (≤400 steps); the pre-existing threshold test stays green unchanged.
+3. **1,000,000 particles ~10 FPS** — _NOT A BUG (real compute cost)._ With
+   WebGPU it's on the GPU; without it (likely on the phone) the CPU fallback in
+   `src/sim/swarm.ts` rebuilds a 1M spatial hash and runs collide twice per
+   step. Levers: drop the 2nd CPU collide pass above ~500k, confirm WebGPU vs CPU
+   in the Perf sheet, scale the default dump to sustain ~30 FPS.
+4. **Black canvas after dump** — _FIXED (verified)._ GPU canvas is forced
+   `opacity 0` every frame; WebGL (`particle-gl.ts`) is the visible layer and
+   draws opaque points, so it can't be covered or hidden by alpha-0 colors.
+   (Note: the WebGPU **present** path in `swarm-gpu.ts` is therefore dormant —
+   WebGPU is used for compute only, WebGL for drawing.)
+5. **Perf menu clipped** — _FIXED (verified)._ `glass-sheet.tsx` is
+   `max-h-[min(70dvh,calc(100svh-6rem))]`, title pinned, body scrollable, safe-
+   area padding. (Bump 70→72dvh if you want to match this note exactly.)
+6. **Name covered by chrome** — _FIXED (verified)._ Header uses
+   `pt-[max(0.4rem,env(safe-area-inset-top))]`; "Crucible" renders below the
+   safe area.
+7. **Live room** — _WORKING._ Host broadcasts the powder grid (`serializeLite`)
+   and a swarm sample; `psnap` and `px` use the same `cap` so sample sizes match
+   and the guest rebuilds to that size. Minor: `applyPos` could resize on
+   size-mismatch to self-heal a frame faster (low priority).
+
+## Codebase health (this session)
+
+- ~18.5K LOC you own (17,938 lines TS/TSX/CSS across 95 files; 127 tracked files).
+- Zero `any` / `@ts-ignore` / `eslint-disable` / `TODO` / `FIXME` in `src/**`.
+- Zero `grok` / `app-builder` vendor traces. One vendor-flavored identifier
+  remains: `isRemintPreviewPair` in `src/lib/preview-embedder-origin.ts` — a
+  latent preview-bridge trust-widening (inert while unframed / auth off); gate it
+  behind `VITE_PREVIEW_EMBEDDER_ORIGINS` or delete it, and rename.
+- `npm run lint` / `typecheck` / `test` (93 node + 46 vitest) / `build` all green.
 
 ## Rules from the owner
 

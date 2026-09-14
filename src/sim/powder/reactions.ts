@@ -51,9 +51,11 @@ export function updateReactions(
         }
       }
 
-      // Residual steam still pulls heat out of lava
+      // Residual steam still pulls heat out of lava — proportional to the gap so
+      // a lava blob that has skinned over keeps shedding heat and finishes
+      // cooling instead of stalling near ~1100°C (see docs/DEBUG-AUDIT.md bug 2).
       if (type === 6 && nType === 14) {
-        e.gridTemp[idx] -= 55;
+        e.gridTemp[idx] -= 55 + Math.max(0, e.gridTemp[idx] - e.gridTemp[nIdx]) * 0.18;
         e.gridTemp[nIdx] = Math.max(e.gridTemp[nIdx], 110);
         if (e.gridTemp[idx] < 700) {
           e.setElementAt(x, y, 46, Math.max(180, e.gridTemp[idx]));
@@ -63,7 +65,7 @@ export function updateReactions(
 
       // Heat bleeds through an obsidian crust into surrounding water
       if (type === 6 && nType === 46) {
-        const flow = (e.gridTemp[idx] - e.gridTemp[nIdx]) * 0.12;
+        const flow = (e.gridTemp[idx] - e.gridTemp[nIdx]) * 0.28;
         e.gridTemp[idx] -= flow;
         e.gridTemp[nIdx] += flow;
         if (e.gridTemp[idx] < 700) {

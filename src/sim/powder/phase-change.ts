@@ -109,6 +109,7 @@ export function updatePhase(e: PowderCtx, x: number, y: number, idx: number, typ
  */
 export function quenchLava(e: PowderCtx, lavaIdx: number, waterIdx: number) {
   const lavaTemp = e.gridTemp[lavaIdx];
+  const waterTemp = e.gridTemp[waterIdx];
 
   e.gridType[waterIdx] = 14;
   e.gridTemp[waterIdx] = Math.max(130, 80 + lavaTemp * 0.08);
@@ -117,8 +118,14 @@ export function quenchLava(e: PowderCtx, lavaIdx: number, waterIdx: number) {
   e.gridVy[waterIdx] = -4 - Math.floor(Math.random() * 2);
   e.gridVisited[waterIdx] = 1;
 
-  // Lava is a thermal mass — one droplet should not freeze a whole cell
-  const cooled = lavaTemp - (55 + Math.random() * 25);
+  // Lava is a thermal mass, but a boiling water contact carries away real heat.
+  // Pull a fixed floor plus a share of how much hotter the lava is than the
+  // water it just flashed to steam, so a modest water body drives the lava
+  // under 700°C and it vitrifies in a few seconds instead of oscillating
+  // forever (see docs/DEBUG-AUDIT.md bug 2). The gap term dominates while the
+  // lava is very hot and tapers off as it approaches the obsidian threshold.
+  const gap = Math.max(0, lavaTemp - waterTemp);
+  const cooled = lavaTemp - (55 + Math.random() * 25 + gap * 0.22);
   e.gridTemp[lavaIdx] = cooled;
   if (cooled < 700) {
     e.gridType[lavaIdx] = 46; // Obsidian

@@ -133,7 +133,14 @@ export function renderToCanvas(e: PowderCtx, ctx: CanvasRenderingContext2D, over
       let varG = g;
       let varB = b;
 
-      if (def.colorVariation && def.colorVariation > 0) {
+      // Position-hash jitter is grain texture for solid grains only. Flowing
+      // liquids/gases/plasma/energy move to a new (x, y) every tick, so keying
+      // the noise to live coordinates makes them shimmer/glitter frame to frame
+      // (see docs/DEBUG-AUDIT.md bug 1). Render those states flat; gases/plasma
+      // still get their own alpha blend a few lines below.
+      const isGrain = def.state === "solid_movable" || def.state === "solid_fixed";
+
+      if (isGrain && def.colorVariation && def.colorVariation > 0) {
         let jitter = 0;
         if (e.textureMode === "diagonal_matrix") {
           jitter = (((x * 3 + y * 7) % 19) - 9) * (def.colorVariation / 100);
