@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { GROK_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
+import { AUTH_PROVIDERS, authEnabled, signIn } from "@/lib/auth/client";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/login")({ component: Login });
@@ -12,12 +12,13 @@ function Login() {
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted">Crucible</p>
           <h1 className="font-display text-3xl font-semibold tracking-tight">Sign in</h1>
           <p className="text-sm text-muted text-pretty">
-            Cloud saves and workshop maps use your account. The lab itself is free to use as a guest.
+            Cloud saves and workshop maps use your account. The lab itself is free to use as a
+            guest.
           </p>
         </div>
         {authEnabled ? (
           <div className="space-y-2">
-            {GROK_PROVIDERS.map((p) => (
+            {AUTH_PROVIDERS.map((p) => (
               <Button
                 key={p.providerId}
                 type="button"

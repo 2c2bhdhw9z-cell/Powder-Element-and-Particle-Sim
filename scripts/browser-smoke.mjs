@@ -43,7 +43,7 @@ if (baselineRequested) {
           ok: false,
           error:
             `--baseline ${args.baseline} is this run's own verdict output; ` +
-            "pass a distinct output PNG (e.g. app-builder-built.png) so the baseline is not overwritten",
+            "pass a distinct output PNG (e.g. crucible-built.png) so the baseline is not overwritten",
         },
         null,
         2,

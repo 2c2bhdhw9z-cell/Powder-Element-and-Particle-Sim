@@ -1,20 +1,21 @@
 /**
- * Guest side of the grok-web ↔ sandbox preview postMessage bridge.
+ * Guest side of the host ↔ preview postMessage bridge.
  *
- * Activates only when this page is framed by an allowlisted Grok embedder.
- * Top-level runs (download/export, local `npm run dev`, deployed sites) noop.
+ * Activates only when this page is framed by a trusted embedder (see
+ * `preview-embedder-origin`). Top-level runs (download/export, local
+ * `npm run dev`, deployed sites) noop.
  */
 
 import { z } from "zod";
 import { resolveParentEmbedderOrigin } from "./preview-embedder-origin";
 
 export {
-  isGrokEmbedderOrigin,
+  isTrustedEmbedderOrigin,
   isSandboxPreviewGuestHost,
   resolveParentEmbedderOrigin,
 } from "./preview-embedder-origin";
 
-export const PREVIEW_BRIDGE_CHANNEL = "grok-preview-bridge" as const;
+export const PREVIEW_BRIDGE_CHANNEL = "crucible-preview-bridge" as const;
 export const PREVIEW_BRIDGE_VERSION = 1 as const;
 
 const EnvelopeSchema = z.object({
@@ -58,15 +59,13 @@ export function isSafeBridgePath(path: string): boolean {
 
 /**
  * Install host↔guest messaging. Returns a dispose function.
- * Noops (returns a no-op dispose) when not embedded under a Grok parent.
+ * Noops (returns a no-op dispose) when not embedded under a trusted parent.
  */
-export function installPreviewHostBridge(
-  options: PreviewHostBridgeOptions = {},
-): () => void {
+export function installPreviewHostBridge(options: PreviewHostBridgeOptions = {}): () => void {
   if (typeof window === "undefined") return () => {};
 
   const ancestorOrigin =
-    typeof location.ancestorOrigins !== 'undefined' && location.ancestorOrigins.length > 0
+    typeof location.ancestorOrigins !== "undefined" && location.ancestorOrigins.length > 0
       ? location.ancestorOrigins[0]
       : null;
   const parentOrigin = resolveParentEmbedderOrigin(
@@ -77,15 +76,13 @@ export function installPreviewHostBridge(
   );
   if (parentOrigin === null) return () => {};
 
-  const ROOT_STATE_KEY = "__grokPreviewBridgeRoot";
+  const ROOT_STATE_KEY = "__previewBridgeRoot";
   const originalPushState = window.history.pushState.bind(window.history);
   const originalReplaceState = window.history.replaceState.bind(window.history);
 
   const isAtHistoryRoot = () => {
     const state = window.history.state;
-    return Boolean(
-      state && typeof state === "object" && state[ROOT_STATE_KEY] === true,
-    );
+    return Boolean(state && typeof state === "object" && state[ROOT_STATE_KEY] === true);
   };
 
   // Floor for chrome Back: only the first install in a fresh history stack is
@@ -212,21 +209,17 @@ export function installPreviewHostBridge(
 
   // Patch history so in-app SPA navigations sync the host address bar.
   window.history.pushState = (data, unused, url) => {
-    const next =
-      data && typeof data === "object"
-        ? { ...data, [ROOT_STATE_KEY]: false }
-        : data;
+    const next = data && typeof data === "object" ? { ...data, [ROOT_STATE_KEY]: false } : data;
     originalPushState(next, unused, url);
     reportLocation();
   };
   window.history.replaceState = (data, unused, url) => {
-    const next =
-      isAtHistoryRoot()
-        ? {
-            ...(data && typeof data === "object" ? data : {}),
-            [ROOT_STATE_KEY]: true,
-          }
-        : data;
+    const next = isAtHistoryRoot()
+      ? {
+          ...(data && typeof data === "object" ? data : {}),
+          [ROOT_STATE_KEY]: true,
+        }
+      : data;
     originalReplaceState(next, unused, url);
     reportLocation();
   };

@@ -28,15 +28,15 @@ npm run build        # vite build + db:migrate (skips DB when DATABASE_URL unset
 All env is optional. With nothing set, the lab runs as a guest on an embedded
 database and contacts no external service. See [.env.example](.env.example).
 
-| Var | Meaning |
-|---|---|
-| `DATABASE_URL` | Real Postgres (e.g. Neon). Unset falls back to embedded PGLite (preview/local). |
-| `VITE_AUTH_ENABLED` | Sign-in toggle. Off by default; the lab is fully usable as a guest. |
-| `GROK_AUTH_ISSUER`, `GROK_AUTH_CLIENT_ID`, `GROK_AUTH_CLIENT_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` | Only if you self-host sign-in: your OWN OAuth provider's credentials. The app ships none. |
-| `DEBUG=1` / `?debug` | Enables gated `debug.warn`/`debug.log` output (see `src/lib/debug.ts`). |
+| Var                                                                                            | Meaning                                                                                   |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                                                                 | Real Postgres (e.g. Neon). Unset falls back to embedded PGLite (preview/local).           |
+| `VITE_AUTH_ENABLED`                                                                            | Sign-in toggle. Off by default; the lab is fully usable as a guest.                       |
+| `AUTH_ISSUER`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` | Only if you self-host sign-in: your OWN OAuth provider's credentials. The app ships none. |
+| `DEBUG=1` / `?debug`                                                                           | Enables gated `debug.warn`/`debug.log` output (see `src/lib/debug.ts`).                   |
 
 > Setting `DATABASE_URL` without also enabling auth (`VITE_AUTH_ENABLED=true`
-> plus the `GROK_AUTH_*` creds) makes per-user server functions fail closed by
+> plus the `AUTH_*` creds) makes per-user server functions fail closed by
 > design: the app refuses to share the one local dev-user against a real
 > database. Enable auth as well, or leave `DATABASE_URL` unset to run as a guest.
 

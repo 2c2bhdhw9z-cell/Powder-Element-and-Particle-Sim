@@ -54,9 +54,7 @@ export type VerifiedUser = { id: string; email: string | null };
  * as a bearer token, which we present as `Authorization: Bearer …` (the `bearer`
  * plugin resolves it). When deployed no token is passed and the cookie is used.
  */
-export async function getSessionUser(
-  bearerToken?: string,
-): Promise<VerifiedUser | null> {
+export async function getSessionUser(bearerToken?: string): Promise<VerifiedUser | null> {
   if (!authConfigured) return null;
   const request = getRequest();
   if (!request) return null;
@@ -75,8 +73,8 @@ export async function getSessionUser(
  * Prefer `authMiddleware` (`./middleware`), which calls this for you.
  *
  * Auth is opt-in and OFF by default. It is only "configured" when the operator
- * supplies their own OAuth provider via env (GROK_AUTH_ISSUER +
- * GROK_AUTH_CLIENT_ID + GROK_AUTH_CLIENT_SECRET on the server, and
+ * supplies their own OAuth provider via env (AUTH_ISSUER +
+ * AUTH_CLIENT_ID + AUTH_CLIENT_SECRET on the server, and
  * VITE_AUTH_ENABLED=true on the client). There is no baked shared preview
  * client, so a fresh clone contacts no external auth host.
  * - Auth configured -> the verified session user id; throws `UnauthorizedError`

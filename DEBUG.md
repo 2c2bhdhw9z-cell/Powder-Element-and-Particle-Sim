@@ -17,22 +17,22 @@ TanStack Start + Vite. Entry: `src/routes/index.tsx` → `LabApp`.
 
 ## Map
 
-| Path | What |
-|---|---|
-| `src/sim/powder-engine.ts` | PowderEngine facade (state + tick). Physics lives in `src/sim/powder/*.ts` modules on the `PowderCtx` interface (phase-change, electricity, reactions, explosion, movement, thermals, brush, history, render, diagnostics) |
-| `src/sim/particle-engine.ts` | ParticleEngine facade (state + tick). Physics lives in `src/sim/particle/*.ts` (spawners, step, render, diagnostics) on the `ParticleCtx` interface |
-| `src/sim/__tests__/` | Vitest suite (deterministic, seeded RNG). `npm test` — keep it green when touching sim code |
-| `src/sim/swarm.ts` | CPU SoA pack for huge dumps |
-| `src/sim/swarm-gpu.ts` | WebGPU collide (linked-list). Draw often falls back to WebGL |
-| `src/sim/particle-gl.ts` | WebGL points draw |
-| `src/sim/element-registry.ts` | Element defs |
-| `src/sim/live-pack.ts` | Compact Int16 snapshots for P2P |
-| `src/lib/multiplayer/p2p.ts` | WebRTC room |
-| `src/components/lab/lab-app.tsx` | Shell, mode switch, split, menus |
-| `src/components/lab/powder-view.tsx` | Powder canvas + brushes |
-| `src/components/lab/particle-view.tsx` | Particle canvas + presets |
-| `src/components/lab/glass-sheet.tsx` | Draggable iOS glass sheets. Must scroll. Title at top. Safe area |
-| `src/components/lab/perf-hud.tsx` | FPS / graphs. Must not sit *in* the sim. Must fit under Dynamic Island |
+| Path                                   | What                                                                                                                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/sim/powder-engine.ts`             | PowderEngine facade (state + tick). Physics lives in `src/sim/powder/*.ts` modules on the `PowderCtx` interface (phase-change, electricity, reactions, explosion, movement, thermals, brush, history, render, diagnostics) |
+| `src/sim/particle-engine.ts`           | ParticleEngine facade (state + tick). Physics lives in `src/sim/particle/*.ts` (spawners, step, render, diagnostics) on the `ParticleCtx` interface                                                                        |
+| `src/sim/__tests__/`                   | Vitest suite (deterministic, seeded RNG). `npm test` — keep it green when touching sim code                                                                                                                                |
+| `src/sim/swarm.ts`                     | CPU SoA pack for huge dumps                                                                                                                                                                                                |
+| `src/sim/swarm-gpu.ts`                 | WebGPU collide (linked-list). Draw often falls back to WebGL                                                                                                                                                               |
+| `src/sim/particle-gl.ts`               | WebGL points draw                                                                                                                                                                                                          |
+| `src/sim/element-registry.ts`          | Element defs                                                                                                                                                                                                               |
+| `src/sim/live-pack.ts`                 | Compact Int16 snapshots for P2P                                                                                                                                                                                            |
+| `src/lib/multiplayer/p2p.ts`           | WebRTC room                                                                                                                                                                                                                |
+| `src/components/lab/lab-app.tsx`       | Shell, mode switch, split, menus                                                                                                                                                                                           |
+| `src/components/lab/powder-view.tsx`   | Powder canvas + brushes                                                                                                                                                                                                    |
+| `src/components/lab/particle-view.tsx` | Particle canvas + presets                                                                                                                                                                                                  |
+| `src/components/lab/glass-sheet.tsx`   | Draggable iOS glass sheets. Must scroll. Title at top. Safe area                                                                                                                                                           |
+| `src/components/lab/perf-hud.tsx`      | FPS / graphs. Must not sit _in_ the sim. Must fit under Dynamic Island                                                                                                                                                     |
 
 ## Known bugs (user-reported)
 
@@ -40,9 +40,9 @@ TanStack Start + Vite. Entry: `src/routes/index.tsx` → `LabApp`.
 2. **Lava vs water never finishes** — they stall; neither wins into steam/stone the way it should.
 3. **1,000,000 particles ~10 FPS** — Physics ~103ms. Not a fake 10 FPS cap. Need faster collide / less CPU.
 4. **Black canvas after dump** — GPU present + alpha-0 colors hid dots. WebGL should be the visible path. GPU canvas must not cover it.
-5. **Perf menu clipped** — Dynamic Island / Grok chrome ate the top. Sheets need `max-h` ~72dvh, title visible, scrollable.
+5. **Perf menu clipped** — Dynamic Island / OS chrome ate the top. Sheets need `max-h` ~72dvh, title visible, scrollable.
 6. **Name covered by chrome** — header “Crucible” must sit below safe-area.
-7. **Live room** — guest must *see* the host universe (powder grid + a sample of the swarm). Sample sizes must match.
+7. **Live room** — guest must _see_ the host universe (powder grid + a sample of the swarm). Sample sizes must match.
 
 ## Rules from the owner
 

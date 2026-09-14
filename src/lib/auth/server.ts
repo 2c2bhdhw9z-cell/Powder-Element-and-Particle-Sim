@@ -7,15 +7,15 @@
  * The app runs its own Better Auth at `/api/auth/*`, so the session cookie stays
  * on this app's own origin. Federated sign-in is OPTIONAL and OFF by default:
  * when enabled, sign-in federates to an OAuth issuer the OPERATOR supplies
- * (`GROK_AUTH_ISSUER`) via the `genericOAuth` plugin, using the operator's own
+ * (`AUTH_ISSUER`) via the `genericOAuth` plugin, using the operator's own
  * client id/secret. The app ships NO baked issuer/client, so a fresh clone
  * contacts no external auth host.
  *
  * Modes:
- *   - Federated auth ON: the operator provides `GROK_AUTH_ISSUER` +
- *     `GROK_AUTH_CLIENT_ID` + `GROK_AUTH_CLIENT_SECRET` (and typically
+ *   - Federated auth ON: the operator provides `AUTH_ISSUER` +
+ *     `AUTH_CLIENT_ID` + `AUTH_CLIENT_SECRET` (and typically
  *     `BETTER_AUTH_URL` + `DATABASE_URL`), so real federated auth is persisted.
- *   - Default / off (no `GROK_AUTH_*`, or `VITE_AUTH_ENABLED=false`): no
+ *   - Default / off (no `AUTH_*`, or `VITE_AUTH_ENABLED=false`): no
  *     providers; per-user server functions fall back to a local dev user (see
  *     `verify.server.ts`) and NO request is made to any external auth host.
  *
@@ -33,7 +33,7 @@ import { Pool } from "pg";
 import { ensureDbReady, getPglite } from "../db";
 import { debug } from "../debug";
 import { emailAndPasswordEnabled } from "./email-password";
-import { GROK_PROVIDERS } from "./providers";
+import { AUTH_PROVIDERS } from "./providers";
 import { pgliteDialect } from "./pglite-dialect";
 import { PREVIEW_ALLOWED_HOSTS, PREVIEW_CLIENT_ID, PREVIEW_CLIENT_SECRET } from "./preview";
 
@@ -47,11 +47,11 @@ void ensureDbReady();
  * restart clears both the secret and PGLite together.
  */
 const globalAuthRef = globalThis as typeof globalThis & {
-  __grokAuthPreviewSecret__?: string;
+  __authPreviewSecret__?: string;
 };
 function previewAuthSecret(): string {
-  globalAuthRef.__grokAuthPreviewSecret__ ??= randomBytes(32).toString("hex");
-  return globalAuthRef.__grokAuthPreviewSecret__;
+  globalAuthRef.__authPreviewSecret__ ??= randomBytes(32).toString("hex");
+  return globalAuthRef.__authPreviewSecret__;
 }
 
 /** Read an env var, treating empty/whitespace as unset. */
@@ -65,22 +65,22 @@ const env = (key: string): string | undefined => {
 const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 
 // Federation creds come from OPERATOR-supplied env ONLY. There is no baked
-// vendor default: if the operator hasn't provided their own issuer + client, the
-// app makes NO call to any external auth host and falls back to the local dev
-// user (see `verify.server.ts`). `PREVIEW_CLIENT_*` themselves read from
-// `GROK_AUTH_CLIENT_ID`/`GROK_AUTH_CLIENT_SECRET` (see `./preview`), so they are
-// empty unless the operator opts in.
-const grokIssuer = env("GROK_AUTH_ISSUER");
-const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+// default: if the operator hasn't provided their own issuer + client, the app
+// makes NO call to any external auth host and falls back to the local dev user
+// (see `verify.server.ts`). `PREVIEW_CLIENT_*` themselves read from
+// `AUTH_CLIENT_ID`/`AUTH_CLIENT_SECRET` (see `./preview`), so they are empty
+// unless the operator opts in.
+const authIssuer = env("AUTH_ISSUER");
+const authClientId = env("AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
+const authClientSecret = env("AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
 
 /**
  * True when federated sign-in is active (real auth is enforced). Requires the
  * operator to explicitly provide a real issuer AND client id/secret — there is
- * no vendor default, so a fresh clone is always `false` (guest / dev-user).
+ * no default, so a fresh clone is always `false` (guest / dev-user).
  */
 export const authConfigured =
-  !authDisabled && Boolean(grokIssuer && grokClientId && grokClientSecret);
+  !authDisabled && Boolean(authIssuer && authClientId && authClientSecret);
 
 // This app's own Better Auth origin. When the operator sets `BETTER_AUTH_URL`
 // we use it directly. Otherwise we hand Better Auth a dynamic baseURL: it derives
@@ -140,14 +140,14 @@ if (authConfigured) {
 
 const databaseUrl = env("DATABASE_URL");
 
-// Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
-// Discovery would cost an extra network hop to the broker before the popup can
-// even redirect to Google/X — the live-preview popup felt stuck on the app for
-// that whole round-trip. These paths match the broker's discovery document.
-const issuerBase = (grokIssuer ?? "").replace(/\/+$/, "");
-const grokAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
-const grokTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
-const grokUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
+// Static OAuth endpoints (skip OIDC discovery on every sign-in / callback).
+// Discovery would cost an extra network hop to the issuer before the popup can
+// even redirect to the upstream — the live-preview popup felt stuck on the app
+// for that whole round-trip. These paths match the issuer's discovery document.
+const issuerBase = (authIssuer ?? "").replace(/\/+$/, "");
+const authAuthorizationUrl = `${issuerBase}/api/auth/oauth2/authorize`;
+const authTokenUrl = `${issuerBase}/api/auth/oauth2/token`;
+const authUserInfoUrl = `${issuerBase}/api/auth/oauth2/userinfo`;
 
 // Real Postgres when `DATABASE_URL` is set (deployed apps), else the app's
 // embedded PGLite (preview) via a Kysely dialect — so Better Auth persists to the
@@ -158,25 +158,25 @@ const database = databaseUrl
   : { dialect: pgliteDialect(() => getPglite()), type: "postgres" as const };
 
 /** Session token cookie name — also read by the live-preview popup completion page. */
-export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
+export const SESSION_TOKEN_COOKIE = "__Host-crucible-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = authConfigured
+const oauthPlugin = authConfigured
   ? genericOAuth({
-      config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
+      config: AUTH_PROVIDERS.map(({ providerId, idp }) => ({
         providerId,
-        clientId: grokClientId as string,
-        clientSecret: grokClientSecret as string,
+        clientId: authClientId as string,
+        clientSecret: authClientSecret as string,
         // Prefer static endpoints over `discoveryUrl` so initiating (and
-        // completing) OAuth does not wait on a broker discovery fetch.
-        authorizationUrl: grokAuthorizationUrl,
-        tokenUrl: grokTokenUrl,
-        userInfoUrl: grokUserInfoUrl,
+        // completing) OAuth does not wait on an issuer discovery fetch.
+        authorizationUrl: authAuthorizationUrl,
+        tokenUrl: authTokenUrl,
+        userInfoUrl: authUserInfoUrl,
         scopes: ["openid", "profile", "email"],
-        // `prompt: "login"` forces the broker to re-authenticate against the
+        // `prompt: "login"` forces the issuer to re-authenticate against the
         // upstream on every sign-in instead of silently reusing an existing
-        // broker session. Combined with the broker sending Google
+        // session. Combined with the issuer sending Google
         // `prompt=select_account`, the user always gets the account chooser
         // and can pick (or switch) which account to sign in with.
         authorizationUrlParams: { idp, prompt: "login" },
@@ -196,8 +196,8 @@ export const auth = betterAuth({
   // local loopback variants, or clients get "Invalid origin".
   trustedOrigins,
 
-  // Encrypt broker-issued OAuth tokens at rest, and treat the broker's upstreams
-  // as trusted first-party identities. The broker owns identity and X emails are
+  // Encrypt issuer-issued OAuth tokens at rest, and treat the issuer's upstreams
+  // as trusted first-party identities. The issuer owns identity and X emails are
   // synthetic/unverified, so WITHOUT this a login can fail with
   // `account_not_linked` (Better Auth refuses to attach an untrusted, unverified
   // identity to an existing user). Google and X carry DISTINCT emails, so this
@@ -206,7 +206,7 @@ export const auth = betterAuth({
     encryptOAuthTokens: true,
     accountLinking: {
       enabled: true,
-      trustedProviders: GROK_PROVIDERS.map((p) => p.providerId),
+      trustedProviders: AUTH_PROVIDERS.map((p) => p.providerId),
       // X's synthetic email is never "verified", so don't gate linking on the
       // local user's email-verified state.
       requireLocalEmailVerified: false,
@@ -223,8 +223,8 @@ export const auth = betterAuth({
   ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
 
   // `__Host-` prefixed cookies: the browser REFUSES any same-named cookie that
-  // carries a `Domain` attribute, so a sibling `*.grok.me` app cannot "toss" a
-  // `Domain=.grok.me` session cookie onto this app. `__Host-` requires Secure +
+  // carries a `Domain` attribute, so a same-site sibling app cannot "toss" a
+  // `Domain`-scoped session cookie onto this app. `__Host-` requires Secure +
   // Path=/ + no Domain; Better Auth otherwise uses `__Secure-` (which permits
   // Domain), so we drop its auto prefix (`useSecureCookies: false`) and set
   // Secure + the names ourselves. (Browsers allow Secure cookies on
@@ -234,16 +234,16 @@ export const auth = betterAuth({
     defaultCookieAttributes: { secure: true, sameSite: "lax", path: "/" },
     cookies: {
       session_token: { name: SESSION_TOKEN_COOKIE },
-      session_data: { name: "__Host-grok-auth.session_data" },
-      account_data: { name: "__Host-grok-auth.account_data" },
-      dont_remember: { name: "__Host-grok-auth.dont_remember" },
+      session_data: { name: "__Host-crucible-auth.session_data" },
+      account_data: { name: "__Host-crucible-auth.account_data" },
+      dont_remember: { name: "__Host-crucible-auth.dont_remember" },
     },
   },
 
   plugins: [
     // One genericOAuth provider per upstream (when auth is on), all federating
-    // to the broker with the SAME client and differing only by the `idp` hint.
-    ...(grokOAuthPlugin ? [grokOAuthPlugin] : []),
+    // to the issuer with the SAME client and differing only by the `idp` hint.
+    ...(oauthPlugin ? [oauthPlugin] : []),
 
     // Accept `Authorization: Bearer <session-token>` as an alternative to the
     // cookie. Needed for the LIVE PREVIEW: the app runs in an embedded iframe
@@ -265,4 +265,4 @@ export function readSessionToken(): string | null {
 
 // Re-exported for convenience; the array lives in the dependency-free
 // `providers.ts` so the client can import it too.
-export { GROK_PROVIDERS } from "./providers";
+export { AUTH_PROVIDERS } from "./providers";

@@ -1,5 +1,5 @@
-declare module "virtual:grok-og-identity" {
-  export const grokOgIdentity: {
+declare module "virtual:og-identity" {
+  export const ogIdentity: {
     site: {
       title?: string;
       description?: string;

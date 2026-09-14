@@ -13,7 +13,6 @@ dist
 artifacts
 attachments
 screenshots
-.grok
 AGENTS.md
 AGENTS.project.md
 *.local
