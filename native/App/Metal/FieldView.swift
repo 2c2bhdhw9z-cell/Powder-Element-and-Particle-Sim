@@ -26,6 +26,12 @@ final class FieldView: MTKView {
     /// The colour is first because it needs sixteen-byte alignment: anywhere else and there is a
     /// hole in the struct whose size both sides have to agree about. Getting that wrong does not
     /// fail to compile — it reads the wrong fields and draws a ring somewhere unexpected.
+    /// Mirrors `FadeUniforms` in the shader. One four-component colour, so there is no padding to
+    /// disagree about.
+    private struct FadeUniforms {
+        var color: SIMD4<Float>
+    }
+
     private struct RingUniforms {
         var color: SIMD4<Float>
         var centre: SIMD2<Float>
@@ -42,6 +48,17 @@ final class FieldView: MTKView {
     private let springPipeline: MTLRenderPipelineState
     private let trailPipeline: MTLRenderPipelineState
     private let ringPipeline: MTLRenderPipelineState
+    private let fadePipeline: MTLRenderPipelineState
+
+    /// The picture that survives between frames.
+    ///
+    /// A screen's drawable cannot be used for this: the system hands out a different one each frame,
+    /// so whatever was drawn last time is simply not there. Keeping the field's own texture is what
+    /// lets the previous frame be dimmed rather than erased — which is the whole mechanism behind
+    /// trails looking like motion rather than like six dots.
+    private var accumulation: MTLTexture?
+    private var accumulationWidth = 0
+    private var accumulationHeight = 0
 
     // Held across frames and grown only when the field outgrows them, so a steady field
     // allocates nothing. At a million bodies these are megabytes; rebuilding them sixty times a
@@ -74,7 +91,8 @@ final class FieldView: MTKView {
               let trailVertex = library.makeFunction(name: "trailVertex"),
               let trailFragment = library.makeFunction(name: "trailFragment"),
               let ringVertex = library.makeFunction(name: "ringVertex"),
-              let ringFragment = library.makeFunction(name: "ringFragment")
+              let ringFragment = library.makeFunction(name: "ringFragment"),
+              let fadeFragment = library.makeFunction(name: "fadeFragment")
         else { return nil }
 
         func pipeline(_ vertex: MTLFunction, _ fragment: MTLFunction) -> MTLRenderPipelineState? {
@@ -97,7 +115,10 @@ final class FieldView: MTKView {
         guard let points = pipeline(pointVertex, pointFragment),
               let springs = pipeline(springVertex, springFragment),
               let trails = pipeline(trailVertex, trailFragment),
-              let ring = pipeline(ringVertex, ringFragment)
+              let ring = pipeline(ringVertex, ringFragment),
+              // The fade reuses the ring's vertex function, which already covers the screen from the
+              // vertex number alone and needs no geometry of its own.
+              let fade = pipeline(ringVertex, fadeFragment)
         else { return nil }
 
         self.model = model
@@ -106,10 +127,13 @@ final class FieldView: MTKView {
         self.springPipeline = springs
         self.trailPipeline = trails
         self.ringPipeline = ring
+        self.fadePipeline = fade
         super.init(frame: .zero, device: device)
 
         colorPixelFormat = .bgra8Unorm
-        framebufferOnly = true
+        // The finished picture is copied in from the field's own texture rather than drawn straight
+        // into the drawable, and a drawable that is framebuffer-only cannot be copied into.
+        framebufferOnly = false
         isOpaque = true
         depthStencilPixelFormat = .invalid
         sampleCount = 1
@@ -130,62 +154,180 @@ final class FieldView: MTKView {
         // clock — the painting tool picks its colour from it — is reproducible.
         model.tick(now: CFAbsoluteTimeGetCurrent() * 1000)
 
-        guard let descriptor = currentRenderPassDescriptor,
-              let drawable = currentDrawable,
+        guard let drawable = currentDrawable,
               let buffer = commandQueue.makeCommandBuffer(),
               let device
         else { return }
 
-        let frame = prepare(device: device)
-        if let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) {
-            encode(frame, into: encoder)
-            encoder.endEncoding()
+        let width = drawable.texture.width
+        let height = drawable.texture.height
+        guard let target = accumulationTexture(width: width, height: height, device: device) else {
+            return
         }
+
+        let frame = prepare(device: device)
+
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].storeAction = .store
+        if model.showTrails {
+            // Kept, so the previous frame can be dimmed rather than erased. That dimming is what
+            // makes a trail longer than the handful of positions a body remembers.
+            pass.colorAttachments[0].loadAction = .load
+        } else {
+            // Wiped outright, which is both what the reference does with trails off and cheaper
+            // than drawing a fully opaque rectangle over it.
+            pass.colorAttachments[0].loadAction = .clear
+            pass.colorAttachments[0].clearColor = clearColor
+        }
+
+        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else {
+            buffer.present(drawable)
+            buffer.commit()
+            return
+        }
+
+        if model.showTrails {
+            encodeFade(frame, into: encoder)
+        }
+        encode(frame, into: encoder)
+        encoder.endEncoding()
+
+        // Copied across rather than drawn twice. A blit is the cheapest way to move a whole texture
+        // and needs no pipeline of its own.
+        if let blit = buffer.makeBlitCommandEncoder() {
+            blit.copy(
+                from: target,
+                sourceSlice: 0,
+                sourceLevel: 0,
+                sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+                sourceSize: MTLSize(width: width, height: height, depth: 1),
+                to: drawable.texture,
+                destinationSlice: 0,
+                destinationLevel: 0,
+                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+            )
+            blit.endEncoding()
+        }
+
         buffer.present(drawable)
         buffer.commit()
     }
 
-    // MARK: - Capturing a picture
-
-    /// Draws the field once more into a texture of its own and reads it back.
+    /// The persistent picture, rebuilt when the screen changes size.
     ///
-    /// The whole reason this exists rather than grabbing the screen: the field is geometry the GPU
-    /// assembles — discs clipped to circles, trails, springs, the ring — and none of that exists
-    /// anywhere the processor can see. Asking the same pipelines to draw into a texture is the only
-    /// way to get exactly what is on screen.
-    ///
-    /// Deliberately does **not** advance the simulation. Taking a picture should not move the world
-    /// on by a moment, which would make a screenshot of a paused field subtly different from the
-    /// paused field itself.
-    func snapshot() -> UIImage? {
-        guard let device, let buffer = commandQueue.makeCommandBuffer() else { return nil }
-
-        let width = Int(model.worldSize.width.rounded())
-        let height = Int(model.worldSize.height.rounded())
+    /// Rotating the phone or splitting the screen changes the drawable, and a texture of the old size
+    /// cannot be copied into the new one. Rebuilding loses whatever was fading, which for a fraction
+    /// of a second of trail is not worth any machinery to preserve.
+    private func accumulationTexture(width: Int, height: Int, device: MTLDevice) -> MTLTexture? {
         guard width > 0, height > 0 else { return nil }
+        if let accumulation, accumulationWidth == width, accumulationHeight == height {
+            return accumulation
+        }
 
         let descriptor = MTLTextureDescriptor()
-        descriptor.pixelFormat = .bgra8Unorm
+        descriptor.pixelFormat = colorPixelFormat
         descriptor.width = width
         descriptor.height = height
         descriptor.usage = [.renderTarget, .shaderRead]
-        // Shared, so the processor can read it afterwards without a separate copy. A private
-        // texture would be faster to draw into and then need a blit to get at, which for one still
-        // picture is more machinery for no gain.
-        descriptor.storageMode = .shared
+        // Private: nothing on the processor reads this one, so the GPU can keep it in whatever
+        // arrangement suits it.
+        descriptor.storageMode = .private
         guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
 
+        accumulation = texture
+        accumulationWidth = width
+        accumulationHeight = height
+        // Started from the room's own black rather than from whatever the memory held, which would
+        // otherwise show for one frame as noise.
+        clearAccumulation(texture)
+        return texture
+    }
+
+    /// Fills a freshly made picture with the background colour.
+    private func clearAccumulation(_ texture: MTLTexture) {
+        guard let buffer = commandQueue.makeCommandBuffer() else { return }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = texture
         pass.colorAttachments[0].loadAction = .clear
-        // The same near-black the view clears to, so a shared picture has the same room behind it.
         pass.colorAttachments[0].clearColor = clearColor
         pass.colorAttachments[0].storeAction = .store
+        buffer.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
+        buffer.commit()
+    }
 
-        let frame = prepare(device: device)
-        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return nil }
-        encode(frame, into: encoder)
-        encoder.endEncoding()
+    /// Dims the previous frame by painting the background over it.
+    private func encodeFade(
+        _ frame: ParticleFieldModel.Frame,
+        into encoder: MTLRenderCommandEncoder
+    ) {
+        var uniforms = Uniforms(
+            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
+            pointSize: Float(frame.pointSize)
+        )
+        // The room's own near-black, at the fraction of itself the reference uses. The engine owns
+        // that figure, alongside everything else about how trails look.
+        var fade = FadeUniforms(
+            color: SIMD4<Float>(
+                Float(10.0 / 255.0),
+                Float(10.0 / 255.0),
+                Float(12.0 / 255.0),
+                Float(ParticleOverlayStyle.frameFadeOpacity)
+            )
+        )
+        encoder.setRenderPipelineState(fadePipeline)
+        encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+        encoder.setFragmentBytes(&fade, length: MemoryLayout<FadeUniforms>.stride, index: 0)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+    }
+
+    // MARK: - Capturing a picture
+
+    /// Reads back the picture that is on screen.
+    ///
+    /// Copies the field's own persistent texture rather than drawing everything again. That is both
+    /// simpler and strictly more faithful: with trails on, what is on screen includes a dozen frames
+    /// of fading history, and a fresh render would show only the present moment — a screenshot
+    /// missing the very effect someone took it to capture.
+    ///
+    /// It also means taking a picture cannot advance the simulation or disturb what is displayed. The
+    /// texture is read, not rebuilt.
+    func snapshot() -> UIImage? {
+        guard let device,
+              let source = accumulation,
+              // Nothing has been drawn yet, so there is nothing to photograph. Honest emptiness
+              // rather than a black rectangle that looks like a bug.
+              accumulationWidth > 0, accumulationHeight > 0,
+              let buffer = commandQueue.makeCommandBuffer()
+        else { return nil }
+
+        let width = accumulationWidth
+        let height = accumulationHeight
+
+        // The picture on screen lives in memory only the GPU can reach, so it is copied into one the
+        // processor can read before being handed over.
+        let descriptor = MTLTextureDescriptor()
+        descriptor.pixelFormat = colorPixelFormat
+        descriptor.width = width
+        descriptor.height = height
+        descriptor.usage = [.shaderRead]
+        descriptor.storageMode = .shared
+        guard let readable = device.makeTexture(descriptor: descriptor),
+              let blit = buffer.makeBlitCommandEncoder()
+        else { return nil }
+
+        blit.copy(
+            from: source,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: width, height: height, depth: 1),
+            to: readable,
+            destinationSlice: 0,
+            destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blit.endEncoding()
         buffer.commit()
         // Waited on, because the bytes are wanted now. This is a button press, not a frame.
         buffer.waitUntilCompleted()
@@ -194,7 +336,7 @@ final class FieldView: MTKView {
         var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
         bytes.withUnsafeMutableBytes { raw in
             guard let base = raw.baseAddress else { return }
-            texture.getBytes(
+            readable.getBytes(
                 base,
                 bytesPerRow: bytesPerRow,
                 from: MTLRegionMake2D(0, 0, width, height),

@@ -186,3 +186,27 @@ fragment half4 ringFragment(RingOut in [[stage_in]],
     discard_fragment();
     return half4(0.0h);
 }
+
+
+// The fading backdrop, which is what makes a trail look like motion.
+//
+// The reference implementation does not clear the picture between frames. It paints the background
+// colour over it at a quarter opacity, so whatever was there before survives at three quarters and
+// then a little over half, and so on — fading out over roughly a dozen frames. A trail is therefore
+// much longer than the six positions a body actually remembers.
+//
+// Reproducing that needs a picture that survives between frames, which a screen's drawable does not:
+// the system hands out a different one each time. So the field is drawn into a texture of its own
+// that persists, and this is what dims it before each new frame goes on top.
+//
+// Reuses the ring's vertex function, which already covers the screen from the vertex number alone.
+struct FadeUniforms {
+    float4 color;
+};
+
+fragment half4 fadeFragment(RingOut in [[stage_in]],
+                            constant FadeUniforms &fade [[buffer(0)]]) {
+    // Blended over what is already there, so the alpha is the fraction of the old picture that is
+    // replaced rather than kept.
+    return half4(half3(fade.color.rgb), half(fade.color.a));
+}

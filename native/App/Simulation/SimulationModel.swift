@@ -422,6 +422,31 @@ final class SimulationModel {
         engine.registry.customElements
     }
 
+    /// The categories that actually contain something, in the order the reference lists them.
+    ///
+    /// Computed rather than fixed, so the "Yours" category disappears when nothing has been invented
+    /// instead of offering an empty list — and appears the moment something is.
+    var populatedCategories: [ElementCategory] {
+        ElementCategory.allCases.filter { category in
+            engine.registry.paletteElements.contains { $0.category == category }
+        }
+    }
+
+    /// The materials to offer, narrowed by category and by what has been typed.
+    ///
+    /// - Parameters:
+    ///   - category: `nil` for everything.
+    ///   - search: matched anywhere in the name, ignoring case and surrounding spaces. Anywhere
+    ///     rather than only at the start, because "water" should find salt water.
+    func paletteElements(category: ElementCategory?, search: String) -> [ElementDefinition] {
+        let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return engine.registry.paletteElements.filter { element in
+            if let category, element.category != category { return false }
+            guard !needle.isEmpty else { return true }
+            return element.name.lowercased().contains(needle)
+        }
+    }
+
     /// The fifty materials everyone has, for pickers that offer a choice of them.
     var builtInElements: [ElementDefinition] {
         engine.registry.allElements.filter { $0.id < Element.customIDStart }

@@ -24,40 +24,12 @@ struct ElementDock: View {
     /// notice an edit inside it. This is the nudge that makes the list rebuild.
     let paletteVersion: Int
 
-    /// Elements grouped the way someone reaching for one would look for them, rather than by
-    /// internal identifier.
-    private static let groups: [(name: String, items: [(id: ElementID, name: String)])] = [
-        ("Powders", [
-            (Element.sand, "Sand"), (Element.dirt, "Dirt"), (Element.salt, "Salt"),
-            (Element.snow, "Snow"), (Element.coal, "Coal"), (Element.gunpowder, "Gunpowder"),
-            (Element.thermite, "Thermite"), (Element.seed, "Seed"),
-        ]),
-        ("Liquids", [
-            (Element.water, "Water"), (Element.oil, "Oil"), (Element.acid, "Acid"),
-            (Element.lava, "Lava"), (Element.honey, "Honey"), (Element.mercury, "Mercury"),
-            (Element.mud, "Mud"), (Element.nitro, "Nitro"), (Element.wetMix, "Wet mix"),
-        ]),
-        ("Solids", [
-            (Element.stone, "Stone"), (Element.wood, "Wood"), (Element.metal, "Metal"),
-            (Element.copper, "Copper"), (Element.glass, "Glass"), (Element.ice, "Ice"),
-            (Element.rubber, "Rubber"), (Element.wax, "Wax"), (Element.concrete, "Concrete"),
-            (Element.obsidian, "Obsidian"), (Element.bedrock, "Bedrock"),
-        ]),
-        ("Energy", [
-            (Element.fire, "Fire"), (Element.spark, "Spark"), (Element.plasma, "Plasma"),
-            (Element.laser, "Laser"), (Element.fuseWire, "Fuse"), (Element.c4, "C4"),
-        ]),
-        ("Gases", [
-            (Element.smoke, "Smoke"), (Element.steam, "Steam"), (Element.oxygen, "Oxygen"),
-            (Element.hydrogen, "Hydrogen"), (Element.helium, "Helium"),
-        ]),
-        ("Life & odd", [
-            (Element.plant, "Plant"), (Element.ant, "Ant"), (Element.virus, "Virus"),
-            (Element.clone, "Clone"), (Element.void, "Void"), (Element.fan, "Fan"),
-            (Element.portalA, "Portal A"), (Element.portalB, "Portal B"),
-            (Element.antiGravityPowder, "Anti-gravity"),
-        ]),
-    ]
+    /// What has been typed into the search box.
+    @State private var search = ""
+    /// Which category is being shown, or nothing for all of them.
+    @State private var category: ElementCategory?
+    @FocusState private var isSearching: Bool
+
 
     /// The handful most reached for, shown while the dock is closed.
     private static let favourites: [(id: ElementID, name: String)] = [
@@ -176,53 +148,122 @@ struct ElementDock: View {
         .buttonStyle(.plain)
     }
 
-    /// The full set, only while the dock is open.
+    /// The full set, only while the tray is open.
     private var expanded: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                destinations
-                // Invented materials first, because someone who has just made one is looking for
-                // it, and the fifty built-ins are always in the same place further down.
-                if !invented.isEmpty {
-                    group("Yours", invented)
-                }
-                ForEach(Self.groups, id: \.name) { built in
-                    group(built.name, built.items)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+        VStack(alignment: .leading, spacing: 10) {
+            destinations
+            searchRow
+            categoryRow
+            palette
         }
-        .frame(maxHeight: 280)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
     }
 
-    /// The materials someone invented.
+    /// The search box.
     ///
-    /// Read through `paletteVersion` so that inventing or deleting one rebuilds this. The registry is
-    /// a class and SwiftUI cannot see an edit inside one.
-    private var invented: [(id: ElementID, name: String)] {
-        _ = paletteVersion
-        return model.customElements
-            .sorted { $0.id < $1.id }
-            .map { (id: $0.id, name: $0.name) }
+    /// Worth having rather than relying on the groups below: there are fifty built-in materials and
+    /// up to fifty invented ones, and someone who knows they want obsidian should not have to
+    /// remember which heading it lives under.
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.labBody(12))
+                .foregroundStyle(Palette.subtleForeground)
+            TextField("Search materials", text: $search)
+                .font(.labBody(13))
+                .foregroundStyle(Palette.foreground)
+                .focused($isSearching)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.done)
+            if !search.isEmpty {
+                Button {
+                    search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.labBody(13))
+                        .foregroundStyle(Palette.subtleForeground)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear the search")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.06))
+                .overlay(Capsule().stroke(Palette.border, lineWidth: 1))
+        )
     }
 
-    /// One titled block of the palette.
-    private func group(_ title: String, _ items: [(id: ElementID, name: String)]) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title.uppercased())
-                .font(.labBody(10, .semiBold))
-                .tracking(0.8)
-                .foregroundStyle(Palette.subtleForeground)
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 84), spacing: 6)],
-                spacing: 6
-            ) {
-                ForEach(items, id: \.id) { item in
-                    chip(item.id, item.name, wide: true)
+    /// The category filter.
+    ///
+    /// Hidden while searching, because a search already spans everything and leaving a category
+    /// selected would silently hide matches — which reads as the search being broken.
+    @ViewBuilder
+    private var categoryRow: some View {
+        if search.trimmingCharacters(in: .whitespaces).isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    categoryChip(nil, "All")
+                    ForEach(model.populatedCategories, id: \.self) { option in
+                        categoryChip(option, Self.categoryTitle(option))
+                    }
                 }
             }
         }
+    }
+
+    private func categoryChip(_ option: ElementCategory?, _ title: String) -> some View {
+        let selected = category == option
+        return Button {
+            category = option
+        } label: {
+            Text(title)
+                .font(.labBody(12, selected ? .semiBold : .regular))
+                .foregroundStyle(selected ? Palette.primaryForeground : Palette.muted)
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .background(
+                    Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// "Custom" is the engine's word for it; "Yours" is what it is.
+    private static func categoryTitle(_ category: ElementCategory) -> String {
+        category == .custom ? "Yours" : category.rawValue
+    }
+
+    /// The materials themselves.
+    private var palette: some View {
+        // Read through paletteVersion so that inventing or deleting a material rebuilds this. The
+        // registry is a class, and SwiftUI cannot see an edit inside one.
+        let _ = paletteVersion
+        let matches = model.paletteElements(category: category, search: search)
+
+        return ScrollView {
+            if matches.isEmpty {
+                Text("Nothing matches “\(search.trimmingCharacters(in: .whitespaces))”.")
+                    .font(.labBody(12))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 84), spacing: 6)],
+                    spacing: 6
+                ) {
+                    ForEach(matches, id: \.id) { element in
+                        chip(element.id, element.name, wide: true)
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: 240)
     }
 
     /// The favourites row, always visible.
