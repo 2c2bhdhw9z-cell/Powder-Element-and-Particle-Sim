@@ -132,9 +132,9 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: option.symbol)
-                            .font(.system(size: 11))
+                            .font(.labBody(11))
                         Text(option.title)
-                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                            .font(.labBody(12, selected ? .semiBold : .regular))
                     }
                     .foregroundStyle(selected ? Palette.primaryForeground : Palette.muted)
                     .padding(.horizontal, 12)
@@ -206,7 +206,7 @@ struct ScenePicker: View {
                                     .foregroundStyle(Palette.foreground)
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.labBody(11, .semiBold))
                                     .foregroundStyle(Palette.subtleForeground)
                             }
                         }
@@ -214,7 +214,7 @@ struct ScenePicker: View {
                     }
                 } footer: {
                     Text("Loading a scene replaces the world. Undo brings it back.")
-                        .font(.system(size: 11))
+                        .font(.labBody(11))
                 }
             }
             .scrollContentBackground(.hidden)
@@ -272,7 +272,7 @@ struct FieldToolCluster: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.labBody(14, .medium))
                 .foregroundStyle(enabled ? Palette.muted : Palette.subtleForeground)
                 .frame(width: 40, height: 40)
         }

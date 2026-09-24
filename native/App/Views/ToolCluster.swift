@@ -68,7 +68,7 @@ struct ToolCluster: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.labBody(14, .medium))
                 .foregroundStyle(enabled ? Palette.muted : Palette.subtleForeground)
                 .frame(width: 40, height: 40)
         }

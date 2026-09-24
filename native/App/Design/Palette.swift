@@ -1,4 +1,7 @@
 import SwiftUI
+// For UIFont, which is the only way to ask whether a bundled face actually registered.
+// SwiftUI's Font has no equivalent — it reports no error for a name it cannot find.
+import UIKit
 
 /// Crucible's colours, carried over from the web version so the two look like one product.
 ///
@@ -48,22 +51,97 @@ enum Radius {
     static let extraLarge: CGFloat = 24
 }
 
-extension Font {
-    /// Headings and titles.
-    ///
-    /// The web version sets these in Syne, a geometric display face. Bundling a font file is
-    /// a later refinement; until then this is the system face at the weight and tightness
-    /// that reads closest to it, which is much nearer than leaving it at the default.
-    static func labDisplay(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .semibold, design: .default)
+/// The three typefaces the web version uses, bundled with the app.
+///
+/// The web build pulls Syne and IBM Plex Sans from Google's servers at page load. An app
+/// cannot do that — it has to work with no network — so the font files are committed under
+/// `App/Resources/Fonts` and listed in `Info.plist` under `UIAppFonts`. Both are licensed
+/// under the SIL Open Font License, whose text sits beside them in the same folder.
+///
+/// ## Why each face is named exactly, rather than asked for by weight
+///
+/// The obvious way to write this is `Font.custom("IBM Plex Sans", size: 12).weight(.medium)`
+/// and let the system find the right file. That does not work here. IBM ships each weight of
+/// Plex declaring its **own family name** — the medium file calls itself "IBM Plex Sans Medm"
+/// and the semibold "IBM Plex Sans SmBld" — so asking the "IBM Plex Sans" family for a
+/// heavier weight finds nothing and the system invents one by smearing the regular, which
+/// looks subtly wrong in a way that is hard to place.
+///
+/// So every face is requested by its exact PostScript name. Unambiguous, and it does not
+/// depend on the system's font-matching guesswork.
+///
+/// ## Why a missing font must be noisy
+///
+/// If one of these files is not in the bundle, `Font.custom` does not fail — it quietly
+/// hands back the system face. The app still runs and still looks *fine*; it just does not
+/// look like Crucible, with nothing to say why. That is the exact complaint this work exists
+/// to fix, so ``LabFonts/missingFaces()`` checks every name at runtime and the debug readout
+/// shows the result.
+enum LabFonts {
+    /// Display: Syne. Titles, headings, and the one big number on the performance sheet.
+    enum Display: String, CaseIterable {
+        case medium = "Syne-Medium"      // 500
+        case semiBold = "Syne-SemiBold"  // 600
+        case bold = "Syne-Bold"          // 700
     }
 
-    /// Numbers that change while you watch them.
+    /// Body: IBM Plex Sans. Everything that is prose or a label.
+    enum Body: String, CaseIterable {
+        case regular = "IBMPlexSans"        // 400
+        case medium = "IBMPlexSans-Medm"    // 500
+        case semiBold = "IBMPlexSans-SmBld" // 600
+    }
+
+    /// Numeric: IBM Plex Mono. Readouts, counters, anything that changes while watched.
+    ///
+    /// The web version declares this face and then never loads it — its font request lists
+    /// only Syne and Plex Sans — so what actually ships on the web is whatever monospace the
+    /// browser defaults to. That is a bug there rather than a decision, and the same request
+    /// has been corrected on the web side so the two now genuinely match.
+    enum Numeric: String, CaseIterable {
+        case regular = "IBMPlexMono-Regular"  // 400
+        case medium = "IBMPlexMono-Medium"    // 500
+    }
+
+    /// Every face the app expects to find, by PostScript name.
+    static var allFaceNames: [String] {
+        Display.allCases.map(\.rawValue)
+            + Body.allCases.map(\.rawValue)
+            + Numeric.allCases.map(\.rawValue)
+    }
+
+    /// The faces that are *not* installed, which should be empty.
+    ///
+    /// Anything listed here is being silently substituted, so the interface is not the one
+    /// that was designed. Surfaced in the debug readout rather than only logged, because the
+    /// person most likely to notice the difference cannot read a console.
+    static func missingFaces() -> [String] {
+        allFaceNames.filter { UIFont(name: $0, size: 12) == nil }
+    }
+}
+
+extension Font {
+    /// Headings and titles, in Syne.
+    ///
+    /// Sizes are fixed rather than scaled with the reader's preferred text size, matching
+    /// the web version, whose docks and chips are laid out to the pixel. Growing the type
+    /// without also reflowing those would overlap them. Worth revisiting as a real
+    /// accessibility pass, which is a layout job rather than a font one.
+    static func labDisplay(_ size: CGFloat, _ weight: LabFonts.Display = .semiBold) -> Font {
+        .custom(weight.rawValue, fixedSize: size)
+    }
+
+    /// Prose and labels, in IBM Plex Sans.
+    static func labBody(_ size: CGFloat, _ weight: LabFonts.Body = .regular) -> Font {
+        .custom(weight.rawValue, fixedSize: size)
+    }
+
+    /// Numbers that change while you watch them, in IBM Plex Mono.
     ///
     /// Always monospaced. A frame counter in a proportional face shifts its own width as the
     /// digits change, which reads as the number jittering rather than counting.
-    static func labNumeric(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .medium, design: .monospaced)
+    static func labNumeric(_ size: CGFloat, _ weight: LabFonts.Numeric = .medium) -> Font {
+        .custom(weight.rawValue, fixedSize: size)
     }
 }
 

@@ -22,8 +22,13 @@ export const Route = createRootRoute({
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
+        // IBM Plex Mono is here because styles.css names it in --font-mono and every
+        // numeric readout in the lab asks for it — but it was never actually requested, so
+        // all of them silently rendered in whichever monospace the browser happened to
+        // default to. The native app bundles the real face, and this is what makes the two
+        // agree rather than only appear to.
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600&family=Syne:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600&family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@500;600;700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__pwa/manifest.webmanifest" },

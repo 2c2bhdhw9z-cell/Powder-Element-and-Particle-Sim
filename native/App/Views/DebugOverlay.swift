@@ -20,6 +20,10 @@ struct DebugOverlay: View {
     private static let fastFrameBudget = 1000.0 / 120
     private static let slowFrameBudget = 1000.0 / 60
 
+    /// Checked once when the readout appears rather than every frame — the answer cannot
+    /// change while the app is running, since fonts register at launch.
+    private let missingFaces = LabFonts.missingFaces()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             row("fps", "\(model.ticksPerSecond)", tint: frameRateTint)
@@ -41,6 +45,21 @@ struct DebugOverlay: View {
                     .formatted(.number.precision(.fractionLength(0))) + "%",
                 tint: tickCostTint
             )
+
+            // A typeface that failed to load does not announce itself — the app simply draws
+            // in the system face and still looks perfectly tidy, just not like Crucible. This
+            // is the only place that difference becomes visible rather than merely felt.
+            if !missingFaces.isEmpty {
+                Divider()
+                    .overlay(Palette.border)
+                    .padding(.vertical, 2)
+                row("fonts", "\(missingFaces.count) missing", tint: Palette.danger)
+                ForEach(missingFaces, id: \.self) { face in
+                    Text(face)
+                        .foregroundStyle(Palette.danger)
+                        .frame(maxWidth: 160, alignment: .trailing)
+                }
+            }
         }
         .font(.labNumeric(10))
         .padding(.horizontal, 10)

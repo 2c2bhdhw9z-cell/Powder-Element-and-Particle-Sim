@@ -125,7 +125,7 @@ struct ElementDock: View {
                 ForEach(Self.groups, id: \.name) { group in
                     VStack(alignment: .leading, spacing: 7) {
                         Text(group.name.uppercased())
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.labBody(10, .semiBold))
                             .tracking(0.8)
                             .foregroundStyle(Palette.subtleForeground)
                         LazyVGrid(
@@ -165,7 +165,7 @@ struct ElementDock: View {
                 model.isRunning.toggle()
             } label: {
                 Image(systemName: model.isRunning ? "pause.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.labBody(15, .semiBold))
                     .foregroundStyle(Palette.primaryForeground)
                     .frame(width: 44, height: 36)
                     .background(Palette.primary, in: Capsule())
@@ -177,7 +177,7 @@ struct ElementDock: View {
             // most often while drawing, and the size wants to be felt rather than counted.
             HStack(spacing: 8) {
                 Image(systemName: "circle.dotted")
-                    .font(.system(size: 12))
+                    .font(.labBody(12))
                     .foregroundStyle(Palette.subtleForeground)
                 Slider(
                     value: Binding(
@@ -214,7 +214,7 @@ struct ElementDock: View {
                     .frame(width: 9, height: 9)
                     .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 0.5))
                 Text(name)
-                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    .font(.labBody(12, selected ? .semiBold : .regular))
                     .lineLimit(1)
             }
             .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
@@ -235,7 +235,7 @@ struct ElementDock: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.labBody(14, .medium))
                 .foregroundStyle(Palette.muted)
                 .frame(width: 40, height: 36)
                 .background(Circle().fill(Color.white.opacity(0.08)))

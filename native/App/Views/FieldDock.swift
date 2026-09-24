@@ -115,7 +115,7 @@ struct FieldDock: View {
                     set: { model.collisionsEnabled = $0 }
                 ))
             }
-            .font(.system(size: 12))
+            .font(.labBody(12))
             .foregroundStyle(Palette.foreground)
             .tint(Palette.primary)
         }
@@ -133,9 +133,9 @@ struct FieldDock: View {
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: tool.symbol)
-                                .font(.system(size: 11))
+                                .font(.labBody(11))
                             Text(tool.name)
-                                .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                                .font(.labBody(12, selected ? .semiBold : .regular))
                         }
                         .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
                         .padding(.horizontal, 11)
@@ -158,7 +158,7 @@ struct FieldDock: View {
                 model.isRunning.toggle()
             } label: {
                 Image(systemName: model.isRunning ? "pause.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.labBody(15, .semiBold))
                     .foregroundStyle(Palette.primaryForeground)
                     .frame(width: 44, height: 36)
                     .background(Palette.primary, in: Capsule())
@@ -179,7 +179,7 @@ struct FieldDock: View {
             }
             .pickerStyle(.menu)
             .tint(Palette.muted)
-            .font(.system(size: 12))
+            .font(.labBody(12))
 
             Spacer(minLength: 0)
 
@@ -199,7 +199,7 @@ struct FieldDock: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(title)
-                    .font(.system(size: 12))
+                    .font(.labBody(12))
                     .foregroundStyle(Palette.muted)
                 Spacer()
                 Text(display(value.wrappedValue))
@@ -218,7 +218,7 @@ struct FieldDock: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 14, weight: .medium))
+                .font(.labBody(14, .medium))
                 .foregroundStyle(Palette.muted)
                 .frame(width: 40, height: 36)
                 .background(Circle().fill(Color.white.opacity(0.08)))
@@ -245,7 +245,7 @@ struct FieldPresetPicker: View {
                                     .foregroundStyle(Palette.foreground)
                                 Spacer()
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(.labBody(11, .semiBold))
                                     .foregroundStyle(Palette.subtleForeground)
                             }
                         }
@@ -253,7 +253,7 @@ struct FieldPresetPicker: View {
                     }
                 } footer: {
                     Text("Loading a preset replaces the field. Undo brings it back.")
-                        .font(.system(size: 11))
+                        .font(.labBody(11))
                 }
             }
             .scrollContentBackground(.hidden)

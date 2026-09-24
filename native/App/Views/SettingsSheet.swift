@@ -45,7 +45,7 @@ struct SettingsSheet: View {
             .pickerStyle(.segmented)
 
             Text(glass.explanation)
-                .font(.system(size: 12))
+                .font(.labBody(12))
                 .foregroundStyle(Palette.muted)
         } header: {
             Text("Appearance")
@@ -57,7 +57,7 @@ struct SettingsSheet: View {
                 + "on each frame, out of the same budget the simulation draws from. Turning "
                 + "glass off does not fade it — there is nothing left to blur."
             )
-            .font(.system(size: 11))
+            .font(.labBody(11))
         }
         .listRowBackground(Palette.elevated)
     }
@@ -106,7 +106,7 @@ struct SettingsSheet: View {
             Text("Physics")
         } footer: {
             Text("Double-tap the slider to return to level.")
-                .font(.system(size: 11))
+                .font(.labBody(11))
         }
         .listRowBackground(Palette.elevated)
     }
@@ -126,7 +126,7 @@ struct SettingsSheet: View {
                         : "Reopen the app to hide it.",
                     systemImage: "arrow.clockwise"
                 )
-                .font(.system(size: 12))
+                .font(.labBody(12))
                 .foregroundStyle(Palette.warn)
             }
 
@@ -145,7 +145,7 @@ struct SettingsSheet: View {
                 + "of a frame that leaves.\n\n"
                 + "This whole section comes out before release."
             )
-            .font(.system(size: 11))
+            .font(.labBody(11))
         }
         .listRowBackground(Palette.elevated)
     }

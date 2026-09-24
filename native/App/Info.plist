@@ -65,5 +65,23 @@
 	<true/>
 	<!-- Nothing here switches the Metal performance overlay off. It is driven by iOS's own
 	     developer settings and is left entirely under your control. -->
+	<!-- The two typefaces the web version loads from Google's servers, bundled instead,
+	     because an app has to look right with no network. Both are under the SIL Open Font
+	     License; its text sits beside the files in App/Resources/Fonts.
+
+	     A name missing from this list does not fail the build and does not crash: the app
+	     just silently draws in the system face instead. LabFonts.missingFaces() checks for
+	     that at runtime and the debug readout reports it. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Syne-Medium.ttf</string>
+		<string>Syne-SemiBold.ttf</string>
+		<string>Syne-Bold.ttf</string>
+		<string>IBMPlexSans-Regular.ttf</string>
+		<string>IBMPlexSans-Medium.ttf</string>
+		<string>IBMPlexSans-SemiBold.ttf</string>
+		<string>IBMPlexMono-Regular.ttf</string>
+		<string>IBMPlexMono-Medium.ttf</string>
+	</array>
 </dict>
 </plist>
