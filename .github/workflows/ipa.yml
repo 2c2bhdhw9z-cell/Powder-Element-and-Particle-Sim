@@ -26,6 +26,7 @@ on:
     branches: [main]
     paths:
       - "native/**"
+      - "scripts/check-fonts.py"
       - ".github/workflows/ipa.yml"
   workflow_dispatch:
     inputs:
@@ -59,6 +60,14 @@ jobs:
           # Recorded in the log because an SDK change is the first thing worth checking when a
           # build that has worked for months suddenly stops.
           xcodebuild -showsdks | grep -i iphoneos || true
+
+      # Before the build, because it is instant and because a failure here is the one failure that
+      # would otherwise ship silently: a typeface name matching no bundled file does not fail to
+      # compile and does not crash — the app just quietly draws in the system face. It belongs in
+      # this workflow rather than the engine's, since it is a fact about the app bundle, and the
+      # Swift container the engine runs in has no Python.
+      - name: Typefaces
+        run: python3 scripts/check-fonts.py
 
       - name: Install XcodeGen
         # The Xcode project is generated rather than committed; see native/project.yml.

@@ -13,12 +13,10 @@ on:
     branches: [main]
     paths:
       - "native/**"
-      - "scripts/**"
       - ".github/workflows/engine.yml"
   pull_request:
     paths:
       - "native/**"
-      - "scripts/**"
       - ".github/workflows/engine.yml"
   workflow_dispatch:
 
@@ -37,15 +35,6 @@ jobs:
 
       - name: Swift version
         run: swift --version
-
-      # Cheap, and it guards the one failure in this project that reports nothing at all.
-      #
-      # A typeface name that matches no bundled file does not fail to build, does not warn and does
-      # not crash — the app silently draws in the system face and looks tidy but wrong, with no clue
-      # as to why. That was the original complaint about this port, and one mistyped letter anywhere
-      # would bring it straight back.
-      - name: Typefaces
-        run: python3 scripts/check-fonts.py
 
       - name: Build
         working-directory: native
