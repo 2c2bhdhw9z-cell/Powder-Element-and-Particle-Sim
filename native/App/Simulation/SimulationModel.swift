@@ -98,6 +98,19 @@ final class SimulationModel {
         }
     }
 
+    /// Which of the five presets gravity currently matches, if any.
+    ///
+    /// Needed so the choice in the panel can show which one is active rather than always looking
+    /// unset. Anything that is not one of the five — a value dragged in by the tilt, or set by a
+    /// loaded scene — reports as the nearest, which for gravity means whichever axis dominates.
+    var gravityDirection: GravityDirection {
+        let x = engine.gravityX
+        let y = engine.gravityY
+        if x == 0 && y == 0 { return .none }
+        if abs(y) >= abs(x) { return y > 0 ? .down : .up }
+        return x > 0 ? .right : .left
+    }
+
     /// Points gravity in one of the five preset directions.
     func setGravity(_ direction: GravityDirection) {
         let vector = direction.vector

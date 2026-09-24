@@ -20,6 +20,7 @@ struct ElementInfoTarget: Identifiable {
 struct ElementInfoSheet: View {
     let model: SimulationModel
     let elementID: ElementID
+    let glass: GlassLevel
 
     private var definition: ElementDefinition {
         model.definition(of: elementID)
@@ -30,26 +31,12 @@ struct ElementInfoSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    heading
-                    description
-                    facts
-                    prose
-                }
-                .padding(.horizontal, 18)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Palette.background)
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+        LabSheet(title: definition.name, subtitle: definition.category.rawValue, glass: glass) {
+            heading
+            description
+            facts
+            prose
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
     private var heading: some View {
@@ -63,14 +50,10 @@ struct ElementInfoSheet: View {
                     RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
                         .strokeBorder(Palette.border)
                 )
-            VStack(alignment: .leading, spacing: 2) {
-                Text(definition.name)
-                    .font(.labDisplay(20))
-                    .foregroundStyle(Palette.foreground)
-                Text(definition.category.rawValue)
-                    .font(.labBody(12))
-                    .foregroundStyle(Palette.muted)
-            }
+            Text(Self.stateName(definition.state))
+                .font(.labBody(12))
+                .foregroundStyle(Palette.muted)
+            Spacer(minLength: 0)
         }
     }
 
@@ -87,7 +70,6 @@ struct ElementInfoSheet: View {
     private var facts: some View {
         VStack(spacing: 0) {
             fact("Heaviness", definition.density.formatted(.number.precision(.fractionLength(0 ... 1))))
-            fact("State", Self.stateName(definition.state))
             if let melt = lore.melt { fact("Melts", melt) }
             if let boil = lore.boil { fact("Boils", boil) }
             if definition.flammability > 0 {
@@ -100,7 +82,7 @@ struct ElementInfoSheet: View {
         }
         .background(
             RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
-                .fill(Palette.elevated)
+                .fill(Color.white.opacity(0.05))
         )
     }
 
@@ -167,41 +149,28 @@ struct ElementInfoSheet: View {
 /// distinction the physics does not make.
 struct PeriodicSheet: View {
     let model: SimulationModel
+    let glass: GlassLevel
     let onPick: (ElementID) -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 84), spacing: 8)]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("Tap a real substance and the lab will select the closest thing it can actually simulate.")
-                        .font(.labBody(12))
-                        .foregroundStyle(Palette.muted)
-                        .padding(.horizontal, 16)
-
-                    section("Elements", PeriodicTable.elements)
-                    section("Compounds", PeriodicTable.compounds)
-                }
-                .padding(.vertical, 12)
-            }
-            .background(Palette.background)
-            .navigationTitle("Periodic")
-            .navigationBarTitleDisplayMode(.inline)
+        LabSheet(
+            title: "Periodic",
+            subtitle: "Real substances, mapped onto what the lab can simulate",
+            glass: glass
+        ) {
+            section("Elements", PeriodicTable.elements)
+            section("Compounds", PeriodicTable.compounds)
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
     private func section(_ title: String, _ entries: [PeriodicEntry]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.labBody(11, .semiBold))
+            Text(title.uppercased())
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
-                .textCase(.uppercase)
-                .padding(.horizontal, 16)
 
             LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(entries) { entry in
@@ -213,7 +182,6 @@ struct PeriodicSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
         }
     }
 
@@ -250,7 +218,7 @@ struct PeriodicSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
-                .fill(Palette.elevated)
+                .fill(Color.white.opacity(0.05))
         )
         .accessibilityLabel("\(entry.name), becomes \(model.definition(of: entry.mapsTo).name)")
         .accessibilityHint(entry.why)

@@ -1,171 +1,144 @@
 import CrucibleCore
 import SwiftUI
 
-/// The settings tray.
+/// The lab's own panel: how it looks, what the physics does, and things that make something happen.
 ///
-/// Grouped by what you are changing rather than by what it is implemented as: how the lab
-/// looks, what the physics does, and the tools that exist only while the app is being built.
+/// Opened from the button in the header, which is where the reference implementation puts it.
+///
+/// Built from the lab's own pieces rather than the system's grouped list. That list is quick to write
+/// and looks like the Settings app — inset grey rows on a lighter grey — which is a different product
+/// from a near-black room full of translucent glass.
 struct SettingsSheet: View {
     let model: SimulationModel
     @Binding var glass: GlassLevel
     @Binding var showDebugOverlay: Bool
     @Binding var soundEnabled: Bool
-    /// Opens the health report. Handed in rather than presented from here, because a sheet cannot
-    /// sensibly present another sheet on top of itself.
     let onShowDiagnostics: () -> Void
 
-    /// Read straight from the same place the app's initialiser reads it, so the two cannot
-    /// disagree about what was asked for.
+    /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
+    /// about what was asked for.
     @AppStorage(DebugSettings.graphicsOverlayKey) private var graphicsOverlay = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                appearance
-                view
-                physics
-                world
-                events
-                health
-                development
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
+        LabSheet(title: "Lab", subtitle: "How it looks and how it behaves", glass: glass) {
+            appearance
+            view
+            world
+            events
+            health
+            development
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
-    // MARK: - World
+    // MARK: Appearance
 
-    /// The conditions the whole world sits in: which way is down, how hard the wind blows, how
-    /// hot the room is, and whether pressure is simulated at all.
+    private var appearance: some View {
+        LabGroup("Appearance", footnote: glass.explanation) {
+            LabChoice(
+                label: "Glass",
+                selection: $glass,
+                options: GlassLevel.allCases.map { (value: $0, title: $0.title) }
+            )
+        }
+    }
+
+    private var view: some View {
+        LabGroup("What you see") {
+            LabChoice(
+                label: "Colour by",
+                selection: Binding(get: { model.overlay }, set: { model.overlay = $0 }),
+                options: [
+                    (.normal, "Material"),
+                    (.temperatureOverlay, "Material + heat"),
+                    (.temperature, "Heat"),
+                    (.density, "Heaviness"),
+                ]
+            )
+            LabDivider()
+            LabChoice(
+                label: "Grain",
+                selection: Binding(get: { model.textureMode }, set: { model.textureMode = $0 }),
+                options: [
+                    (.naturalGrain, "Natural"),
+                    (.organicFlow, "Flowing"),
+                    (.diagonalMatrix, "Crystalline"),
+                    (.flat, "Flat"),
+                ]
+            )
+        }
+    }
+
+    // MARK: World
+
     private var world: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Which way is down")
-                HStack(spacing: 6) {
-                    ForEach(SimulationModel.GravityDirection.allCases) { direction in
-                        Button {
-                            model.setGravity(direction)
-                        } label: {
-                            Image(systemName: direction.symbol)
-                                .font(.labBody(13, .medium))
-                                .frame(maxWidth: .infinity, minHeight: 34)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Palette.foreground)
-                        .background(
-                            RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
-                                .fill(Palette.subtle)
-                        )
-                        .accessibilityLabel(direction.title)
-                    }
+        LabGroup(
+            "World",
+            footnote: model.isSteeredByTilt
+                ? "The phone's tilt is setting gravity. Tap Tilt twice more to take it back."
+                : "Pressure is the most expensive part of a moment. Turning it off buys speed, and "
+                    + "costs trapped gas its way out."
+        ) {
+            LabChoice(
+                label: "Which way is down",
+                selection: Binding(
+                    get: { model.gravityDirection },
+                    set: { model.setGravity($0) }
+                ),
+                options: SimulationModel.GravityDirection.allCases.map {
+                    (value: $0, title: $0.title)
                 }
-                // Same reason as the gravity slider: the phone rewrites this many times a second
-                // while it is steering, so a button here would appear to do nothing.
-                .disabled(model.isSteeredByTilt)
-                .opacity(model.isSteeredByTilt ? 0.4 : 1)
-            }
+            )
+            .disabled(model.isSteeredByTilt)
+            .opacity(model.isSteeredByTilt ? 0.4 : 1)
 
-            slider(
-                "Wind",
+            LabDivider()
+            LabSlider(
+                label: "Wind",
                 value: Binding(get: { model.wind }, set: { model.wind = $0 }),
                 range: -5 ... 5,
-                step: 1,
-                format: { $0.formatted(.number.precision(.fractionLength(0))) }
-            )
+                step: 1
+            ) { $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(0))) }
 
-            slider(
-                "Room temperature",
+            LabDivider()
+            LabSlider(
+                label: "Room temperature",
                 value: Binding(get: { model.ambientTemp }, set: { model.ambientTemp = $0 }),
                 range: -40 ... 400,
-                step: 5,
-                format: { "\($0.formatted(.number.precision(.fractionLength(0))))°C" }
-            )
+                step: 5
+            ) { "\($0.formatted(.number.precision(.fractionLength(0))))°C" }
 
-            Toggle("Sound", isOn: $soundEnabled)
-            Toggle("Pressure", isOn: Binding(
-                get: { model.pressureEnabled },
-                set: { model.pressureEnabled = $0 }
-            ))
-            Toggle("Heat spreads", isOn: Binding(
-                get: { model.heatConductionEnabled },
-                set: { model.heatConductionEnabled = $0 }
-            ))
-        } header: {
-            Text("World")
-        } footer: {
-            Text(
-                "Pressure is the most expensive part of a tick. Turning it off buys speed, and "
-                    + "costs trapped gas its way out."
+            LabDivider()
+            LabToggle(label: "Sound", isOn: $soundEnabled)
+            LabDivider()
+            LabToggle(
+                label: "Pressure",
+                isOn: Binding(get: { model.pressureEnabled }, set: { model.pressureEnabled = $0 })
             )
-            .font(.labBody(11))
+            LabDivider()
+            LabToggle(
+                label: "Heat spreads",
+                isOn: Binding(
+                    get: { model.heatConductionEnabled },
+                    set: { model.heatConductionEnabled = $0 }
+                )
+            )
         }
     }
 
-    // MARK: - Health
+    // MARK: Events
 
-    private var health: some View {
-        Section {
-            Button(action: onShowDiagnostics) {
-                HStack {
-                    Image(systemName: "stethoscope")
-                        .frame(width: 22)
-                        .foregroundStyle(Palette.muted)
-                    Text("Check the world's health")
-                        .foregroundStyle(Palette.foreground)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.labBody(11, .semiBold))
-                        .foregroundStyle(Palette.subtleForeground)
-                }
-            }
-        } footer: {
-            Text(
-                "A world can go quietly wrong in ways that do not look wrong — a cell holding an "
-                    + "element that does not exist, or a temperature that is not a number. This "
-                    + "finds those, and undoes them."
-            )
-            .font(.labBody(11))
-        }
-    }
-
-    // MARK: - Events
-
-    /// The four set-piece events.
-    ///
-    /// Buttons rather than switches: each one happens once and changes the world, so they belong
-    /// with the scene picker in spirit. Each is a single undo point, meteor and its explosion
-    /// together.
     private var events: some View {
-        Section {
-            ForEach(PowderEventID.allCases, id: \.self) { event in
-                Button {
+        LabGroup("Make something happen", footnote: "Each of these is one undo away.") {
+            ForEach(Array(PowderEventID.allCases.enumerated()), id: \.element) { index, event in
+                if index > 0 { LabDivider() }
+                LabAction(
+                    label: Self.title(for: event),
+                    detail: Self.explanation(for: event),
+                    symbol: Self.symbol(for: event)
+                ) {
                     model.run(event)
-                } label: {
-                    HStack {
-                        Image(systemName: Self.symbol(for: event))
-                            .frame(width: 22)
-                            .foregroundStyle(Palette.muted)
-                        Text(Self.title(for: event))
-                            .foregroundStyle(Palette.foreground)
-                        Spacer()
-                        Text(Self.explanation(for: event))
-                            .font(.labBody(11))
-                            .foregroundStyle(Palette.subtleForeground)
-                    }
                 }
             }
-        } header: {
-            Text("Make something happen")
-        } footer: {
-            Text("Each of these is one undo away.")
-                .font(.labBody(11))
         }
     }
 
@@ -196,166 +169,30 @@ struct SettingsSheet: View {
         }
     }
 
-    /// A labelled slider with its value shown, which the world controls all want.
-    private func slider(
-        _ label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        step: Double,
-        format: @escaping (Double) -> String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(label)
-                Spacer()
-                Text(format(value.wrappedValue))
-                    .font(.labNumeric(12))
-                    .foregroundStyle(Palette.muted)
-            }
-            Slider(value: value, in: range, step: step) { Text(label) }
+    // MARK: Health
+
+    private var health: some View {
+        LabGroup(
+            "Health",
+            footnote: "A world can go quietly wrong in ways that do not look wrong — a cell holding "
+                + "a material that no longer exists, or a temperature that is not a number. This "
+                + "finds those, and undoes them."
+        ) {
+            LabAction(label: "Check the world's health", symbol: "stethoscope", action: onShowDiagnostics)
         }
     }
 
-    // MARK: - Appearance
-
-    private var appearance: some View {
-        Section {
-            Picker("Glass", selection: $glass) {
-                ForEach(GlassLevel.allCases) { level in
-                    Text(level.title).tag(level)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(glass.explanation)
-                .font(.labBody(12))
-                .foregroundStyle(Palette.muted)
-        } header: {
-            Text("Appearance")
-        } footer: {
-            // Said plainly, because it is the reason the setting goes all the way down rather
-            // than just dimming.
-            Text(
-                "Every blurred panel is pixels the graphics chip has to read back and filter "
-                + "on each frame, out of the same budget the simulation draws from. Turning "
-                + "glass off does not fade it — there is nothing left to blur."
-            )
-            .font(.labBody(11))
-        }
-        .listRowBackground(Palette.elevated)
-    }
-
-    // MARK: - View
-
-    private var view: some View {
-        Section("View") {
-            Picker("Colour by", selection: overlayBinding) {
-                Text("Element").tag(PowderOverlayMode.normal)
-                Text("Heat").tag(PowderOverlayMode.temperature)
-                Text("Element + heat").tag(PowderOverlayMode.temperatureOverlay)
-                Text("Density").tag(PowderOverlayMode.density)
-            }
-
-            Picker("Grain", selection: textureBinding) {
-                Text("Natural").tag(PowderTextureMode.naturalGrain)
-                Text("Crystalline").tag(PowderTextureMode.diagonalMatrix)
-                Text("Flowing").tag(PowderTextureMode.organicFlow)
-                Text("Flat").tag(PowderTextureMode.flat)
-            }
-        }
-        .listRowBackground(Palette.elevated)
-    }
-
-    // MARK: - Physics
-
-    private var physics: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text("Sideways gravity")
-                    Spacer()
-                    Text(model.gravityX.formatted(.number.precision(.fractionLength(2))))
-                        .font(.labNumeric(12))
-                        .foregroundStyle(Palette.muted)
-                }
-                Slider(value: gravityBinding, in: -1 ... 1) {
-                    Text("Sideways gravity")
-                }
-                // A tap on the label returns it to level, which is quicker than nudging a
-                // slider back to exactly nothing.
-                .onTapGesture(count: 2) { model.gravityX = 0 }
-                // Turned off while the phone is steering, rather than left live. The tilt
-                // rewrites gravity sixty times a second, so a slider here would snap back under
-                // your finger and read as broken.
-                .disabled(model.isSteeredByTilt)
-                .opacity(model.isSteeredByTilt ? 0.4 : 1)
-            }
-        } header: {
-            Text("Physics")
-        } footer: {
-            Text(
-                model.isSteeredByTilt
-                    ? "The phone's tilt is setting gravity. Tap Tilt twice more to take it back."
-                    : "Double-tap the slider to return to level."
-            )
-            .font(.labBody(11))
-        }
-        .listRowBackground(Palette.elevated)
-    }
-
-    // MARK: - Development
+    // MARK: Development
 
     private var development: some View {
-        Section {
-            Toggle("Apple's graphics overlay", isOn: $graphicsOverlay)
-
-            if graphicsOverlay != DebugSettings.graphicsOverlayIsActive {
-                // Said in place, at the moment it becomes true, rather than as a permanent
-                // caveat nobody reads.
-                Label(
-                    graphicsOverlay
-                        ? "Reopen the app to show it."
-                        : "Reopen the app to hide it.",
-                    systemImage: "arrow.clockwise"
-                )
-                .font(.labBody(12))
-                .foregroundStyle(Palette.warn)
-            }
-
-            Toggle("Simulation readout", isOn: $showDebugOverlay)
-        } header: {
-            Text("While this is being built")
-        } footer: {
-            Text(
-                "Apple's overlay is the one with the GPU timings and the vertex and fragment "
-                + "bars. It is built into the graphics system, which decides whether to draw it "
-                + "once when the app starts and offers no way to change its mind — so this "
-                + "switch is applied before the graphics system looks, and lands the next time "
-                + "you open the app.\n\n"
-                + "The simulation readout is this app's own, so it switches instantly. It shows "
-                + "what Apple's cannot see: how long one step of the physics takes, and how much "
-                + "of a frame that leaves.\n\n"
-                + "This whole section comes out before release."
-            )
-            .font(.labBody(11))
+        LabGroup(
+            "While this is being built",
+            footnote: "Apple's overlay is theirs, not ours, and it only appears after the app is "
+                + "opened again. The readout is ours and appears at once."
+        ) {
+            LabToggle(label: "Apple's graphics overlay", isOn: $graphicsOverlay)
+            LabDivider()
+            LabToggle(label: "Simulation readout", isOn: $showDebugOverlay)
         }
-        .listRowBackground(Palette.elevated)
-    }
-
-    // MARK: - Bindings
-
-    // Written out rather than using `$model.…` because the model is a reference type whose
-    // properties are observed individually; a binding straight to one reads more cleanly here
-    // and keeps the picker's tag types explicit.
-    private var overlayBinding: Binding<PowderOverlayMode> {
-        Binding(get: { model.overlay }, set: { model.overlay = $0 })
-    }
-
-    private var textureBinding: Binding<PowderTextureMode> {
-        Binding(get: { model.textureMode }, set: { model.textureMode = $0 })
-    }
-
-    private var gravityBinding: Binding<Double> {
-        Binding(get: { model.gravityX }, set: { model.gravityX = $0 })
     }
 }

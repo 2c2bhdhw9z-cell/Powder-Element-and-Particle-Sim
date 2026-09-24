@@ -29,33 +29,19 @@ struct DiagnosticsSheet: View {
     @State private var report: PowderDiagnostics?
     @State private var lastRepair: String?
 
+    let glass: GlassLevel
+
     var body: some View {
-        NavigationStack {
-            Form {
-                if let report {
-                    verdict(report)
-                    world(report)
-                    heat(report)
-                    problems(report)
-                }
-                repairs
+        LabSheet(title: "Health", subtitle: "What the world looks like from inside", glass: glass) {
+            if let report {
+                verdict(report)
+                world(report)
+                heat(report)
+                problems(report)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Health")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Check again") { refresh() }
-                        .font(.labBody(13, .medium))
-                }
-            }
+            repairs
         }
         .onAppear { refresh() }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
     private func refresh() {
@@ -65,92 +51,108 @@ struct DiagnosticsSheet: View {
     // MARK: Sections
 
     private func verdict(_ report: PowderDiagnostics) -> some View {
-        Section {
-            HStack(spacing: 10) {
-                Image(systemName: report.isHealthy ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                    .font(.labBody(18, .medium))
-                    .foregroundStyle(report.isHealthy ? Palette.ok : Palette.warn)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(report.isHealthy ? "Nothing wrong" : "\(report.issues.count) to look at")
-                        .font(.labDisplay(15))
-                        .foregroundStyle(Palette.foreground)
-                    Text(report.isHealthy
-                        ? "The world is in good order."
-                        : "None of this stops the world running.")
-                        .font(.labBody(11))
-                        .foregroundStyle(Palette.muted)
-                }
+        HStack(spacing: 11) {
+            Image(systemName: report.isHealthy ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .font(.labBody(20, .medium))
+                .foregroundStyle(report.isHealthy ? Palette.ok : Palette.warn)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(report.isHealthy ? "Nothing wrong" : "\(report.issues.count) to look at")
+                    .font(.labDisplay(15))
+                    .foregroundStyle(Palette.foreground)
+                Text(report.isHealthy
+                    ? "The world is in good order."
+                    : "None of this stops the world running.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
             }
-            .padding(.vertical, 2)
+            Spacer(minLength: 0)
+            Button { refresh() } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.labBody(13, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Check again")
         }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+        )
     }
 
     private func world(_ report: PowderDiagnostics) -> some View {
-        Section {
-            row("Size", "\(report.width)×\(report.height)")
-            row("Filled", "\(report.activeCells.formatted()) of \(report.totalCells.formatted())")
-            row("Load", "\(report.loadPercentage)%")
-            row("Memory", "\((report.memoryBytes / 1024).formatted()) KB")
-            row("Ticks", report.frameCount.formatted())
-        } header: {
-            Text("World")
+        LabGroup("World") {
+            LabRow(label: "Size", value: "\(report.width)×\(report.height)")
+            LabDivider()
+            LabRow(
+                label: "Filled",
+                value: "\(report.activeCells.formatted()) of \(report.totalCells.formatted())"
+            )
+            LabDivider()
+            LabRow(label: "Load", value: "\(report.loadPercentage)%")
+            LabDivider()
+            LabRow(label: "Memory", value: "\((report.memoryBytes / 1024).formatted()) KB")
+            LabDivider()
+            LabRow(label: "Moments", value: report.frameCount.formatted())
         }
     }
 
     private func heat(_ report: PowderDiagnostics) -> some View {
-        Section {
-            row("Coldest", "\(report.minTemp)°C")
-            row("Hottest", "\(report.maxTemp)°C")
-            row("Average", "\(report.avgTemp)°C")
-        } header: {
-            Text("Heat")
+        LabGroup("Heat") {
+            LabRow(label: "Coldest", value: "\(report.minTemp)°C")
+            LabDivider()
+            LabRow(label: "Hottest", value: "\(report.maxTemp)°C")
+            LabDivider()
+            LabRow(label: "Average", value: "\(report.avgTemp)°C")
         }
     }
 
     @ViewBuilder
     private func problems(_ report: PowderDiagnostics) -> some View {
         if !report.issues.isEmpty {
-            Section {
-                ForEach(report.issues, id: \.self) { issue in
+            LabGroup("Found") {
+                ForEach(Array(report.issues.enumerated()), id: \.offset) { index, issue in
+                    if index > 0 { LabDivider() }
                     Text(issue)
                         .font(.labBody(12))
                         .foregroundStyle(Palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            } header: {
-                Text("Found")
             }
         }
     }
 
     private var repairs: some View {
-        Section {
+        LabGroup(
+            "Repairs",
+            footnote: lastRepair ?? "Each of these changes the world and is one undo away."
+        ) {
             repair("Unstick everything", "Clears cells that cannot move or be read") {
                 "\(model.flushStuckCells()) cells cleared"
             }
+            LabDivider()
             repair("Fix temperatures", "Replaces readings that are not numbers") {
                 "\(model.normaliseTemperatures()) temperatures fixed"
             }
+            LabDivider()
             repair("Put out fires", "Every flame, and the heat it left") {
                 "\(model.extinguishFires()) fires out"
             }
+            LabDivider()
             repair("Neutralise acid", "Turns it back into water") {
                 "\(model.neutraliseAcids()) cells neutralised"
             }
+            LabDivider()
             repair("Cool right down", "Everything back to room temperature") {
                 model.coolAllCells()
                 return "the world is at room temperature"
-            }
-        } header: {
-            Text("Repairs")
-        } footer: {
-            VStack(alignment: .leading, spacing: 6) {
-                if let lastRepair {
-                    Text(lastRepair)
-                        .font(.labBody(11, .medium))
-                        .foregroundStyle(Palette.ok)
-                }
-                Text("Each of these changes the world and is one undo away.")
-                    .font(.labBody(11))
             }
         }
     }
@@ -162,31 +164,12 @@ struct DiagnosticsSheet: View {
         _ explanation: String,
         action: @escaping () -> String
     ) -> some View {
-        Button {
+        LabAction(label: title, detail: explanation) {
             // An undo point per repair. Several of these remove a lot at once, and finding out
             // afterwards that it was the wrong one should not be permanent.
             model.beginStroke()
             lastRepair = action()
             refresh()
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .foregroundStyle(Palette.foreground)
-                Text(explanation)
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.subtleForeground)
-            }
-        }
-    }
-
-    private func row(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(Palette.foreground)
-            Spacer()
-            Text(value)
-                .font(.labNumeric(12))
-                .foregroundStyle(Palette.muted)
         }
     }
 }

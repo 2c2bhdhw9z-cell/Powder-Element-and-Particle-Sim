@@ -73,27 +73,40 @@ struct ContentView: View {
     private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topLeading) {
-                Palette.background.ignoresSafeArea()
+        // Header, world, dock — stacked, the way the reference arranges them. The world used to fill
+        // the whole screen with the controls floating over it, which reads as a utility with things
+        // stuck on it rather than as a place with a name.
+        VStack(spacing: 0) {
+            LabHeader(
+                chamber: chamber,
+                isRunning: isRunning,
+                framesPerSecond: framesPerSecond,
+                glass: glass,
+                onToggleRunning: toggleRunning,
+                onSelectChamber: select,
+                onShowMenu: { showingSettings = true }
+            )
 
-                surface(for: geometry.size)
+            GeometryReader { geometry in
+                ZStack(alignment: .topLeading) {
+                    surface(for: geometry.size)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    chamberSwitch
-                    tools
-                    if showDebugOverlay { debugReadout }
+                    VStack(alignment: .leading, spacing: 8) {
+                        tools
+                        if showDebugOverlay { debugReadout }
+                    }
+                    .padding(.leading, 8)
+                    .padding(.top, 8)
                 }
-                .padding(.leading, 10)
-                .padding(.top, 8)
-
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    dock
-                }
-                .ignoresSafeArea(edges: .bottom)
             }
+            // The world keeps its own black even while a sheet is over it, so nothing shows through.
+            .background(Palette.background)
+
+            dock
         }
+        // Only the bottom, so the dock's backdrop reaches under the home indicator. The top is left
+        // alone deliberately: the header should sit below the island rather than under it.
+        .ignoresSafeArea(edges: .bottom)
         .background(Palette.background)
         .preferredColorScheme(.dark)
         .tint(Palette.primary)
@@ -124,13 +137,13 @@ struct ContentView: View {
             audio.isEnabled = wanted
         }
         .sheet(isPresented: $showingScenes) {
-            ScenePicker { recipe in
+            ScenePicker(glass: glass) { recipe in
                 powder.loadScene(recipe)
                 showingScenes = false
             }
         }
         .sheet(isPresented: $showingPresets) {
-            FieldPresetPicker { preset in
+            FieldPresetPicker(glass: glass) { preset in
                 field.loadPreset(preset)
                 showingPresets = false
             }
@@ -148,26 +161,51 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $showingDiagnostics) {
-            DiagnosticsSheet(model: powder)
+            DiagnosticsSheet(model: powder, glass: glass)
         }
         .sheet(isPresented: $showingPeriodic) {
-            PeriodicSheet(model: powder) { id in
+            PeriodicSheet(model: powder, glass: glass) { id in
                 powder.brushElement = id
                 showingPeriodic = false
             }
         }
         .sheet(item: $infoElement) { target in
-            ElementInfoSheet(model: powder, elementID: target.id)
+            ElementInfoSheet(model: powder, elementID: target.id, glass: glass)
         }
         .sheet(isPresented: $showingSaves) {
-            SavesSheet(powder: powder, field: field, store: store)
+            SavesSheet(powder: powder, field: field, store: store, glass: glass)
         }
         .sheet(isPresented: $showingEditor) {
-            ElementEditorSheet(model: powder) { paletteVersion += 1 }
+            ElementEditorSheet(model: powder, glass: glass) { paletteVersion += 1 }
         }
         .sheet(isPresented: $showingFieldSettings) {
-            FieldSettingsSheet(model: field)
+            FieldSettingsSheet(model: field, glass: glass)
         }
+    }
+
+    // MARK: - What the header reads
+
+    /// Whichever chamber is on screen decides what play, pause and the frame counter refer to.
+    private var isRunning: Bool {
+        chamber == .powder ? powder.isRunning : field.isRunning
+    }
+
+    private var framesPerSecond: Int {
+        chamber == .powder ? powder.ticksPerSecond : field.ticksPerSecond
+    }
+
+    private func toggleRunning() {
+        switch chamber {
+        case .powder: powder.isRunning.toggle()
+        case .field: field.isRunning.toggle()
+        }
+    }
+
+    private func select(_ option: Chamber) {
+        chamberRaw = option.rawValue
+        // Closed on the way across, since the two trays hold different things and leaving one open
+        // would swap its contents out from under your hand.
+        isDockOpen = false
     }
 
     // MARK: - Keeping work
@@ -223,38 +261,6 @@ struct ContentView: View {
         }
     }
 
-    /// Switching chambers. Two segments rather than a menu, because it is the one control that
-    /// changes what everything else means.
-    private var chamberSwitch: some View {
-        HStack(spacing: 0) {
-            ForEach(Chamber.allCases, id: \.rawValue) { option in
-                let selected = chamber == option
-                Button {
-                    chamberRaw = option.rawValue
-                    // Closed on the way across, since the two trays hold different things and
-                    // leaving one open would swap its contents out from under your hand.
-                    isDockOpen = false
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: option.symbol)
-                            .font(.labBody(11))
-                        Text(option.title)
-                            .font(.labBody(12, selected ? .semiBold : .regular))
-                    }
-                    .foregroundStyle(selected ? Palette.primaryForeground : Palette.muted)
-                    .padding(.horizontal, 12)
-                    .frame(height: 34)
-                    .background(
-                        Capsule().fill(selected ? Palette.primary : Color.clear)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(2)
-        .glassPanel(glass)
-    }
-
     @ViewBuilder
     private var tools: some View {
         switch chamber {
@@ -303,41 +309,37 @@ struct ContentView: View {
 }
 
 /// Picks one of the built-in powder scenes.
+///
+/// A grid of chips rather than a list of rows with chevrons. Thirteen scenes fit on one screen that
+/// way, and none of them leads anywhere — each one just loads, so a chevron promising a further
+/// screen is a small lie.
 struct ScenePicker: View {
+    let glass: GlassLevel
     let onSelect: (PowderRecipe) -> Void
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        LabSheet(
+            title: "Scenes",
+            subtitle: "Thirteen worlds to start from",
+            glass: glass
+        ) {
+            LabGroup(footnote: "Loading a scene replaces the world. Undo brings it back.") {
+                LabFlow(spacing: 6) {
                     ForEach(powderRecipes, id: \.id) { recipe in
-                        Button {
-                            onSelect(recipe)
-                        } label: {
-                            HStack {
-                                Text(recipe.name)
-                                    .foregroundStyle(Palette.foreground)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.labBody(11, .semiBold))
-                                    .foregroundStyle(Palette.subtleForeground)
-                            }
+                        Button { onSelect(recipe) } label: {
+                            Text(recipe.name)
+                                .font(.labBody(12, .medium))
+                                .foregroundStyle(Palette.foreground)
+                                .padding(.horizontal, 12)
+                                .frame(height: 34)
+                                .background(Capsule().fill(Color.white.opacity(0.10)))
                         }
-                        .listRowBackground(Palette.elevated)
+                        .buttonStyle(.plain)
                     }
-                } footer: {
-                    Text("Loading a scene replaces the world. Undo brings it back.")
-                        .font(.labBody(11))
                 }
+                .padding(14)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Scenes")
-            .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .preferredColorScheme(.dark)
     }
 }
 

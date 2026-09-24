@@ -16,6 +16,7 @@ import SwiftUI
 /// powder.
 struct ElementEditorSheet: View {
     let model: SimulationModel
+    let glass: GlassLevel
     /// Called after the set of materials changes, so the palette redraws.
     let onChange: () -> Void
 
@@ -45,24 +46,18 @@ struct ElementEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                starters
-                basics
-                behaviour
-                reaction
-                save
-                existing
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Invent a material")
-            .navigationBarTitleDisplayMode(.inline)
+        LabSheet(
+            title: "Invent a material",
+            subtitle: "Fifty slots, and they are yours",
+            glass: glass
+        ) {
+            starters
+            basics
+            behaviour
+            reaction
+            save
+            existing
         }
-        .presentationDetents([.large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
     // MARK: Sections
@@ -72,9 +67,12 @@ struct ElementEditorSheet: View {
     /// Not templates so much as an answer to "what can these actually do" — each one uses the
     /// reaction rule, which is the part nobody would think to try from an empty form.
     private var starters: some View {
-        Section {
+        LabGroup(
+            "Start from",
+            footnote: "Each of these fills the form in. Change anything you like before keeping it."
+        ) {
             HStack(spacing: 8) {
-                starter("Goo", .init(red: 0.525, green: 0.937, blue: 0.675)) {
+                starter("Goo", Color(red: 0.525, green: 0.937, blue: 0.675)) {
                     name = "Goo"
                     colour = Color(red: 0.525, green: 0.937, blue: 0.675)
                     state = .liquid
@@ -85,7 +83,7 @@ struct ElementEditorSheet: View {
                     reactionChance = 0.2
                     becomes = Element.plant
                 }
-                starter("Foam", .init(red: 0.906, green: 0.898, blue: 0.894)) {
+                starter("Foam", Color(red: 0.906, green: 0.898, blue: 0.894)) {
                     name = "Foam"
                     colour = Color(red: 0.906, green: 0.898, blue: 0.894)
                     state = .gas
@@ -96,7 +94,7 @@ struct ElementEditorSheet: View {
                     reactionChance = 0.5
                     becomes = Element.smoke
                 }
-                starter("Slag", .init(red: 0.471, green: 0.443, blue: 0.424)) {
+                starter("Slag", Color(red: 0.471, green: 0.443, blue: 0.424)) {
                     name = "Slag"
                     colour = Color(red: 0.471, green: 0.443, blue: 0.424)
                     state = .solidMovable
@@ -108,139 +106,199 @@ struct ElementEditorSheet: View {
                     becomes = Element.stone
                 }
             }
-        } header: {
-            Text("Start from")
-        } footer: {
-            Text("Each of these fills the form in. Change anything you like before keeping it.")
-                .font(.labBody(11))
+            .padding(14)
         }
     }
 
     private var basics: some View {
-        Section {
-            TextField("Name", text: $name)
-                .font(.labBody(14))
-            ColorPicker("Colour", selection: $colour, supportsOpacity: false)
-            Picker("Behaves like", selection: $state) {
-                Text("Powder").tag(ElementState.solidMovable)
-                Text("Solid").tag(ElementState.solidFixed)
-                Text("Liquid").tag(ElementState.liquid)
-                Text("Gas").tag(ElementState.gas)
-                Text("Plasma").tag(ElementState.plasma)
+        LabGroup("What it is") {
+            HStack(spacing: 10) {
+                TextField("Name", text: $name)
+                    .font(.labBody(13))
+                    .foregroundStyle(Palette.foreground)
+                    .autocorrectionDisabled()
+                ColorPicker("", selection: $colour, supportsOpacity: false)
+                    .labelsHidden()
             }
-        } header: {
-            Text("What it is")
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+
+            LabDivider()
+            LabChoice(
+                label: "Behaves like",
+                selection: $state,
+                options: [
+                    (.solidMovable, "Powder"),
+                    (.solidFixed, "Solid"),
+                    (.liquid, "Liquid"),
+                    (.gas, "Gas"),
+                    (.plasma, "Plasma"),
+                ]
+            )
         }
     }
 
     private var behaviour: some View {
-        Section {
-            labelledSlider("Heaviness", value: $density, range: 0 ... 60, step: 1) {
+        LabGroup(
+            "How it behaves",
+            footnote: "Heaviness decides what sinks through what. Water is 10, stone is 40."
+        ) {
+            LabSlider(label: "Heaviness", value: $density, range: 0 ... 60, step: 1) {
                 $0.formatted(.number.precision(.fractionLength(0)))
             }
-            labelledSlider("Catches fire", value: $flammability, range: 0 ... 100, step: 1) {
+            LabDivider()
+            LabSlider(label: "Catches fire", value: $flammability, range: 0 ... 100, step: 1) {
                 $0 == 0 ? "never" : "\($0.formatted(.number.precision(.fractionLength(0))))/100"
             }
-            labelledSlider("Falls", value: $gravity, range: -1 ... 2, step: 0.1) {
+            LabDivider()
+            LabSlider(label: "Falls", value: $gravity, range: -1 ... 2, step: 0.1) {
                 if $0 == 0 { return "floats in place" }
                 return $0 < 0 ? "upward" : "\($0.formatted(.number.precision(.fractionLength(1))))×"
             }
-        } header: {
-            Text("How it behaves")
-        } footer: {
-            Text("Heaviness decides what sinks through what. Water is 10, stone is 40.")
-                .font(.labBody(11))
         }
     }
 
     private var reaction: some View {
-        Section {
-            Picker("When it touches", selection: $reactsWith) {
-                ForEach(builtIns, id: \.id) { element in
-                    Text(element.name).tag(element.id)
-                }
-            }
-            labelledSlider("How often", value: $reactionChance, range: 0 ... 1, step: 0.05) {
+        LabGroup(
+            "A reaction, if you want one",
+            footnote: reactionChance == 0
+                ? "Leave this at never and the material simply sits there being itself."
+                : "Each moment they are touching, there is a chance your material turns into the "
+                    + "thing below."
+        ) {
+            LabSlider(label: "How often", value: $reactionChance, range: 0 ... 1, step: 0.05) {
                 $0 == 0 ? "never" : "\(($0 * 100).formatted(.number.precision(.fractionLength(0))))%"
             }
-            Picker("It becomes", selection: $becomes) {
-                Text("nothing").tag(Element.empty)
-                ForEach(builtIns, id: \.id) { element in
-                    Text(element.name).tag(element.id)
-                }
+            if reactionChance > 0 {
+                LabDivider()
+                elementChoice("When it touches", selection: $reactsWith, includesNothing: false)
+                LabDivider()
+                elementChoice("It becomes", selection: $becomes, includesNothing: true)
             }
-            .disabled(reactionChance == 0)
-        } header: {
-            Text("A reaction, if you want one")
-        } footer: {
-            Text(
-                reactionChance == 0
-                    ? "Leave this at never and the material simply sits there being itself."
-                    : "Each moment they are touching, there is a chance your material turns into "
-                        + "the thing below."
-            )
-            .font(.labBody(11))
         }
     }
 
+    /// A scrolling row of materials to choose from.
+    ///
+    /// A horizontal strip rather than a dropdown of fifty names: the colours are what make one
+    /// recognisable, and a menu would hide them behind a list of words.
+    private func elementChoice(
+        _ label: String,
+        selection: Binding<ElementID>,
+        includesNothing: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label)
+                .font(.labBody(13))
+                .foregroundStyle(Palette.foreground)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if includesNothing {
+                        swatch(Element.empty, "nothing", isSelected: selection.wrappedValue == Element.empty) {
+                            selection.wrappedValue = Element.empty
+                        }
+                    }
+                    ForEach(builtIns, id: \.id) { element in
+                        swatch(
+                            element.id,
+                            element.name,
+                            isSelected: selection.wrappedValue == element.id
+                        ) {
+                            selection.wrappedValue = element.id
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+            }
+            .padding(.horizontal, -14)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func swatch(
+        _ id: ElementID,
+        _ title: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(id == Element.empty ? Color.white.opacity(0.25) : model.color(of: id))
+                    .frame(width: 9, height: 9)
+                Text(title)
+                    .font(.labBody(12, isSelected ? .semiBold : .regular))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? Palette.primaryForeground : Palette.foreground)
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(
+                Capsule().fill(isSelected ? Palette.primary : Color.white.opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var save: some View {
-        Section {
-            Button {
+        LabGroup(footnote: problem ?? "\(model.freeCustomSlots) of 50 slots left.") {
+            LabAction(label: "Keep this material", symbol: "plus.circle") {
                 keep()
-            } label: {
-                Label("Keep this material", systemImage: "plus.circle")
             }
             .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-        } footer: {
-            if let problem {
-                Text(problem)
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.danger)
-            } else {
-                Text("\(model.freeCustomSlots) of 50 slots left.")
-                    .font(.labBody(11))
-            }
+            .opacity(name.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
         }
     }
 
     @ViewBuilder
     private var existing: some View {
-        Section {
+        LabGroup(
+            "Yours",
+            footnote: mine.isEmpty
+                ? nil
+                : "Deleting one does not remove it from a world already holding it — those cells stay "
+                    + "put and behave as air until something moves them."
+        ) {
             if mine.isEmpty {
                 Text("You have not invented anything yet.")
                     .font(.labBody(12))
                     .foregroundStyle(Palette.subtleForeground)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(mine, id: \.id) { element in
+                ForEach(Array(mine.enumerated()), id: \.element.id) { index, element in
+                    if index > 0 { LabDivider() }
                     HStack(spacing: 10) {
                         Circle()
                             .fill(model.color(of: element.id))
                             .frame(width: 12, height: 12)
                         Text(element.name)
+                            .font(.labBody(13))
                             .foregroundStyle(Palette.foreground)
-                        Spacer()
+                        Spacer(minLength: 8)
                         Text("slot \(element.id)")
                             .font(.labNumeric(10))
                             .foregroundStyle(Palette.subtleForeground)
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
+                        Button {
                             model.deleteCustomElement(element.id)
                             onChange()
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            Image(systemName: "trash")
+                                .font(.labBody(13, .medium))
+                                .foregroundStyle(Palette.danger)
+                                .frame(width: 40, height: 40)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Delete \(element.name)")
                     }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .frame(minHeight: 48)
                 }
             }
-        } header: {
-            Text("Yours")
-        } footer: {
-            Text(
-                "Deleting one does not remove it from a world already holding it — those cells stay "
-                    + "put and behave as air until something moves them."
-            )
-            .font(.labBody(11))
         }
     }
 
@@ -318,24 +376,5 @@ struct ElementEditorSheet: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
-    }
-
-    private func labelledSlider(
-        _ label: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        step: Double,
-        format: @escaping (Double) -> String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(label)
-                Spacer()
-                Text(format(value.wrappedValue))
-                    .font(.labNumeric(12))
-                    .foregroundStyle(Palette.muted)
-            }
-            Slider(value: value, in: range, step: step) { Text(label) }
-        }
     }
 }

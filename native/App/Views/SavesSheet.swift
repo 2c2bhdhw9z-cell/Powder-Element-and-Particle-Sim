@@ -10,6 +10,7 @@ struct SavesSheet: View {
     let powder: SimulationModel
     let field: ParticleFieldModel
     let store: SceneStore
+    let glass: GlassLevel
 
     @Environment(\.dismiss) private var dismiss
 
@@ -20,22 +21,30 @@ struct SavesSheet: View {
     @State private var note: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                saving
-                list
-                transfer
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Scenes")
-            .navigationBarTitleDisplayMode(.inline)
+        LabSheet(title: "Your work", subtitle: "Kept here, and shared elsewhere", glass: glass) {
+            saving
+            list
+            transfer
         }
         .onAppear {
             store.refresh()
             // Pre-filled with the date and time, so saving never demands typing. Someone who wants
             // to name it can; someone who just wants it kept can tap once.
             if name.isEmpty { name = SceneStore.defaultName() }
+        }
+        .confirmationDialog(
+            "Delete “\(confirmingDelete?.name ?? "")”?",
+            isPresented: Binding(
+                get: { confirmingDelete != nil },
+                set: { if !$0 { confirmingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let entry = confirmingDelete { store.delete(entry) }
+                confirmingDelete = nil
+            }
+            Button("Keep it", role: .cancel) { confirmingDelete = nil }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
             switch result {
@@ -61,123 +70,148 @@ struct SavesSheet: View {
             .presentationDetents([.height(120)])
             .presentationBackground(Palette.background)
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
     }
 
     // MARK: Sections
 
     private var saving: some View {
-        Section {
-            TextField("Name", text: $name)
-                .font(.labBody(14))
-                .submitLabel(.done)
-            Button {
+        LabGroup(
+            "Keep",
+            footnote: note ?? "Both chambers are kept together, along with any materials you invented."
+        ) {
+            HStack(spacing: 8) {
+                TextField("Name", text: $name)
+                    .font(.labBody(13))
+                    .foregroundStyle(Palette.foreground)
+                    .submitLabel(.done)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+
+            LabDivider()
+            LabAction(label: "Keep this scene", symbol: "square.and.arrow.down") {
                 let scene = currentScene()
                 if store.save(scene, as: name) {
                     note = "Kept as “\(SceneStore.safeFileName(name))”."
                 } else {
                     note = store.lastProblem
                 }
-            } label: {
-                Label("Keep this scene", systemImage: "square.and.arrow.down")
             }
             .disabled(SceneStore.safeFileName(name).isEmpty)
-        } header: {
-            Text("Keep")
-        } footer: {
-            if let note {
-                Text(note)
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.ok)
-            } else {
-                Text("Both chambers are kept together, along with any materials you invented.")
-                    .font(.labBody(11))
-            }
+            .opacity(SceneStore.safeFileName(name).isEmpty ? 0.4 : 1)
         }
     }
 
     @ViewBuilder
     private var list: some View {
-        Section {
+        LabGroup(
+            "Kept",
+            footnote: store.saves.isEmpty
+                ? nil
+                : "Tap to load, which is one undo away. The arrow sends a copy elsewhere."
+        ) {
             if store.saves.isEmpty {
                 Text("Nothing kept yet.")
                     .font(.labBody(12))
                     .foregroundStyle(Palette.subtleForeground)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 44, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(store.saves) { entry in
-                    Button {
-                        if let scene = store.load(entry) {
-                            restore(scene)
-                            dismiss()
-                        } else {
-                            note = store.lastProblem
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.name)
-                                .foregroundStyle(Palette.foreground)
-                            Text(entry.savedAt.formatted(date: .abbreviated, time: .shortened))
-                                .font(.labNumeric(10))
-                                .foregroundStyle(Palette.subtleForeground)
-                        }
-                    }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            store.delete(entry)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        Button {
-                            if let scene = store.load(entry),
-                               let url = store.exportForSharing(scene) {
-                                shareTarget = ShareTarget(url: url)
-                            }
-                        } label: {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                        }
-                    }
+                ForEach(Array(store.saves.enumerated()), id: \.element.id) { index, entry in
+                    if index > 0 { LabDivider() }
+                    row(for: entry)
                 }
             }
-        } header: {
-            Text("Kept")
-        } footer: {
-            Text("Tap to load. Swipe a row for sharing and deleting. Loading is one undo away.")
-                .font(.labBody(11))
         }
     }
 
-    private var transfer: some View {
-        Section {
+    /// One kept scene.
+    ///
+    /// The share and delete actions are buttons on the row rather than hidden behind a swipe. A swipe
+    /// needs the system's list, which is what this panel deliberately is not — and a hidden gesture is
+    /// a poor place to put the only way to delete something.
+    private func row(for entry: SceneStore.Entry) -> some View {
+        HStack(spacing: 4) {
             Button {
+                if let scene = store.load(entry) {
+                    restore(scene)
+                    dismiss()
+                } else {
+                    note = store.lastProblem
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.name)
+                        .font(.labBody(13))
+                        .foregroundStyle(Palette.foreground)
+                    Text(entry.savedAt.formatted(date: .abbreviated, time: .shortened))
+                        .font(.labNumeric(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            iconAction("square.and.arrow.up", "Share “\(entry.name)”") {
+                if let scene = store.load(entry), let url = store.exportForSharing(scene) {
+                    shareTarget = ShareTarget(url: url)
+                }
+            }
+            iconAction("trash", "Delete “\(entry.name)”", tint: Palette.danger) {
+                confirmingDelete = entry
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .frame(minHeight: 52)
+    }
+
+    private var transfer: some View {
+        LabGroup(
+            "Elsewhere",
+            footnote: "Crucible keeps your work by itself every few seconds and whenever you leave "
+                + "the app, and puts it back next time. That is separate from the scenes above."
+        ) {
+            LabAction(label: "Send this scene somewhere", symbol: "square.and.arrow.up") {
                 if let url = store.exportForSharing(currentScene()) {
                     shareTarget = ShareTarget(url: url)
                 }
-            } label: {
-                Label("Send this scene somewhere", systemImage: "square.and.arrow.up")
             }
-            Button {
+            LabDivider()
+            LabAction(label: "Open a scene file", symbol: "folder") {
                 isImporting = true
-            } label: {
-                Label("Open a scene file", systemImage: "square.and.arrow.down.on.square")
             }
-            Button(role: .destructive) {
+            LabDivider()
+            LabAction(
+                label: "Forget the automatic save",
+                symbol: "clock.badge.xmark",
+                isDestructive: true
+            ) {
                 store.clearAutosave()
                 note = "The automatic save has been forgotten."
-            } label: {
-                Label("Forget the automatic save", systemImage: "clock.badge.xmark")
             }
-        } header: {
-            Text("Elsewhere")
-        } footer: {
-            Text(
-                "Crucible keeps your work automatically every few seconds and when you leave the "
-                    + "app, and puts it back next time. That is separate from the scenes above."
-            )
-            .font(.labBody(11))
         }
+    }
+
+    private func iconAction(
+        _ symbol: String,
+        _ label: String,
+        tint: Color = Palette.muted,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.labBody(13, .medium))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     // MARK: Pieces

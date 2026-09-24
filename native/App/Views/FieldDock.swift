@@ -230,39 +230,31 @@ struct FieldDock: View {
 
 /// Picks one of the field presets.
 struct FieldPresetPicker: View {
+    let glass: GlassLevel
     let onSelect: (String) -> Void
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        LabSheet(
+            title: "Presets",
+            subtitle: "Arrangements to start from",
+            glass: glass
+        ) {
+            LabGroup(footnote: "Loading a preset replaces the field. Undo brings it back.") {
+                LabFlow(spacing: 6) {
                     ForEach(ParticleFieldModel.presets, id: \.id) { preset in
-                        Button {
-                            onSelect(preset.id)
-                        } label: {
-                            HStack {
-                                Text(preset.name)
-                                    .foregroundStyle(Palette.foreground)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.labBody(11, .semiBold))
-                                    .foregroundStyle(Palette.subtleForeground)
-                            }
+                        Button { onSelect(preset.id) } label: {
+                            Text(preset.name)
+                                .font(.labBody(12, .medium))
+                                .foregroundStyle(Palette.foreground)
+                                .padding(.horizontal, 12)
+                                .frame(height: 34)
+                                .background(Capsule().fill(Color.white.opacity(0.10)))
                         }
-                        .listRowBackground(Palette.elevated)
+                        .buttonStyle(.plain)
                     }
-                } footer: {
-                    Text("Loading a preset replaces the field. Undo brings it back.")
-                        .font(.labBody(11))
                 }
+                .padding(14)
             }
-            .scrollContentBackground(.hidden)
-            .background(Palette.background)
-            .navigationTitle("Presets")
-            .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium, .large])
-        .presentationBackground(Palette.background)
-        .preferredColorScheme(.dark)
     }
 }
