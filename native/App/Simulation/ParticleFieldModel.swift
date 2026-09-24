@@ -15,7 +15,11 @@ import UIKit
 final class ParticleFieldModel {
     /// The engine keeps its own undo record, which already knows to capture the springs, the
     /// swarm and the toggles alongside the bodies — so there is nothing for this to duplicate.
-    private let engine: ParticleEngine
+    /// The field.
+    ///
+    /// Reachable from elsewhere in the app only so that `Hybrid` can bridge the two chambers — see the
+    /// longer note on the powder model's. Nothing else should reach for it.
+    let engine: ParticleEngine
 
     var isRunning = true
 
@@ -191,6 +195,17 @@ final class ParticleFieldModel {
     /// A picture of the field exactly as it appears, or nothing if there is no view to ask.
     func snapshot() -> UIImage? {
         snapshotProvider?()
+    }
+
+    /// Lays out the arrangement everybody gets today.
+    ///
+    /// - Returns: its name.
+    @discardableResult
+    func loadDailyArrangement(day: String) -> String {
+        recordUndoPoint()
+        let choice = DailyWorld.applyParticle(forDay: day, to: engine)
+        bodyCount = engine.bodyCount
+        return choice.name
     }
 
     var showTrails: Bool {
@@ -582,6 +597,19 @@ final class ParticleFieldModel {
     func redo() {
         _ = engine.redo()
         bodyCount = engine.bodyCount
+    }
+
+    /// Brings the readout back in step after something outside the tick changed the field.
+    func refreshCounts() {
+        bodyCount = engine.bodyCount
+    }
+
+    /// Records a point to come back to, for the chamber bridge.
+    ///
+    /// The private one is for this model's own actions; this is the same thing spelled out for the one
+    /// outside caller that legitimately needs it, rather than opening the private one to everybody.
+    func recordUndoPointForBridge() {
+        recordUndoPoint()
     }
 
     private func recordUndoPoint() {

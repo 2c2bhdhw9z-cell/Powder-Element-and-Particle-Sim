@@ -23,6 +23,8 @@ struct ElementDock: View {
     /// The palette's own rows come from the registry, which is a class, so SwiftUI has no way to
     /// notice an edit inside it. This is the nudge that makes the list rebuild.
     let paletteVersion: Int
+    /// Today's date in UTC, for the shared daily world.
+    let today: String
 
     /// What has been typed into the search box.
     @State private var search = ""
@@ -120,6 +122,10 @@ struct ElementDock: View {
     /// The ways into the other panels, inside the tray where there is room to name them.
     private var destinations: some View {
         LabFlow(spacing: 6) {
+            // First, because it is the one that changes every day and so the one worth noticing.
+            destination("Today · \(model.dailySceneName(day: today))", "sun.max", action: {
+                model.loadDailyScene(day: today)
+            })
             destination("Scenes", "square.grid.2x2", action: onShowScenes)
             destination("Kept", "tray.full", action: onShowSaves)
             destination("Invent", "wand.and.stars", action: onShowEditor)

@@ -44,6 +44,8 @@ struct ContentView: View {
     @State private var audio = LabAudio()
     @State private var store = SceneStore()
     @State private var recorder = ScreenRecorder()
+    /// Connects the two chambers. Built once both models exist.
+    @State private var bridge: ChamberBridge?
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -79,6 +81,8 @@ struct ContentView: View {
     /// the enumeration's own value, so an unrecognised number falls back to the default rather than
     /// refusing to start.
     @AppStorage("detail") private var detailRaw = SimulationModel.Detail.balanced.rawValue
+    /// Whether the chambers affect one another. On by default, matching the reference.
+    @AppStorage("chambersAffectEachOther") private var chambersAffectEachOther = true
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -132,6 +136,11 @@ struct ContentView: View {
             powder.audio = audio
             audio.isEnabled = soundEnabled
             powder.detail = SimulationModel.Detail(rawValue: detailRaw) ?? .balanced
+            if bridge == nil {
+                let connected = ChamberBridge(powder: powder, field: field)
+                connected.isEnabled = chambersAffectEachOther
+                bridge = connected
+            }
             restoreAutosaveOnce()
             updateCompanionStepping()
         }
@@ -142,6 +151,7 @@ struct ContentView: View {
         // Written back whenever it changes, so the panel drives the model and the model is the one
         // source of truth rather than the two being kept in step by hand.
         .onChange(of: powder.detail) { _, level in detailRaw = level.rawValue }
+        .onChange(of: chambersAffectEachOther) { _, wanted in bridge?.isEnabled = wanted }
         // Every eight seconds, matching the web version.
         .task {
             while !Task.isCancelled {
@@ -177,6 +187,7 @@ struct ContentView: View {
                 showDebugOverlay: $showDebugOverlay,
                 soundEnabled: $soundEnabled,
                 bothChambersRun: $bothChambersRun,
+                chambersAffectEachOther: $chambersAffectEachOther,
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true
@@ -274,6 +285,20 @@ struct ContentView: View {
         // Closed on the way across, since the two trays hold different things and leaving one open
         // would swap its contents out from under your hand.
         isDockOpen = false
+    }
+
+    /// Today's date in UTC, as the day's world is keyed by.
+    ///
+    /// UTC rather than local time, so that everybody changes over at the same moment. Keyed on local
+    /// midnight, two people in different places would get different "same" worlds for several hours a
+    /// day — which is the one thing the feature must not do.
+    static var today: String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
     }
 
     // MARK: - Two chambers, one clock
@@ -397,7 +422,8 @@ struct ContentView: View {
                 onShowPeriodic: { showingPeriodic = true },
                 onShowSaves: { showingSaves = true },
                 onShowEditor: { showingEditor = true },
-                paletteVersion: paletteVersion
+                paletteVersion: paletteVersion,
+                today: Self.today
             )
         case .field:
             FieldDock(
@@ -408,7 +434,9 @@ struct ContentView: View {
                 // Its own sheet, not the powder world's. Almost nothing carries over between them —
                 // there are no cells here, no temperature and no wind — so sharing one would be a
                 // list of controls that mostly did not apply.
-                onShowSettings: { showingFieldSettings = true }
+                onShowSettings: { showingFieldSettings = true },
+                today: Self.today,
+                onSettleEverything: { _ = bridge?.settleEverything() }
             )
         }
     }

@@ -20,7 +20,15 @@ import UIKit
 @Observable
 final class SimulationModel {
     /// The world. Sized to something a phone can run at full speed; see `resize`.
-    private let engine: PowderEngine
+    ///
+    /// Reachable from elsewhere in the app only so that `Hybrid` can bridge the two chambers. Those
+    /// bridges need both engines at once and belong to neither, so they cannot be methods on either —
+    /// and the alternative, a second copy of the settling rules expressed in terms these models do
+    /// expose, would mean the tested version and the shipping version were different code.
+    ///
+    /// Nothing else should reach for this. Everything the interface needs is a property or a method
+    /// here, which is what keeps the views from acquiring opinions about how the simulation works.
+    let engine: PowderEngine
     private let history: PowderHistory
 
     /// Whether time is running.
@@ -413,6 +421,15 @@ final class SimulationModel {
         )
     }
 
+    /// Brings the readouts back in step with the world after something outside the tick changed it.
+    ///
+    /// The occupied count is normally sampled once a second, because counting is a full pass over the
+    /// grid. Something that changes the world in one go should not have to wait up to a second for the
+    /// readout to admit it.
+    func refreshCounts() {
+        activeCells = engine.activeParticleCount
+    }
+
     /// Records a point to come back to, with no stroke involved.
     ///
     /// For anything that changes the world in one go — a repair, a scene, an event — as opposed to a
@@ -455,6 +472,24 @@ final class SimulationModel {
     /// Shakes the world, as a jolt of the phone would.
     func jostle() {
         engine.jostle(6)
+    }
+
+    // MARK: - The day's world
+
+    /// Lays out the scene everybody gets today.
+    ///
+    /// - Returns: its name, for saying which one it was.
+    @discardableResult
+    func loadDailyScene(day: String) -> String {
+        recordUndoPoint()
+        let choice = DailyWorld.applyPowder(forDay: day, to: engine)
+        activeCells = engine.activeParticleCount
+        return choice.name
+    }
+
+    /// Which scene today's would be, without laying it out.
+    func dailySceneName(day: String) -> String {
+        DailyWorld.powderRecipe(forDay: day).name
     }
 
     // MARK: - Screenshots

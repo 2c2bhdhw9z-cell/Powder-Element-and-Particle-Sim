@@ -12,6 +12,10 @@ struct FieldDock: View {
     @Binding var isOpen: Bool
     let onShowPresets: () -> Void
     let onShowSettings: () -> Void
+    /// Today's date in UTC, for the shared daily arrangement.
+    let today: String
+    /// Pours the whole field into the powder world.
+    let onSettleEverything: () -> Void
 
     /// The mouse modes, named for what they do rather than what they are called internally.
     private static let tools: [(mode: ParticleMouseMode, name: String, symbol: String)] = [
@@ -108,6 +112,22 @@ struct FieldDock: View {
                 .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
             LabFlow(spacing: 6) {
+                Button {
+                    model.loadDailyArrangement(day: today)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "sun.max")
+                            .font(.labBody(11, .medium))
+                        Text("Today")
+                            .font(.labBody(12, .semiBold))
+                    }
+                    .foregroundStyle(Palette.primaryForeground)
+                    .padding(.horizontal, 11)
+                    .frame(height: 32)
+                    .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+
                 ForEach(ParticleFieldModel.presets, id: \.id) { preset in
                     Button {
                         model.loadPreset(preset.id)
@@ -223,6 +243,9 @@ struct FieldDock: View {
     private var destinations: some View {
         LabFlow(spacing: 6) {
             destination("Presets", "square.grid.2x2", action: onShowPresets)
+            // Pours the field into the powder world. Worth a named button rather than an icon: it moves
+            // everything to the other chamber, which is not a thing to discover by accident.
+            destination("Settle into powder", "arrow.down.to.line", action: onSettleEverything)
             destination("Field", "slider.horizontal.3", action: onShowSettings)
         }
     }

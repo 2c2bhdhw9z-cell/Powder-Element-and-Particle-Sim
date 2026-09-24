@@ -1,0 +1,95 @@
+{
+  "note": "Generated from the web engine. Do not hand-edit. Regenerate with: cd web && CRUCIBLE_WRITE_GOLDEN=1 npx vitest run golden-daily",
+  "days": [
+    {
+      "day": "2024-02-29",
+      "hash": 2293544779,
+      "powderIndex": 6,
+      "powderId": "circuit",
+      "powderName": "Circuit",
+      "particleIndex": 6,
+      "particlePreset": "waterfall"
+    },
+    {
+      "day": "2024-12-31",
+      "hash": 2565189421,
+      "powderIndex": 2,
+      "powderId": "oil",
+      "powderName": "Oil fire",
+      "particleIndex": 2,
+      "particlePreset": "vortex"
+    },
+    {
+      "day": "2025-01-01",
+      "hash": 837643505,
+      "powderIndex": 10,
+      "powderId": "forest",
+      "powderName": "Forest",
+      "particleIndex": 6,
+      "particlePreset": "waterfall"
+    },
+    {
+      "day": "2025-06-15",
+      "hash": 2395487015,
+      "powderIndex": 12,
+      "powderId": "remix",
+      "powderName": "Remix",
+      "particleIndex": 2,
+      "particlePreset": "vortex"
+    },
+    {
+      "day": "2026-09-24",
+      "hash": 3022332869,
+      "powderIndex": 10,
+      "powderId": "forest",
+      "powderName": "Forest",
+      "particleIndex": 4,
+      "particlePreset": "fountain"
+    },
+    {
+      "day": "2026-09-25",
+      "hash": 3005555250,
+      "powderIndex": 9,
+      "powderId": "beach",
+      "powderName": "Beach",
+      "particleIndex": 1,
+      "particlePreset": "blackhole"
+    },
+    {
+      "day": "2026-09-26",
+      "hash": 2988777631,
+      "powderIndex": 8,
+      "powderId": "snow",
+      "powderName": "Snow",
+      "particleIndex": 4,
+      "particlePreset": "fountain"
+    },
+    {
+      "day": "2026-09-27",
+      "hash": 2972000012,
+      "powderIndex": 7,
+      "powderId": "vacuum",
+      "powderName": "Vacuum",
+      "particleIndex": 1,
+      "particlePreset": "blackhole"
+    },
+    {
+      "day": "2030-11-05",
+      "hash": 3248894144,
+      "powderIndex": 2,
+      "powderId": "oil",
+      "powderName": "Oil fire",
+      "particleIndex": 6,
+      "particlePreset": "waterfall"
+    },
+    {
+      "day": "1999-12-31",
+      "hash": 3523506125,
+      "powderIndex": 9,
+      "powderId": "beach",
+      "powderName": "Beach",
+      "particleIndex": 1,
+      "particlePreset": "blackhole"
+    }
+  ]
+}

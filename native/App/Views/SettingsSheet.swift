@@ -14,6 +14,7 @@ struct SettingsSheet: View {
     @Binding var showDebugOverlay: Bool
     @Binding var soundEnabled: Bool
     @Binding var bothChambersRun: Bool
+    @Binding var chambersAffectEachOther: Bool
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
 
@@ -143,9 +144,10 @@ struct SettingsSheet: View {
             "World",
             footnote: model.isSteeredByTilt
                 ? "The phone's tilt is setting gravity. Tap Tilt twice more to take it back."
-                : "Keeping both chambers running means the one you are not looking at carries on, at "
-                    + "the cost of some of the other's speed. Pressure is the most expensive part of a "
-                    + "moment; turning it off buys speed, and costs trapped gas its way out."
+                : "With the chambers affecting each other, explosions here throw sparks into the "
+                    + "particle field, and bodies that come to rest there silt down into sand and "
+                    + "water. Pressure is the most expensive part of a moment; turning it off buys "
+                    + "speed, and costs trapped gas its way out."
         ) {
             LabChoice(
                 label: "Which way is down",
@@ -180,6 +182,8 @@ struct SettingsSheet: View {
             LabToggle(label: "Sound", isOn: $soundEnabled)
             LabDivider()
             LabToggle(label: "Keep both running", isOn: $bothChambersRun)
+            LabDivider()
+            LabToggle(label: "Chambers affect each other", isOn: $chambersAffectEachOther)
             LabDivider()
             LabToggle(
                 label: "Pressure",
