@@ -13,20 +13,38 @@
 // ## The shape of the thing
 //
 // One peer is the host and owns the world. Everyone can paint; a stroke travels to the host, the host
-// applies it, and the host's world is the truth. Followers do not simulate independently — they are
-// shown the host's world.
+// applies it, and the host's world is the truth.
 //
-// The obvious design is for the host to broadcast the whole grid continuously. That is what the
-// reference does, and it is why it sends a hundred and fifty kilobytes every tenth of a second. Instead
-// the full world goes out once, strokes go out as they happen, and a cheap fingerprint of the world
-// goes out periodically — when a follower's fingerprint disagrees, and only then, it asks for the whole
-// world again.
+// **Followers do not simulate.** They cannot: the physics draws thousands of random numbers a tick from
+// each engine's own stream, so two engines stepping the same world come apart inside a single frame.
+// So the host sends the whole world, continuously, and the follower displays it.
 //
-// That is what ``PowderEngine/hashLite()`` was built for, and it is worth knowing that it was once
-// broken in a way that made this exact scheme fail: the fingerprint mixed the raw cell values while the
-// compact format sent something narrower, so the two never agreed, the "have we drifted?" test was
-// permanently true, and the whole grid was resent every single tick. The fix is in that method's
-// comment.
+// An earlier version of this comment claimed the opposite — that the world went out once and strokes
+// then kept the two in step, with a fingerprint to catch drift. That scheme cannot work, and the test
+// named `scatteringBrushDrifts` below is the proof: one spray of sand puts the two worlds permanently
+// out of agreement, and every tick of ordinary physics does the same thing. Continuous is not a
+// concession, it is the only correct arrangement.
+//
+// What that leaves each message doing:
+//
+//   - **World frames** carry the grid and dominate the link, so they do not travel as JSON at all. See
+//     `RoomWorld.swift` for the binary frame and the compression that makes the rate affordable.
+//   - **Acknowledgements** let the host pace itself. Sending at a fixed rate down a link that cannot
+//     keep up is the worst available failure: the frames queue and the follower falls further behind
+//     with every one. Waiting for the last frame to be acknowledged makes the rate the link's to
+//     choose.
+//   - **Strokes** still travel, in both directions. A follower's painting has to reach the host to
+//     exist at all, and the follower also applies it locally straight away so the brush feels
+//     connected to the finger instead of lagging a frame behind the network.
+//   - **The fingerprint** is no longer load-bearing for correctness — the world arrives whole and
+//     often. It is what the interface uses to tell someone whether they are seeing the host's world or
+//     something stale.
+//
+// It is worth knowing that ``PowderEngine/hashLite()`` was once broken in a way that made sharing a
+// world fail completely: it mixed the raw cell values while the compact format sent something narrower,
+// so the two never agreed, the "have we drifted?" test was permanently true, and the whole grid was
+// resent every single tick. The fix is in that method's comment, and the frame now carries the sender's
+// fingerprint so a receiver checks its own work every time.
 
 /// A brush stroke, as it travels between peers.
 ///
@@ -83,15 +101,23 @@ public struct RoomSettings: Codable, Sendable, Hashable {
 public enum RoomMessage: Codable, Sendable {
     /// Sent on joining: who this is.
     case hello(name: String)
-    /// The whole world. Sent once on joining, and again whenever a peer reports drift.
-    case world(PowderLiteState)
+    /// A follower confirming it has received and drawn a world frame.
+    ///
+    /// This is what lets the host pace itself. It sends the next frame once the last one has been
+    /// acknowledged, so a slow link produces fewer, current frames rather than a growing queue of stale
+    /// ones. The whole world is *not* here — world frames are bytes, not JSON. See `RoomWorld.swift`.
+    case worldAck(sequence: UInt32)
     /// Someone painted.
     case stroke(RoomStroke)
     /// The world's settings changed.
     case settings(RoomSettings)
     /// The host's fingerprint, for followers to compare against their own.
     case fingerprint(value: Int32, frame: Int)
-    /// A follower asking for the whole world, because its fingerprint disagreed.
+    /// A follower asking for a frame right now.
+    ///
+    /// Sent on joining, so the first world arrives immediately instead of after however long the host's
+    /// pacing would have taken, and again after a gap — a frame that failed to decode, or a stretch with
+    /// nothing arriving at all.
     case needWorld
     /// The world was cleared or replaced wholesale.
     case reset
@@ -99,11 +125,11 @@ public enum RoomMessage: Codable, Sendable {
     // MARK: Coding
 
     private enum Kind: String, Codable {
-        case hello, world, stroke, settings, fingerprint, needWorld, reset
+        case hello, worldAck, stroke, settings, fingerprint, needWorld, reset
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, name, world, stroke, settings, value, frame
+        case kind, name, sequence, stroke, settings, value, frame
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -112,9 +138,9 @@ public enum RoomMessage: Codable, Sendable {
         case let .hello(name):
             try container.encode(Kind.hello, forKey: .kind)
             try container.encode(name, forKey: .name)
-        case let .world(state):
-            try container.encode(Kind.world, forKey: .kind)
-            try container.encode(state, forKey: .world)
+        case let .worldAck(sequence):
+            try container.encode(Kind.worldAck, forKey: .kind)
+            try container.encode(sequence, forKey: .sequence)
         case let .stroke(stroke):
             try container.encode(Kind.stroke, forKey: .kind)
             try container.encode(stroke, forKey: .stroke)
@@ -138,8 +164,8 @@ public enum RoomMessage: Codable, Sendable {
         switch kind {
         case .hello:
             self = .hello(name: try container.decode(String.self, forKey: .name))
-        case .world:
-            self = .world(try container.decode(PowderLiteState.self, forKey: .world))
+        case .worldAck:
+            self = .worldAck(sequence: try container.decode(UInt32.self, forKey: .sequence))
         case .stroke:
             self = .stroke(try container.decode(RoomStroke.self, forKey: .stroke))
         case .settings:

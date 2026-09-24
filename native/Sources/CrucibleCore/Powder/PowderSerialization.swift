@@ -265,6 +265,60 @@ extension PowderEngine {
 
     // MARK: Compact
 
+    /// Lays a grid of one-byte-per-cell identifiers into the world, resizing first if needed.
+    ///
+    /// This is the shared body of every compact-format loader. ``apply(lite:)`` and
+    /// ``apply(roomWorld:)`` differ *only* in how they get these bytes out of a payload —
+    /// one from base64, one from a compressed binary frame — and everything that happens
+    /// afterwards is identical.
+    ///
+    /// It lives in one place on purpose. The two loaders started life with a copy each,
+    /// and every comment below marks a bug that was found once and would then have had to
+    /// be fixed twice. That is the whole argument: this is the routine where getting it
+    /// wrong produces a world that looks loaded and is quietly incorrect.
+    ///
+    /// - Returns: whether the world was adopted. `false` leaves it untouched.
+    func adoptCompactCells(_ bytes: [UInt8], width newWidth: Int, height newHeight: Int) -> Bool {
+        guard Self.isValidSize(width: newWidth, height: newHeight) else { return false }
+
+        if newWidth != width || newHeight != height {
+            resize(width: newWidth, height: newHeight)
+            // Checked, not assumed. `resize` returns quietly when a size cannot be used,
+            // and the declared width is what sets the length of a row — so laying the
+            // cells down under a size that was never adopted puts every row at the wrong
+            // offset, the whole world sliding diagonally, with nothing reported. That was
+            // a real bug, and it is why this returns a result at all.
+            guard newWidth == width, newHeight == height else { return false }
+        }
+
+        // Cleared only now that the payload is known to be usable. Clearing first meant a
+        // single unreadable message — from a peer on a different version, or a packet that
+        // arrived damaged — wiped the receiving player's world and left them staring at
+        // nothing.
+        resetGrid()
+        let count = min(cellCount, bytes.count)
+        for i in 0 ..< count {
+            let id = ElementID(bytes[i])
+            let usable = id <= Element.customIDEnd ? id : Element.empty
+            type[i] = usable
+            // Arriving over the wire is one of the ways a portal can enter the grid.
+            // Noticed here, inside a walk that was happening anyway, rather than by a
+            // separate pass afterwards.
+            if usable == Element.portalB { portalBMayExist = true }
+            // Every cell gets the temperature and lifetime its element should start with,
+            // since the compact format carries neither — without that, incoming ice
+            // landed at the temperature of the lava it replaced and melted on the spot,
+            // and incoming fire arrived with no lifetime and vanished on the next tick.
+            let physics = elements[usable]
+            temperature[i] = JS.toFloat32(physics.usesAmbientTemp ? ambientTemp : physics.defaultTemp)
+            // Clamped into range rather than converted blindly: a lifetime is a 16-bit
+            // field and the registry's is a wider signed one, so an absurd value in a
+            // custom element would otherwise trap here.
+            life[i] = UInt16(max(0, min(Int32(UInt16.max), physics.decayTicks)))
+        }
+        return true
+    }
+
     /// Captures just the layout, for sending to another player.
     public func captureLiteState() -> PowderLiteState {
         var bytes = [UInt8](repeating: 0, count: cellCount)
@@ -288,33 +342,8 @@ extension PowderEngine {
     /// nothing.
     @discardableResult
     public func apply(lite state: PowderLiteState) -> Bool {
-        guard Self.isValidSize(width: state.w, height: state.h) else { return false }
         guard let bytes = Base64.decode(state.t) else { return false }
-
-        if state.w != width || state.h != height {
-            resize(width: state.w, height: state.h)
-            guard state.w == width, state.h == height else { return false }
-        }
-
-        // Cleared only now that the payload is known to be usable. Every cell then gets
-        // the temperature and lifetime its element should start with, since the compact
-        // format carries neither — without that, incoming ice landed at the temperature
-        // of the lava it replaced and melted on the spot, and incoming fire arrived with
-        // no lifetime and vanished on the next tick.
-        resetGrid()
-        let count = min(cellCount, bytes.count)
-        for i in 0 ..< count {
-            let id = ElementID(bytes[i])
-            let usable = id <= Element.customIDEnd ? id : Element.empty
-            type[i] = usable
-            if usable == Element.portalB { portalBMayExist = true }
-            let physics = elements[usable]
-            temperature[i] = JS.toFloat32(physics.usesAmbientTemp ? ambientTemp : physics.defaultTemp)
-            // Clamped into range rather than converted blindly: a lifetime is a 16-bit
-            // field and the registry's is a wider signed one, so an absurd value in a
-            // custom element would otherwise trap here.
-            life[i] = UInt16(max(0, min(Int32(UInt16.max), physics.decayTicks)))
-        }
+        guard adoptCompactCells(bytes, width: state.w, height: state.h) else { return false }
         if let gx = state.gx, gx.isFinite { gravityX = gx }
         if let gy = state.gy, gy.isFinite { gravityY = gy }
         return true

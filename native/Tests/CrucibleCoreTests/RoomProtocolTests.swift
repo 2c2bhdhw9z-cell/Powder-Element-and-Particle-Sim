@@ -36,6 +36,19 @@ struct RoomProtocolTests {
         return try JSONDecoder().decode(RoomMessage.self, from: data)
     }
 
+    /// Sends the host's world to a peer the long way round — packed into a frame, decoded again, then
+    /// applied — because that is the only path the app ever uses, and shortcutting it in a test would
+    /// stop testing the thing that can break.
+    private func send(_ host: PowderEngine, to guest: PowderEngine, sequence: UInt32 = 1) throws {
+        let frame = try #require(host.captureRoomWorld(sequence: sequence).encoded())
+        let received = try #require(RoomWorld.decode(frame))
+        #expect(guest.apply(roomWorld: received))
+        #expect(
+            guest.hashLite() == received.fingerprint,
+            "the peer built a world the host did not describe"
+        )
+    }
+
     // MARK: The vocabulary survives the trip
 
     @Test("Every kind of message survives being encoded and decoded")
@@ -72,6 +85,14 @@ struct RoomProtocolTests {
         default: Issue.record("fingerprint came back as something else")
         }
 
+        switch try roundTrip(.worldAck(sequence: 4_000_000_001)) {
+        case let .worldAck(sequence):
+            // Deliberately a value past the middle of the range, so a field silently narrowed to a
+            // signed type would show up here rather than after four billion frames.
+            #expect(sequence == 4_000_000_001)
+        default: Issue.record("worldAck came back as something else")
+        }
+
         switch try roundTrip(.needWorld) {
         case .needWorld: break
         default: Issue.record("needWorld came back as something else")
@@ -83,24 +104,28 @@ struct RoomProtocolTests {
         }
     }
 
-    @Test("A whole world survives being encoded and decoded")
+    /// World frames are bytes rather than JSON, so they are not part of the message enum at all. The
+    /// frame has its own suite — ``RoomWorldTests`` — and this only checks that the two halves of the
+    /// protocol meet: a world captured on one engine arrives whole on another.
+    @Test("A whole world survives the trip between two engines")
     func worldRoundTrips() throws {
         let source = makeWorld()
-        let message = RoomMessage.world(source.captureLiteState())
-
-        guard case let .world(state) = try roundTrip(message) else {
-            Issue.record("world came back as something else")
-            return
-        }
+        let frame = try #require(source.captureRoomWorld(sequence: 7).encoded())
+        let received = try #require(RoomWorld.decode(frame))
 
         let target = PowderEngine(width: 8, height: 8, seed: 99)
-        #expect(target.apply(lite: state))
+        #expect(target.apply(roomWorld: received))
         #expect(target.width == source.width)
         #expect(target.height == source.height)
+        #expect(received.sequence == 7)
 
         var differences = 0
         for i in 0 ..< source.cellCount where target.type[i] != source.type[i] { differences += 1 }
         #expect(differences == 0, "\(differences) cells differ after a trip through the wire")
+        #expect(
+            target.hashLite() == received.fingerprint,
+            "the receiver built a world the sender did not describe"
+        )
     }
 
     /// The reason the kind is written out rather than inferred from which fields are present. A message
@@ -117,11 +142,11 @@ struct RoomProtocolTests {
     // MARK: Peers converging
 
     @Test("A joining peer ends up with the host's exact world")
-    func joiningPeerMatches() {
+    func joiningPeerMatches() throws {
         let host = makeWorld()
         let guest = PowderEngine(width: 8, height: 8, seed: 1234)
 
-        #expect(guest.apply(lite: host.captureLiteState()))
+        try send(host, to: guest)
         guest.apply(host.roomSettings())
 
         #expect(guest.hashLite() == host.hashLite(), "the fingerprints should agree after joining")
@@ -130,13 +155,16 @@ struct RoomProtocolTests {
         #expect(guest.ambientTemp == host.ambientTemp)
     }
 
-    /// The core of the scheme: a stroke described once and applied twice produces the same world on both
-    /// sides. If this fails, everything built on top is decoration.
+    /// A stroke described once and applied twice produces the same world on both sides.
+    ///
+    /// This is what makes the brush feel attached to the finger. The follower does not wait for the
+    /// host's next world frame to show what it just painted — it paints locally at once, and the frame
+    /// that arrives shortly after should agree with what it drew rather than visibly correcting it.
     @Test("A stroke applied on both sides leaves both worlds identical")
     func strokeKeepsPeersTogether() throws {
         let host = makeWorld()
         let guest = PowderEngine(width: 48, height: 32, seed: 999)
-        #expect(guest.apply(lite: host.captureLiteState()))
+        try send(host, to: guest)
 
         let strokes = [
             RoomStroke(x: 12, y: 10, radius: 4, elementID: Element.sand, shape: .circle),
@@ -161,13 +189,18 @@ struct RoomProtocolTests {
         #expect(host.hashLite() == guest.hashLite())
     }
 
-    /// Spray scatters its cells at random, so two peers applying "the same" spray stroke will *not*
-    /// match. That is not a bug to fix in the protocol — it is why the fingerprint exists.
-    @Test("A scattering brush does drift, which is exactly what the fingerprint is for")
-    func scatteringBrushDrifts() {
+    /// Spray scatters its cells at random, so two peers applying "the same" spray stroke do *not* match.
+    ///
+    /// This is the test that settles the design. If replaying strokes could keep two worlds in step,
+    /// the host could send the world once and then say nothing but strokes. It cannot: one spray puts
+    /// them permanently out of agreement, and every tick of ordinary physics does the same thing for the
+    /// same reason — two engines, two random streams. Hence the world arrives whole, continuously, and
+    /// a local stroke is a prediction that the next frame overwrites.
+    @Test("A scattering brush drifts, which is why the world is sent rather than replayed")
+    func scatteringBrushDrifts() throws {
         let host = makeWorld()
         let guest = PowderEngine(width: 48, height: 32, seed: 999)
-        #expect(guest.apply(lite: host.captureLiteState()))
+        try send(host, to: guest)
         #expect(host.hashLite() == guest.hashLite(), "they should start together")
 
         let spray = RoomStroke(x: 24, y: 16, radius: 8, elementID: Element.sand, shape: .spray)
@@ -181,7 +214,7 @@ struct RoomProtocolTests {
         )
 
         // And the recovery works: the host sends the world, and they are together again.
-        #expect(guest.apply(lite: host.captureLiteState()))
+        try send(host, to: guest, sequence: 2)
         #expect(host.hashLite() == guest.hashLite(), "sending the world should bring them back together")
     }
 
@@ -274,24 +307,31 @@ struct RoomProtocolTests {
 
     // MARK: The size of it
 
-    /// The reason strokes are sent rather than whole worlds. The reference broadcasts the entire grid
-    /// every tenth of a second; at the sizes this app runs, that is megabytes a second over a phone-to-
-    /// phone link.
-    @Test("A stroke is orders of magnitude smaller than a world")
+    /// Why a stroke is described rather than sent as the cells it changed, and why the world gets a
+    /// binary frame of its own while everything else can afford to be readable JSON.
+    @Test("A stroke is tiny next to a world")
     func strokesAreSmall() throws {
         let engine = PowderEngine(width: 400, height: 380, seed: 1)
         for x in 0 ..< engine.width { engine.setElement(x, engine.height - 1, Element.bedrock) }
 
-        let worldBytes = try JSONEncoder().encode(RoomMessage.world(engine.captureLiteState())).count
+        let worldBytes = try #require(engine.captureRoomWorld().encoded()).count
         let strokeBytes = try JSONEncoder().encode(
             RoomMessage.stroke(RoomStroke(x: 10, y: 10, radius: 4, elementID: Element.sand, shape: .circle))
         ).count
 
         #expect(strokeBytes < 200, "a stroke should be tiny, was \(strokeBytes) bytes")
         #expect(
-            worldBytes > strokeBytes * 100,
+            worldBytes > strokeBytes * 10,
             "a world (\(worldBytes)) should dwarf a stroke (\(strokeBytes))"
         )
+    }
+
+    /// The acknowledgement has to be cheap, because one goes back for every frame that goes out. If it
+    /// were not, the pacing scheme would spend the bandwidth it exists to save.
+    @Test("An acknowledgement is tiny")
+    func acknowledgementIsTiny() throws {
+        let bytes = try JSONEncoder().encode(RoomMessage.worldAck(sequence: 123_456)).count
+        #expect(bytes < 100, "an acknowledgement should be tiny, was \(bytes) bytes")
     }
 
     /// And the fingerprint is smaller still, which is what makes it affordable to send often.
