@@ -662,7 +662,9 @@ public enum CloudPath {
 ///
 /// The cases are separated by what somebody can *do* about them, which is the only distinction that
 /// matters to an interface. Being told "error 401" helps nobody; being told to sign in does.
-public enum CloudFailure: Sendable, Hashable {
+/// (`Error` is in the standard library, not Foundation, so conforming to it costs the engine none of its
+/// independence — and it is what lets every call site be a `Result`.)
+public enum CloudFailure: Error, Sendable, Hashable {
     /// The phone could not reach the server at all.
     case unreachable
     /// Signed out, or the token has expired.

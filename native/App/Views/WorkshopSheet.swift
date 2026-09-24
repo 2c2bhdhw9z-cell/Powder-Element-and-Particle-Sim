@@ -208,12 +208,10 @@ struct WorkshopSheet: View {
     @ViewBuilder
     private var publishSection: some View {
         if !account.isSignedIn {
-            LabGroup(
-                "Publishing",
-                footnote: "Sign in under \"Your worlds\" to publish. Browsing needs no account."
-            ) {
-                EmptyView()
-            }
+            CloudNote("""
+            Sign in under "Your worlds" to publish something. Browsing, opening and liking need no \
+            account.
+            """)
         } else if isPublishing {
             LabGroup(
                 "Publish the powder chamber",
