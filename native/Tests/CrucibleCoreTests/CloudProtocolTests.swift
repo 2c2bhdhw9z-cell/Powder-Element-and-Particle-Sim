@@ -471,6 +471,32 @@ struct CloudProtocolTests {
         #expect(CloudAddress.normalise("https://someone:secret@example.com") == "https://example.com")
     }
 
+    /// The substring search the address tidying depends on, written by hand rather than borrowed.
+    ///
+    /// The standard library's version requires macOS 13, which the rest of the engine does not, and Linux
+    /// applies no such gate — so the convenient one compiled perfectly here and failed the macOS build.
+    /// These are the cases an off-by-one in a hand-written search gets wrong.
+    @Test("Finding one run of characters inside another")
+    func substringSearch() {
+        #expect("https://example.com".containsRun("://"))
+        #expect("a..b".containsRun(".."))
+        #expect(!"a.b".containsRun(".."))
+        // At the very start and the very end, which is where an off-by-one shows.
+        #expect("://x".containsRun("://"))
+        #expect("x://".containsRun("://"))
+        #expect("..".containsRun(".."))
+        // A needle longer than the haystack, and both empty.
+        #expect(!"a".containsRun("abc"))
+        #expect(!"".containsRun("a"))
+        #expect("abc".containsRun(""))
+        // A near miss that shares a prefix, which a search that fails to back up would accept.
+        #expect(!"a:/b".containsRun("://"))
+        #expect("a:/:/ /://".containsRun("://"))
+        // Multi-byte characters, since this works in bytes.
+        #expect("héllo".containsRun("éll"))
+        #expect(!"hello".containsRun("é"))
+    }
+
     // MARK: Signing in
 
     @Test("The list of ways to sign in is read")

@@ -511,7 +511,7 @@ public enum CloudAddress {
         } else if lowered.hasPrefix("http://") {
             isSecure = false
             working = String(working.dropFirst("http://".count))
-        } else if lowered.contains("://") {
+        } else if lowered.containsRun("://") {
             // Some other scheme — `ftp://`, `ssh://` — or a stray `://` in the middle of nonsense.
             // Neither is an address this app can make requests against.
             return nil
@@ -545,7 +545,7 @@ public enum CloudAddress {
         // And every character has to be one a host can contain.
         guard host.allSatisfy(isHostCharacter) else { return nil }
         // A dot at either end, or two together, is a typo rather than a host.
-        guard !host.hasPrefix("."), !host.hasSuffix("."), !host.contains("..") else { return nil }
+        guard !host.hasPrefix("."), !host.hasSuffix("."), !host.containsRun("..") else { return nil }
 
         // Insecure only for a machine on this desk. Anywhere else it would send the token that stands in
         // for somebody's account across a network in the clear.
@@ -757,6 +757,25 @@ public enum CloudFailure: Error, Sendable, Hashable {
 // MARK: - Small string help
 
 extension String {
+    /// Whether one run of characters appears inside another.
+    ///
+    /// Written out, and **not** to be replaced with the standard library's `contains(_:)` for strings.
+    /// That one carries an availability requirement — macOS 13 and later — which the rest of this module
+    /// does not, and Linux applies no such gate. So the convenient version compiled perfectly on Linux
+    /// and failed the macOS build, which is precisely the class of difference this module exists to avoid.
+    /// Six lines is a better trade than raising the whole package's floor.
+    func containsRun(_ needle: String) -> Bool {
+        let haystack = Array(utf8)
+        let pattern = Array(needle.utf8)
+        guard !pattern.isEmpty, pattern.count <= haystack.count else { return pattern.isEmpty }
+        for start in 0 ... (haystack.count - pattern.count) {
+            var offset = 0
+            while offset < pattern.count, haystack[start + offset] == pattern[offset] { offset += 1 }
+            if offset == pattern.count { return true }
+        }
+        return false
+    }
+
     /// Trims spaces, tabs and newlines from both ends.
     ///
     /// Foundation's `trimmingCharacters(in: .whitespacesAndNewlines)` by hand, because the engine has no
