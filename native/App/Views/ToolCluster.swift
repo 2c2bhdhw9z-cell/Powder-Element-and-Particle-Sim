@@ -10,6 +10,7 @@ import UIKit
 struct ToolCluster: View {
     let model: SimulationModel
     let tilt: TiltSensor
+    let recorder: ScreenRecorder
     let glass: GlassLevel
     /// Somewhere to send a picture once one has been taken.
     @Binding var shareTarget: ShareTarget?
@@ -46,6 +47,7 @@ struct ToolCluster: View {
                 else { return }
                 shareTarget = ShareTarget(url: url)
             }
+            RecordButton(recorder: recorder)
         }
         .glassPanel(glass)
     }
@@ -91,5 +93,35 @@ struct ToolCluster: View {
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.3)
         .accessibilityLabel(label)
+    }
+}
+
+/// Starts and stops a recording.
+///
+/// Its own view because the state it reflects is not the simulation's, and because it needs three
+/// appearances rather than two: available, running, and unavailable. A button that looks live and
+/// then fails when pressed is worse than one that says it cannot.
+struct RecordButton: View {
+    let recorder: ScreenRecorder
+
+    var body: some View {
+        Button {
+            recorder.toggle()
+        } label: {
+            Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
+                .font(.labBody(14, .medium))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.plain)
+        .disabled(!recorder.isAvailable && !recorder.isRecording)
+        .opacity(recorder.isAvailable || recorder.isRecording ? 1 : 0.3)
+        .accessibilityLabel(recorder.isRecording ? "Stop recording" : "Record a clip")
+    }
+
+    /// Red while running, which is the one convention worth borrowing from every other recorder.
+    private var tint: Color {
+        if recorder.isRecording { return Palette.danger }
+        return recorder.isAvailable ? Palette.muted : Palette.subtleForeground
     }
 }

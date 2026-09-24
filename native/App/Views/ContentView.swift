@@ -43,6 +43,7 @@ struct ContentView: View {
     /// One speaker for the whole app.
     @State private var audio = LabAudio()
     @State private var store = SceneStore()
+    @State private var recorder = ScreenRecorder()
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -185,6 +186,31 @@ struct ContentView: View {
         .sheet(isPresented: $showingFieldSettings) {
             FieldSettingsSheet(model: field, glass: glass)
         }
+        // Driven straight off the recorder, which publishes the preview already wrapped. The binding
+        // writes nothing back except a dismissal, so the cover and the recorder cannot disagree about
+        // whether a preview is showing.
+        .fullScreenCover(
+            item: Binding(
+                get: { recorder.pending },
+                set: { if $0 == nil { recorder.dismissPreview() } }
+            )
+        ) { target in
+            // Full screen rather than a sheet, because the preview is a video player with its own
+            // controls and a half-height card would leave it unusable.
+            RecordingPreview(controller: target.controller)
+                .ignoresSafeArea()
+        }
+        .alert(
+            "Recording",
+            isPresented: Binding(
+                get: { recorder.problem != nil },
+                set: { if !$0 { recorder.clearProblem() } }
+            )
+        ) {
+            Button("All right") { recorder.clearProblem() }
+        } message: {
+            Text(recorder.problem ?? "")
+        }
         .sheet(item: $shareTarget) { target in
             // The system's own share sheet, which is the one place it is right to look like iOS
             // rather than like Crucible — it is the phone's furniture, not the app's.
@@ -281,9 +307,21 @@ struct ContentView: View {
     private var tools: some View {
         switch chamber {
         case .powder:
-            ToolCluster(model: powder, tilt: tilt, glass: glass, shareTarget: $shareTarget)
+            ToolCluster(
+                model: powder,
+                tilt: tilt,
+                recorder: recorder,
+                glass: glass,
+                shareTarget: $shareTarget
+            )
         case .field:
-            FieldToolCluster(model: field, tilt: tilt, glass: glass, shareTarget: $shareTarget)
+            FieldToolCluster(
+                model: field,
+                tilt: tilt,
+                recorder: recorder,
+                glass: glass,
+                shareTarget: $shareTarget
+            )
         }
     }
 
@@ -365,6 +403,7 @@ struct ScenePicker: View {
 struct FieldToolCluster: View {
     let model: ParticleFieldModel
     let tilt: TiltSensor
+    let recorder: ScreenRecorder
     let glass: GlassLevel
     @Binding var shareTarget: ShareTarget?
 
@@ -384,6 +423,7 @@ struct FieldToolCluster: View {
                         else { return }
                         shareTarget = ShareTarget(url: url)
                     }
+                    RecordButton(recorder: recorder)
                 }
                 .glassPanel(glass)
 
