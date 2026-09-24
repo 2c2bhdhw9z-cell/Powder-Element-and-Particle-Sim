@@ -54,6 +54,7 @@ struct ContentView: View {
     @State private var showingSaves = false
     @State private var showingEditor = false
     @State private var showingFieldSettings = false
+    @State private var showingHelp = false
     /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
     /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
     @State private var paletteVersion = 0
@@ -162,11 +163,19 @@ struct ContentView: View {
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true
+                },
+                onShowHelp: {
+                    // Closed first: a sheet cannot sensibly present another on top of itself.
+                    showingSettings = false
+                    showingHelp = true
                 }
             )
         }
         .sheet(isPresented: $showingDiagnostics) {
             DiagnosticsSheet(model: powder, glass: glass)
+        }
+        .sheet(isPresented: $showingHelp) {
+            HelpSheet(glass: glass)
         }
         .sheet(isPresented: $showingPeriodic) {
             PeriodicSheet(model: powder, glass: glass) { id in

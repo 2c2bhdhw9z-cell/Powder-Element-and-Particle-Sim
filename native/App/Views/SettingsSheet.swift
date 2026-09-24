@@ -14,6 +14,7 @@ struct SettingsSheet: View {
     @Binding var showDebugOverlay: Bool
     @Binding var soundEnabled: Bool
     let onShowDiagnostics: () -> Void
+    let onShowHelp: () -> Void
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
@@ -21,12 +22,28 @@ struct SettingsSheet: View {
 
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves", glass: glass) {
+            help
             appearance
             view
             world
             events
             health
             development
+        }
+    }
+
+    // MARK: Help
+
+    /// First, because someone opening this panel for the first time is more likely to be looking for
+    /// an explanation than for the grain setting.
+    private var help: some View {
+        LabGroup {
+            LabAction(
+                label: "How to use this",
+                detail: "What everything does, and what the materials do to each other",
+                symbol: "questionmark.circle",
+                action: onShowHelp
+            )
         }
     }
 

@@ -152,6 +152,7 @@ struct ElementDock: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 10) {
             destinations
+            brushRow
             searchRow
             categoryRow
             palette
@@ -159,6 +160,78 @@ struct ElementDock: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
+
+    /// How a touch paints, and the eyedropper.
+    ///
+    /// Six shapes have existed in the engine since it was ported and not one of them was reachable —
+    /// the brush was permanently a circle. Flood fill and replace in particular change what the tool
+    /// is for rather than merely how it looks.
+    private var brushRow: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("BRUSH")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ForEach(Self.shapes, id: \.shape) { option in
+                    let selected = model.brushShape == option.shape && !model.isSampling
+                    Button {
+                        model.brushShape = option.shape
+                        // Choosing a shape cancels a pending sample, since both describe what the
+                        // next touch will do and only one of them can be true.
+                        model.isSampling = false
+                    } label: {
+                        brushLabel(option.name, option.symbol, selected: selected)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // The eyedropper, which is a one-shot rather than a shape: it takes the material
+                // under the next touch and switches itself off again.
+                Button {
+                    model.isSampling.toggle()
+                } label: {
+                    brushLabel("Pick", "eyedropper", selected: model.isSampling)
+                }
+                .buttonStyle(.plain)
+            }
+            if model.isSampling {
+                Text("Tap the world to pick up whatever is there.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+            } else if model.brushShape == .replace {
+                Text("Replaces only what you start the drag on, so you can swap one material for another.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.subtleForeground)
+            } else if model.brushShape == .fill {
+                Text("Floods the whole connected space you tap.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.subtleForeground)
+            }
+        }
+    }
+
+    private func brushLabel(_ title: String, _ symbol: String, selected: Bool) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: symbol)
+                .font(.labBody(11, .medium))
+            Text(title)
+                .font(.labBody(12, selected ? .semiBold : .regular))
+        }
+        .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
+        .padding(.horizontal, 10)
+        .frame(height: 32)
+        .background(Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10)))
+    }
+
+    private static let shapes: [(shape: BrushShape, name: String, symbol: String)] = [
+        (.circle, "Round", "circle.fill"),
+        (.square, "Square", "square.fill"),
+        (.spray, "Spray", "aqi.medium"),
+        (.line, "Line", "line.diagonal"),
+        (.fill, "Flood", "drop.fill"),
+        (.replace, "Replace", "arrow.2.squarepath"),
+    ]
 
     /// The search box.
     ///

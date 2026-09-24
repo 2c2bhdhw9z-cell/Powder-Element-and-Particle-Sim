@@ -144,6 +144,19 @@ final class SimulationModel {
     /// The shape a touch paints.
     var brushShape: BrushShape = .circle
 
+    /// Whether the next touch samples the material under it instead of painting.
+    ///
+    /// A one-shot rather than a mode: it switches itself off the moment it has taken a sample, which
+    /// is what people expect of an eyedropper and saves a second tap to leave it.
+    var isSampling = false
+
+    /// While replacing, the material being replaced — sampled from the first cell of the stroke.
+    ///
+    /// Held across the stroke rather than looked up per touch, because it has to be whatever was
+    /// under the *start* of the drag. Read afresh each touch, the brush would replace whatever it had
+    /// just painted and so paint everything.
+    private var replaceTarget: ElementID?
+
     /// Sideways gravity, as the world is tilted.
     var gravityX: Double {
         get { engine.gravityX }
@@ -350,19 +363,56 @@ final class SimulationModel {
     func paint(atFractionX fx: Double, fractionY fy: Double) {
         let x = Int((fx * Double(engine.width)).rounded(.down))
         let y = Int((fy * Double(engine.height)).rounded(.down))
+
+        // Sampling takes the material under the finger and then stops, rather than painting.
+        if isSampling {
+            guard engine.isValid(x, y) else { return }
+            let found = engine.type[engine.index(x, y)]
+            // Air included: picking up "nothing" selects the eraser, which is a reasonable thing to
+            // want from tapping an empty space.
+            brushElement = found
+            isSampling = false
+            return
+        }
+
         engine.drawBrush(
             centerX: x,
             centerY: y,
             radius: brushRadius,
             elementID: brushElement,
             shape: brushShape,
+            targetElementID: brushShape == .replace ? replaceTarget : nil,
             now: CFAbsoluteTimeGetCurrent()
         )
     }
 
-    /// Records a point to come back to. Called once when a stroke begins, not per touch.
-    func beginStroke() {
+    /// Records a point to come back to, with no stroke involved.
+    ///
+    /// For anything that changes the world in one go — a repair, a scene, an event — as opposed to a
+    /// drag, which has a starting point and needs ``beginStroke(atFractionX:fractionY:)``.
+    func recordUndoPoint() {
         history.push(engine)
+    }
+
+    /// Records a point to come back to, and sets up anything the stroke needs.
+    ///
+    /// Called once when a stroke begins, not per touch.
+    func beginStroke(atFractionX fx: Double, fractionY fy: Double) {
+        // Nothing to undo for a sample, which changes no cells.
+        if !isSampling {
+            recordUndoPoint()
+        }
+
+        // What "replace" replaces is whatever was under the start of the drag, captured now. Looked
+        // up per touch instead, the brush would replace what it had just painted and so paint
+        // everything it passed over.
+        if brushShape == .replace {
+            let x = Int((fx * Double(engine.width)).rounded(.down))
+            let y = Int((fy * Double(engine.height)).rounded(.down))
+            replaceTarget = engine.isValid(x, y) ? engine.type[engine.index(x, y)] : nil
+        } else {
+            replaceTarget = nil
+        }
     }
 
     func undo() {

@@ -167,7 +167,7 @@ struct DiagnosticsSheet: View {
         LabAction(label: title, detail: explanation) {
             // An undo point per repair. Several of these remove a lot at once, and finding out
             // afterwards that it was the wrong one should not be permanent.
-            model.beginStroke()
+            model.recordUndoPoint()
             lastRepair = action()
             refresh()
         }

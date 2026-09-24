@@ -61,26 +61,38 @@ struct SimulationSurface: UIViewRepresentable {
             if gesture.state == .began {
                 // One point to come back to per stroke, not per touch report. Otherwise a
                 // single swipe fills the whole undo record and undo becomes useless.
-                model.beginStroke()
+                //
+                // The starting point goes with it, because the replace brush needs to know what was
+                // under the beginning of the drag rather than under the current touch.
+                begin(at: gesture.location(in: view), in: view)
             }
             paint(at: gesture.location(in: view), in: view)
         }
 
         @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view else { return }
-            model.beginStroke()
+            begin(at: gesture.location(in: view), in: view)
             paint(at: gesture.location(in: view), in: view)
         }
 
+        private func begin(at point: CGPoint, in view: UIView) {
+            guard let fraction = fraction(of: point, in: view) else { return }
+            model.beginStroke(atFractionX: fraction.x, fractionY: fraction.y)
+        }
+
         private func paint(at point: CGPoint, in view: UIView) {
+            guard let fraction = fraction(of: point, in: view) else { return }
+            model.paint(atFractionX: fraction.x, fractionY: fraction.y)
+        }
+
+        /// Where a touch fell, as fractions of the view.
+        ///
+        /// Fractions rather than pixels, because the view and the grid are different sizes and the
+        /// conversion belongs wherever both are known — which is the model.
+        private func fraction(of point: CGPoint, in view: UIView) -> (x: Double, y: Double)? {
             let bounds = view.bounds
-            guard bounds.width > 0, bounds.height > 0 else { return }
-            // Handed over as fractions of the view. The view and the grid are different sizes,
-            // and the conversion belongs where both are known — which is the model.
-            model.paint(
-                atFractionX: Double(point.x / bounds.width),
-                fractionY: Double(point.y / bounds.height)
-            )
+            guard bounds.width > 0, bounds.height > 0 else { return nil }
+            return (Double(point.x / bounds.width), Double(point.y / bounds.height))
         }
     }
 }
