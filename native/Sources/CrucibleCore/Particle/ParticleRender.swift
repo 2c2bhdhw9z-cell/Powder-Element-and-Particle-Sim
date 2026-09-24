@@ -42,7 +42,11 @@ public struct ParticleDensityGrid: Sendable {
     }
 
     /// How crowded the cell containing a point is.
+    ///
+    /// A point that is not a usable number counts as being nowhere in particular, which is the
+    /// only honest answer and avoids converting it to an index.
     public func crowding(atX x: Double, y: Double) -> Int {
+        guard x.isFinite, y.isFinite else { return 0 }
         let column = min(max(0, Int(JS.trunc(x / Self.cellSize))), columns - 1)
         let row = min(max(0, Int(JS.trunc(y / Self.cellSize))), rows - 1)
         return Int(counts[row * columns + column])

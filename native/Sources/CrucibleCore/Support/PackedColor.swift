@@ -38,9 +38,21 @@ public struct PackedColor: Sendable, Hashable {
     ///   - saturation: `0 ... 1`.
     ///   - lightness: `0 ... 1`.
     public init(hue: Double, saturation: Double, lightness: Double, alpha: UInt8 = 255) {
-        let h = ((hue.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360) / 360
-        let s = max(0, min(1, saturation))
-        let l = max(0, min(1, lightness))
+        // Anything unusable becomes zero rather than being carried into the arithmetic.
+        //
+        // A colour is never worth crashing over, and these values are reached from the render
+        // path with whatever the physics produced — a body whose velocity has gone to
+        // not-a-number asks for a hue of not-a-number, and converting that to a byte traps.
+        // The simulation's own health tools are what report such a body; the renderer's job is
+        // to stay standing so they can be reached.
+        let safeHue = hue.isFinite ? hue : 0
+        let safeSaturation = saturation.isFinite ? saturation : 0
+        let safeLightness = lightness.isFinite ? lightness : 0
+
+        let h = ((safeHue.truncatingRemainder(dividingBy: 360)) + 360)
+            .truncatingRemainder(dividingBy: 360) / 360
+        let s = max(0, min(1, safeSaturation))
+        let l = max(0, min(1, safeLightness))
 
         func channel(_ offset: Double) -> UInt8 {
             guard s > 0 else { return UInt8(max(0, min(255, (l * 255).rounded()))) }

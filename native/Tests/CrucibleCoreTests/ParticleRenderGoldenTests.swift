@@ -160,6 +160,27 @@ struct ParticleRenderGoldenTests {
         }
     }
 
+    @Test("A body with unusable numbers cannot bring the renderer down")
+    func corruptBodiesDoNotCrash() {
+        // Every mode, against every kind of unusable value. The colour maths turns a hue into a
+        // byte, and converting not-a-number to a byte traps — so a body whose velocity had gone
+        // wrong took the whole app down from inside the drawing code, where the health tools
+        // that would have reported it could never be reached.
+        let engine = ParticleEngine(width: 40, height: 40, seed: 1)
+        engine.addParticle(x: .nan, y: .nan, velocityX: .nan, velocityY: .nan, radius: 1, charge: 1)
+        engine.addParticle(x: .infinity, y: 10, velocityX: .infinity, velocityY: 0, radius: 1, charge: -1)
+        engine.addParticle(x: 10, y: 10, velocityX: -.infinity, velocityY: .nan, radius: 1, charge: 0)
+        engine.withParticle(at: 2) { $0.maxLife = 10; $0.lifespan = nil }
+
+        for mode in ParticleColorMode.allCases {
+            engine.colorMode = mode
+            _ = engine.renderToArray()
+            var colors: [UInt32] = []
+            engine.fillRenderColors(into: &colors)
+            #expect(colors.count >= engine.particles.count)
+        }
+    }
+
     @Test("A body that cannot be placed is left out")
     func unplaceableBodiesAreSkipped() {
         let engine = ParticleEngine(width: 40, height: 40, seed: 1)
