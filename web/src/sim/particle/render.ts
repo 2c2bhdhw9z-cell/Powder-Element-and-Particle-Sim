@@ -55,6 +55,8 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
     const w = e.width;
     const h = e.height;
     const buf = e.buf32!;
+    // Built only when it will actually be read.
+    const density = e.colorMode === "density" ? buildDensityGrid(e, w, h) : null;
 
     // Background fill (#0a0a0c in ABGR format = 0xFF0C0A0A)
     buf.fill(0xff0c0a0a);
@@ -62,10 +64,16 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
     for (let i = 0; i < total; i++) {
       const p = e.particles[i];
       if (!p) continue;
+      // Skipped explicitly. The bitwise truncation below turns not-a-number into 0,
+      // so corrupt particles used to pile into a bright dot in the top-left corner —
+      // the diagnostics panel reported them while the renderer hid where they were.
+      if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
       const px = (p.x + 0.5) | 0;
       const py = (p.y + 0.5) | 0;
       if (px >= 0 && px < w && py >= 0 && py < h) {
-        let c32 = p.colorUint32 || 0xffffffff;
+        // `!== undefined`, not truthiness: a legitimately black particle has a packed
+        // colour of 0 and used to be drawn white.
+        let c32 = p.colorUint32 !== undefined ? p.colorUint32 : 0xffffffff;
 
         if (e.colorMode === "velocity") {
           const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
@@ -77,12 +85,14 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
           const hue = (p.x + p.y) % 360;
           c32 = parseColorToUint32(`hsl(${hue}, 90%, 65%)`);
         } else if (e.colorMode === "density") {
-          const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-          const hue = Math.max(0, Math.min(300, 280 - Math.floor(speed * 15)));
+          // Genuinely local crowding. This used to compute speed and map it to a
+          // slightly different hue range than "velocity" did, so two modes the
+          // interface offers as distinct were measuring exactly the same thing.
+          const crowd = densityAt(density, w, h, px, py);
+          const hue = Math.max(0, Math.min(300, 280 - crowd * 26));
           c32 = parseColorToUint32(`hsl(${hue}, 100%, 60%)`);
         } else if (e.colorMode === "lifespan") {
-          const ratio = p.maxLife && p.lifespan ? p.lifespan / p.maxLife : 1;
-          c32 = parseColorToUint32(`hsl(${Math.floor(ratio * 120)}, 100%, 60%)`);
+          c32 = parseColorToUint32(`hsl(${Math.floor(lifespanRatio(p) * 120)}, 100%, 60%)`);
         }
 
         buf[py * w + px] = c32;
@@ -90,6 +100,8 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
     }
 
     ctx.putImageData(e.imgData, 0, 0);
+    // A cloth is still a cloth above the pixel-path threshold.
+    drawSprings(e, ctx);
     if (e.lastMouseActive) {
       renderMouseIndicator(e, ctx);
     }
@@ -97,6 +109,7 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
   }
 
   // Standard vector path rendering for smaller particle counts with motion glow & trails
+  const vectorDensity = e.colorMode === "density" ? buildDensityGrid(e, e.width, e.height) : null;
   ctx.fillStyle = e.showTrails ? "rgba(10, 10, 12, 0.25)" : "#0a0a0c";
   ctx.fillRect(0, 0, e.width, e.height);
 
@@ -115,12 +128,11 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
       const hue = (p.x + p.y) % 360;
       renderColor = `hsl(${hue}, 90%, 65%)`;
     } else if (e.colorMode === "density") {
-      const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-      const hue = Math.max(0, Math.min(300, 280 - Math.floor(speed * 15)));
+      const crowd = densityAt(vectorDensity, e.width, e.height, p.x | 0, p.y | 0);
+      const hue = Math.max(0, Math.min(300, 280 - crowd * 26));
       renderColor = `hsl(${hue}, 100%, 60%)`;
     } else if (e.colorMode === "lifespan") {
-      const ratio = p.maxLife && p.lifespan ? p.lifespan / p.maxLife : 1;
-      renderColor = `hsl(${Math.floor(ratio * 120)}, 100%, 60%)`;
+      renderColor = `hsl(${Math.floor(lifespanRatio(p) * 120)}, 100%, 60%)`;
     }
 
     // Draw Trail
@@ -157,13 +169,24 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
     }
   }
 
+  // Springs are part of the world, so they draw whether or not the mouse is down.
+  // drawSprings used to be called from the last line of the mouse indicator, which
+  // only runs while the mouse is held — so cloth and rope structure appeared on
+  // press and vanished on release.
+  drawSprings(e, ctx);
+
   if (e.lastMouseActive) {
     renderMouseIndicator(e, ctx);
   }
 }
 
 function renderMouseIndicator(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
-  const radiusCap = Math.min(e.mouseRadius, Math.min(e.width, e.height) / 2);
+  // The radius the physics actually uses. Capping the drawing at half the smaller
+  // world dimension meant the circle the user saw was never the circle that acted —
+  // and at the slider's maximum the physics treats the reach as unlimited, so that is
+  // drawn as covering the world rather than as a misleadingly small ring.
+  const unlimited = e.mouseRadius >= 800;
+  const radiusCap = unlimited ? Math.hypot(e.width, e.height) : e.mouseRadius;
   ctx.save();
   ctx.beginPath();
   ctx.arc(e.lastMouseX, e.lastMouseY, radiusCap, 0, Math.PI * 2);
@@ -178,7 +201,6 @@ function renderMouseIndicator(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = "#22d3ee";
   ctx.fill();
   ctx.restore();
-  drawSprings(e, ctx);
 }
 
 function drawSprings(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
@@ -207,9 +229,77 @@ export function captureThumbnail(e: ParticleCtx): string {
     canvas.height = e.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return "";
-    render(e, ctx);
-    return canvas.toDataURL("image/png");
+    // Render into scratch buffers and restore the live ones. Above the pixel-path
+    // threshold render() replaces imgData and buf32, so capturing a thumbnail forced
+    // the next real frame to reallocate both.
+    const liveImg = e.imgData;
+    const liveBuf = e.buf32;
+    e.imgData = null;
+    e.buf32 = null;
+    try {
+      render(e, ctx);
+      return canvas.toDataURL("image/png");
+    } finally {
+      e.imgData = liveImg;
+      e.buf32 = liveBuf;
+    }
   } catch {
     return "";
   }
+}
+
+/** Cell size of the crowding grid used by the "density" colour mode. */
+const DENSITY_CELL = 16;
+
+/**
+ * Counts how many particles fall in each coarse cell of the world.
+ *
+ * Used only by the "density" colour mode, which previously did not measure density at
+ * all — it measured speed, exactly like "velocity", just with a different hue range.
+ */
+function buildDensityGrid(e: ParticleCtx, w: number, h: number): Uint16Array {
+  const cols = Math.max(1, Math.ceil(w / DENSITY_CELL));
+  const rows = Math.max(1, Math.ceil(h / DENSITY_CELL));
+  const grid = new Uint16Array(cols * rows);
+  for (let i = 0; i < e.particles.length; i++) {
+    const p = e.particles[i];
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    let cx = (p.x / DENSITY_CELL) | 0;
+    let cy = (p.y / DENSITY_CELL) | 0;
+    if (cx < 0) cx = 0;
+    else if (cx >= cols) cx = cols - 1;
+    if (cy < 0) cy = 0;
+    else if (cy >= rows) cy = rows - 1;
+    const at = cy * cols + cx;
+    if (grid[at] < 0xffff) grid[at]++;
+  }
+  return grid;
+}
+
+/** How crowded the cell containing a pixel is. */
+function densityAt(grid: Uint16Array | null, w: number, h: number, px: number, py: number): number {
+  if (!grid) return 0;
+  const cols = Math.max(1, Math.ceil(w / DENSITY_CELL));
+  const rows = Math.max(1, Math.ceil(h / DENSITY_CELL));
+  let cx = (px / DENSITY_CELL) | 0;
+  let cy = (py / DENSITY_CELL) | 0;
+  if (cx < 0) cx = 0;
+  else if (cx >= cols) cx = cols - 1;
+  if (cy < 0) cy = 0;
+  else if (cy >= rows) cy = rows - 1;
+  return grid[cy * cols + cx];
+}
+
+/**
+ * How much life a particle has left, from 1 (new) to 0 (about to die).
+ *
+ * The original expression was `p.maxLife && p.lifespan ? p.lifespan / p.maxLife : 1`,
+ * whose falsy test on `lifespan` made a particle one frame from deletion report a
+ * full ratio — so the colour mode painted dying particles as brand new, the exact
+ * inverse of its purpose.
+ */
+function lifespanRatio(p: { lifespan?: number; maxLife?: number }): number {
+  if (!p.maxLife || p.maxLife <= 0) return 1;
+  const left = p.lifespan ?? p.maxLife;
+  return Math.max(0, Math.min(1, left / p.maxLife));
 }

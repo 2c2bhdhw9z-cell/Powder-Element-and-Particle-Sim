@@ -298,6 +298,7 @@ export function spawnQuantumLattice(e: ParticleCtx, rows: number = 18, cols: num
         charge: isPos ? 1 : -1,
         color: isPos ? "#38bdf8" : "#f43f5e",
         ignoreGravity: true,
+        latticeBound: true,
         originX: ox,
         originY: oy,
       });

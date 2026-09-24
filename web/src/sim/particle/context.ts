@@ -56,6 +56,19 @@ export interface ParticleCtx {
 
   // Plumbing the modules rely on
   addParticle(particle: Partial<ParticleObject>): void;
+  /**
+   * Removes every particle matching the predicate, keeping spring endpoints valid.
+   *
+   * Springs store absolute indices into `particles`, so ANY code that drops or
+   * shifts an element must go through here. Filtering the array directly silently
+   * re-wires every spring below the removed index to a different pair whose rest
+   * length no longer matches, which shears cloth and injects energy every frame
+   * afterwards — and it fails silently, because the spring step can only detect an
+   * out-of-range index, never a wrong one.
+   *
+   * @returns how many particles were removed.
+   */
+  removeParticles(shouldRemove: (particle: ParticleObject) => boolean): number;
   pushUndo(): void;
   clear(): void;
   parseColorToUint32(colorStr: string): number;

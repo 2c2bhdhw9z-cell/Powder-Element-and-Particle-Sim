@@ -29,9 +29,9 @@ import {
   getDiagnostics,
   purgeNaNParticles,
   clampVelocities,
-  wrapOrTrimOutOfBounds,
+  recentreOutOfBounds,
   reallocateBuffers,
-  zeroForces,
+  haltAllMotion,
   resetCharges,
   injectCorruptVectorParticles,
   injectHyperVelocityExplosion,
@@ -45,7 +45,29 @@ import type { ParticleCtx } from "./particle/context";
  * the trail array — far cheaper than the old JSON.stringify round-trip.
  */
 function snapshotParticles(particles: ParticleObject[]): ParticleObject[] {
-  return particles.map((p) => ({ ...p, trail: p.trail.map((t) => ({ ...t })) }));
+  // `trail` is defensively defaulted: imported scenes and multiplayer payloads can
+  // supply a particle without one, and this used to throw. The throw was swallowed
+  // by pushUndo's catch, so undo silently stopped working with no diagnostic — and
+  // then the trail update in step.ts threw for real and killed the frame loop.
+  return particles.map((p) => ({ ...p, trail: (p.trail ?? []).map((t) => ({ ...t })) }));
+}
+
+/**
+ * One undo entry. The whole field, not just the object particles.
+ *
+ * Snapshotting `particles` alone meant `clear()` — which pushes an undo entry and
+ * then wipes the springs, the swarm and three toggles — could not be undone: you
+ * got the particles back as loose beads with no springs and an empty swarm. Undoing
+ * across a preset switch was worse, because the new preset's springs were left
+ * indexing the old particle array.
+ */
+interface ParticleSnapshot {
+  particles: ParticleObject[];
+  springs: { a: number; b: number; rest: number; k: number }[];
+  swarm: ReturnType<Swarm["toSplit"]> | null;
+  flockEnabled: boolean;
+  nbodyEnabled: boolean;
+  fluidEnabled: boolean;
 }
 
 /**
@@ -103,8 +125,11 @@ export class ParticleEngine implements ParticleCtx {
   public onAfterStep: (() => void) | null = null;
 
   // Undo / Redo History (object snapshots)
-  private undoStack: ParticleObject[][] = [];
-  private redoStack: ParticleObject[][] = [];
+  /** Monotonic source of particle ids, so no two particles can ever share one. */
+  private nextParticleSerial = 0;
+
+  private undoStack: ParticleSnapshot[] = [];
+  private redoStack: ParticleSnapshot[] = [];
   private maxUndoSteps: number = 20;
 
   public imgData: ImageData | null = null;
@@ -131,6 +156,14 @@ export class ParticleEngine implements ParticleCtx {
     this.nbodyEnabled = false;
     this.fluidEnabled = false;
     this.swarm.clear();
+    // The world's own settings are reset too, not just its contents. Leaving these
+    // behind meant switching from a high-vortex preset into a calm one kept the
+    // vortex spinning, because only one of the fourteen presets sets vortexForce
+    // explicitly — an asymmetry that made "clear" mean different things depending on
+    // what had been loaded before it.
+    this.vortexForce = 0;
+    this.decaySpeed = 0;
+    this.boundaryMode = "bounce";
   }
 
   public bodyCount() {
@@ -140,7 +173,18 @@ export class ParticleEngine implements ParticleCtx {
   public setMaxParticles(limit: number) {
     const next = Math.max(1000, Math.min(1_000_000, Math.round(limit)));
     this.maxParticles = next;
-    if (this.particles.length > next) this.particles = this.particles.slice(0, next);
+    if (this.particles.length > next) {
+      // Trim the newest, via removeParticles so springs stay consistent. Slicing
+      // the array directly left every spring index unverified.
+      const keep = this.particles.slice(0, next);
+      const keepSet = new Set(keep);
+      this.removeParticles((p) => !keepSet.has(p));
+    }
+    // The cap covers the whole field, so the swarm has to respect it as well.
+    // Lowering the limit from a million to a thousand used to leave 999,000 swarm
+    // particles alive while the diagnostics panel advertised the smaller limit.
+    const roomForSwarm = Math.max(0, next - this.particles.length);
+    if (this.swarm.n > roomForSwarm) this.swarm.trimTo(roomForSwarm);
     return next;
   }
 
@@ -160,11 +204,42 @@ export class ParticleEngine implements ParticleCtx {
       /* ignore */
     }
   }
+  /** Capture the whole field as one undo record. */
+  private snapshot(): ParticleSnapshot {
+    return {
+      particles: snapshotParticles(this.particles),
+      springs: this.springs.map((s) => ({ ...s })),
+      // Only captured when there is something to capture: toSplit() copies every
+      // coordinate into plain arrays, which is far too expensive to do for a
+      // million particles on every brush stroke.
+      swarm: this.swarm.n > 0 && this.swarm.n <= 200_000 ? this.swarm.toSplit() : null,
+      flockEnabled: this.flockEnabled,
+      nbodyEnabled: this.nbodyEnabled,
+      fluidEnabled: this.fluidEnabled,
+    };
+  }
+
+  /** Restore a whole-field undo record. */
+  private restore(snap: ParticleSnapshot) {
+    this.particles = snap.particles;
+    this.springs = snap.springs;
+    this.flockEnabled = snap.flockEnabled;
+    this.nbodyEnabled = snap.nbodyEnabled;
+    this.fluidEnabled = snap.fluidEnabled;
+    if (snap.swarm) {
+      this.swarm.fromSplit(snap.swarm, this.width, this.height, this.maxParticles);
+    } else {
+      this.swarm.clear();
+    }
+  }
+
   public pushUndo() {
+    // Cleared first, so a failed capture cannot leave a redo entry describing a
+    // future that never happened.
+    this.redoStack = [];
     try {
-      this.undoStack.push(snapshotParticles(this.particles));
+      this.undoStack.push(this.snapshot());
       if (this.undoStack.length > this.maxUndoSteps) this.undoStack.shift();
-      this.redoStack = [];
     } catch {
       /* never break a stroke over a snapshot failure */
     }
@@ -177,14 +252,16 @@ export class ParticleEngine implements ParticleCtx {
   }
   public undo(): boolean {
     if (this.undoStack.length === 0) return false;
-    this.redoStack.push(snapshotParticles(this.particles));
-    this.particles = this.undoStack.pop()!;
+    this.redoStack.push(this.snapshot());
+    if (this.redoStack.length > this.maxUndoSteps) this.redoStack.shift();
+    this.restore(this.undoStack.pop()!);
     return true;
   }
   public redo(): boolean {
     if (this.redoStack.length === 0) return false;
-    this.undoStack.push(snapshotParticles(this.particles));
-    this.particles = this.redoStack.pop()!;
+    this.undoStack.push(this.snapshot());
+    if (this.undoStack.length > this.maxUndoSteps) this.undoStack.shift();
+    this.restore(this.redoStack.pop()!);
     return true;
   }
   public clearHistory() {
@@ -199,20 +276,61 @@ export class ParticleEngine implements ParticleCtx {
     return parseColorToUint32(colorStr);
   }
 
+  /**
+   * Removes every particle matching the predicate, remapping spring endpoints so
+   * they still refer to the same pairs, and dropping springs whose ends are gone.
+   *
+   * Every removal path in the engine funnels through here. See `ParticleCtx`.
+   */
+  public removeParticles(shouldRemove: (particle: ParticleObject) => boolean): number {
+    const before = this.particles.length;
+    if (before === 0) return 0;
+
+    const remap = new Int32Array(before).fill(-1);
+    const survivors: ParticleObject[] = [];
+    for (let i = 0; i < before; i++) {
+      const p = this.particles[i];
+      if (!p || shouldRemove(p)) continue;
+      remap[i] = survivors.length;
+      survivors.push(p);
+    }
+
+    const removed = before - survivors.length;
+    if (removed === 0) return 0;
+
+    this.particles = survivors;
+    if (this.springs.length > 0) {
+      const kept: { a: number; b: number; rest: number; k: number }[] = [];
+      for (const s of this.springs) {
+        const a = s.a >= 0 && s.a < before ? remap[s.a] : -1;
+        const b = s.b >= 0 && s.b < before ? remap[s.b] : -1;
+        if (a >= 0 && b >= 0) kept.push({ a, b, rest: s.rest, k: s.k });
+      }
+      this.springs = kept;
+    }
+    return removed;
+  }
+
   public addParticle(particle: Partial<ParticleObject>) {
     if (this.particles.length >= this.maxParticles) {
-      this.particles.shift(); // Remove oldest
+      // Evict the oldest through removeParticles so spring endpoints follow the
+      // shift. A bare shift() renumbered every particle and left every spring
+      // pointing one place too high.
+      const oldest = this.particles[0];
+      this.removeParticles((p) => p === oldest);
     }
 
     const color = particle.color || `hsl(${Math.random() * 360}, 85%, 65%)`;
 
     const newP: ParticleObject = {
-      id: Math.random().toString(36).slice(2, 11),
+      id: `p${this.nextParticleSerial++}`,
       x: particle.x !== undefined ? particle.x : this.width / 2,
       y: particle.y !== undefined ? particle.y : this.height / 2,
       vx: particle.vx !== undefined ? particle.vx : (Math.random() - 0.5) * 4,
       vy: particle.vy !== undefined ? particle.vy : (Math.random() - 0.5) * 4,
-      radius: particle.radius || Math.random() * 3 + 2,
+      // `!== undefined`, not `||`: an explicit radius of 0 is a legitimate value
+      // that used to be replaced with a random 2-5.
+      radius: particle.radius !== undefined ? particle.radius : Math.random() * 3 + 2,
       mass: particle.mass || 1,
       charge: particle.charge !== undefined ? particle.charge : Math.random() > 0.5 ? 1 : -1,
       color,
@@ -222,6 +340,7 @@ export class ParticleEngine implements ParticleCtx {
       ignoreGravity: particle.ignoreGravity || false,
       originX: particle.originX,
       originY: particle.originY,
+      latticeBound: particle.latticeBound || false,
       trail: [],
       lifespan: particle.lifespan,
       maxLife: particle.maxLife || particle.lifespan,
@@ -235,11 +354,15 @@ export class ParticleEngine implements ParticleCtx {
     this.pushUndo();
     if (count >= 4000) {
       const u32 = color ? this.parseColorToUint32(color) : 0;
-      this.swarm.spawn(count, this.width, this.height, u32, this.maxParticles);
+      // The cap covers the whole field, so the object particles already present have
+      // to come out of it. The swarm used to be given the full limit regardless, so
+      // the combined total exceeded the user's cap by however many objects existed.
+      const swarmBudget = Math.max(0, this.maxParticles - this.particles.length);
+      this.swarm.spawn(count, this.width, this.height, u32, swarmBudget);
       if (typeof window !== "undefined") window.dispatchEvent(new Event("crucible:live-dump"));
       return;
     }
-    const spaceLeft = this.maxParticles - this.particles.length;
+    const spaceLeft = this.maxParticles - this.particles.length - this.swarm.n;
     const toSpawn = Math.min(count, Math.max(0, spaceLeft));
     if (toSpawn <= 0) return;
 
@@ -270,7 +393,10 @@ export class ParticleEngine implements ParticleCtx {
       }
 
       this.particles.push({
-        id: (this.particles.length + i).toString(),
+        // Ids come from a monotonic counter. The old expression was
+        // `(this.particles.length + i)`, and since `length` grows with each push it
+        // produced gaps and collided outright between two batches.
+        id: `b${this.nextParticleSerial++}`,
         x: px,
         y: py,
         vx,
@@ -565,16 +691,16 @@ export class ParticleEngine implements ParticleCtx {
     return clampVelocities(this);
   }
 
-  public wrapOrTrimOutOfBounds() {
-    return wrapOrTrimOutOfBounds(this);
+  public recentreOutOfBounds() {
+    return recentreOutOfBounds(this);
   }
 
   public reallocateBuffers() {
     return reallocateBuffers(this);
   }
 
-  public zeroForces() {
-    return zeroForces(this);
+  public haltAllMotion() {
+    return haltAllMotion(this);
   }
 
   public resetCharges() {

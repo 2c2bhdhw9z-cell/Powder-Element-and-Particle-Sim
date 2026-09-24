@@ -8,10 +8,18 @@ export function getDiagnostics(e: ParticleCtx) {
   let extremeVelocityCount = 0;
   let maxSpeedFound = 0;
 
+  // The threshold is the world's own speed limit, not a hardcoded 100. With the two
+  // out of step, particles well past the limit were reported "healthy" while the
+  // repair action clamped them anyway, and at a high limit nothing in between was
+  // reported at all.
+  const speedLimit = e.maxSpeed > 0 ? e.maxSpeed : Infinity;
+
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
-    if (Number.isNaN(p.x) || Number.isNaN(p.y) || Number.isNaN(p.vx) || Number.isNaN(p.vy)) {
+    // `isFinite`, not `!isNaN`: an infinite coordinate or velocity is just as corrupt
+    // and used to pass straight through as healthy.
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy)) {
       nanCount++;
     } else {
       if (p.x < -100 || p.x > e.width + 100 || p.y < -100 || p.y > e.height + 100) {
@@ -19,17 +27,50 @@ export function getDiagnostics(e: ParticleCtx) {
       }
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       if (speed > maxSpeedFound) maxSpeedFound = speed;
-      if (speed > 100) extremeVelocityCount++;
+      if (speed > speedLimit) extremeVelocityCount++;
     }
   }
 
+  // The swarm is inspected too. Every count above used to cover only the object
+  // particles while the headline particle count included the swarm, so a swarm gone
+  // corrupt — entirely possible, since its gravity comes straight from the device's
+  // motion sensors — reported a perfectly healthy world.
+  let swarmCorruptCount = 0;
+  const swarmXY = e.swarm.xy;
+  const swarmV = e.swarm.v;
+  for (let i = 0; i < e.swarm.n; i++) {
+    const i2 = i * 2;
+    if (
+      !Number.isFinite(swarmXY[i2]) ||
+      !Number.isFinite(swarmXY[i2 + 1]) ||
+      !Number.isFinite(swarmV[i2]) ||
+      !Number.isFinite(swarmV[i2 + 1])
+    ) {
+      swarmCorruptCount++;
+      continue;
+    }
+    const speed = Math.sqrt(swarmV[i2] * swarmV[i2] + swarmV[i2 + 1] * swarmV[i2 + 1]);
+    if (speed > maxSpeedFound) maxSpeedFound = speed;
+  }
+  nanCount += swarmCorruptCount;
+
   const issues: string[] = [];
-  if (nanCount > 0) issues.push(`Detected ${nanCount} particles with NaN coordinates or velocities`);
+  if (nanCount > 0) issues.push(`Detected ${nanCount} particles with corrupt coordinates or velocities`);
   if (outOfBoundsCount > 0) issues.push(`Detected ${outOfBoundsCount} particles drifted outside viewport boundary`);
-  if (extremeVelocityCount > 0) issues.push(`Detected ${extremeVelocityCount} particles exceeding max speed threshold`);
+  if (extremeVelocityCount > 0) issues.push(`Detected ${extremeVelocityCount} particles exceeding the ${Math.round(speedLimit)} speed limit`);
+
+  // Trails are counted. A particle carrying a six-point trail is several more heap
+  // objects than the flat 128 bytes this used to assume, which put the estimate out
+  // by an order of magnitude with trails enabled.
+  let trailPoints = 0;
+  for (let i = 0; i < e.particles.length; i++) {
+    const p = e.particles[i];
+    if (p && p.trail) trailPoints += p.trail.length;
+  }
 
   const approxMemoryBytes =
     e.particles.length * 128 +
+    trailPoints * 32 +
     e.swarm.xy.byteLength +
     e.swarm.v.byteLength +
     e.swarm.color.byteLength +
@@ -51,9 +92,12 @@ export function getDiagnostics(e: ParticleCtx) {
 // --- Manual Fix Actions ---
 
 export function purgeNaNParticles(e: ParticleCtx): { success: boolean; purged: number } {
-  const prevCount = e.particles.length;
-  e.particles = e.particles.filter((p) => p && !Number.isNaN(p.x) && !Number.isNaN(p.y) && !Number.isNaN(p.vx) && !Number.isNaN(p.vy));
-  const purged = prevCount - e.particles.length;
+  // `isFinite`, not `!isNaN`: infinities are just as corrupt and used to pass
+  // straight through here. Routed through removeParticles so spring endpoints
+  // survive the purge.
+  const purged = e.removeParticles(
+    (p) => !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy),
+  );
   return { success: true, purged };
 }
 
@@ -62,8 +106,18 @@ export function clampVelocities(e: ParticleCtx): { success: boolean; clamped: nu
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
+    // Non-finite velocity is reset rather than scaled. Dividing the limit by
+    // infinity gives zero, and infinity times zero is not-a-number — so this repair
+    // action used to manufacture exactly the corruption it exists to remove, and the
+    // pass that followed reported success because it had already decided what to do.
+    if (!Number.isFinite(p.vx) || !Number.isFinite(p.vy)) {
+      p.vx = 0;
+      p.vy = 0;
+      clamped++;
+      continue;
+    }
     const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-    if (speed > e.maxSpeed) {
+    if (speed > e.maxSpeed && speed > 0) {
       const factor = e.maxSpeed / speed;
       p.vx *= factor;
       p.vy *= factor;
@@ -73,14 +127,40 @@ export function clampVelocities(e: ParticleCtx): { success: boolean; clamped: nu
   return { success: true, clamped };
 }
 
-export function wrapOrTrimOutOfBounds(e: ParticleCtx): { success: boolean; trimmed: number } {
+/**
+ * Brings escaped particles back inside the world.
+ *
+ * Renamed from `wrapOrTrimOutOfBounds`, which described neither of the two things
+ * it does. It also now clamps to the particle's radius rather than to the exact
+ * edge, and zeroes the outward velocity component — without that, a "repaired"
+ * particle was pushed straight back out and re-clamped every frame, leaving it
+ * stuck against the wall rather than recovered.
+ */
+export function recentreOutOfBounds(e: ParticleCtx): { success: boolean; trimmed: number } {
   let trimmed = 0;
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
-    if (p.x < 0 || p.x > e.width || p.y < 0 || p.y > e.height) {
-      p.x = Math.max(0, Math.min(e.width, p.x));
-      p.y = Math.max(0, Math.min(e.height, p.y));
+    const rad = p.radius || e.particleSize;
+    const minX = Math.min(rad, e.width / 2);
+    const maxX = Math.max(minX, e.width - rad);
+    const minY = Math.min(rad, e.height / 2);
+    const maxY = Math.max(minY, e.height - rad);
+    if (p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) {
+      if (p.x < minX) {
+        p.x = minX;
+        if (p.vx < 0) p.vx = 0;
+      } else if (p.x > maxX) {
+        p.x = maxX;
+        if (p.vx > 0) p.vx = 0;
+      }
+      if (p.y < minY) {
+        p.y = minY;
+        if (p.vy < 0) p.vy = 0;
+      } else if (p.y > maxY) {
+        p.y = maxY;
+        if (p.vy > 0) p.vy = 0;
+      }
       trimmed++;
     }
   }
@@ -93,27 +173,48 @@ export function reallocateBuffers(e: ParticleCtx): { success: boolean } {
   return { success: true };
 }
 
-export function zeroForces(e: ParticleCtx): { success: boolean; resetCount: number } {
+/**
+ * Brings every particle to rest.
+ *
+ * Renamed from `zeroForces`: this engine has no force accumulators, so the old name
+ * described something that does not exist. It also now skips pinned particles and
+ * attractors — stopping a black hole was never the intent — and counts only the
+ * particles it actually changed rather than every particle it looked at.
+ */
+export function haltAllMotion(e: ParticleCtx): { success: boolean; resetCount: number } {
   let resetCount = 0;
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
-    if (p) {
-      p.vx = 0;
-      p.vy = 0;
-      resetCount++;
-    }
+    if (!p || p.fixed) continue;
+    if (p.vx === 0 && p.vy === 0) continue;
+    p.vx = 0;
+    p.vy = 0;
+    resetCount++;
   }
   return { success: true, resetCount };
 }
 
+/**
+ * Rebalances charge across the charged particles.
+ *
+ * Only touches particles that already carry a charge, and leaves attractors alone.
+ * The original assigned plus or minus one to *every* particle, which destroyed
+ * deliberately neutral ones — zero charge is how a particle opts out of the Coulomb
+ * force entirely — and gave black holes and repulsors a charge they should not have.
+ * With an odd count it also reported a balance it had not achieved.
+ */
 export function resetCharges(e: ParticleCtx): { success: boolean; balancedCount: number } {
-  let balancedCount = 0;
+  const charged: number[] = [];
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
-    if (p) {
-      p.charge = i % 2 === 0 ? 1 : -1;
-      balancedCount++;
-    }
+    if (!p || p.charge === 0) continue;
+    if (p.type === "blackhole" || p.type === "repulsor") continue;
+    charged.push(i);
+  }
+  // Drop the odd one out so the result really is balanced.
+  const balancedCount = charged.length - (charged.length % 2);
+  for (let k = 0; k < balancedCount; k++) {
+    e.particles[charged[k]].charge = k % 2 === 0 ? 1 : -1;
   }
   return { success: true, balancedCount };
 }
@@ -157,32 +258,48 @@ export function runAutoFix(e: ParticleCtx): { logs: string[] } {
   const logs: string[] = [];
   logs.push("Initiating Particle Simulator Automated Diagnostics Pass...");
 
-  const diag = getDiagnostics(e);
-  if (diag.isHealthy) {
+  if (getDiagnostics(e).isHealthy) {
     logs.push("✓ All particle vectors, velocities, and pixel buffers verified normal.");
     logs.push("✓ No critical anomalies detected.");
     return { logs };
   }
 
-  if (diag.nanCount > 0) {
-    const res = purgeNaNParticles(e);
-    logs.push(`✓ Auto-Fix Step 1/4: Purged ${res.purged} corrupt/NaN particles.`);
-  }
+  // Each stage re-inspects the world instead of all of them deciding from one
+  // snapshot taken before any repair. That, combined with clamping running last,
+  // meant a clamp that produced fresh corruption was never purged — and the final
+  // report cheerfully called it "RECOVERY COMPLETED".
+  //
+  // Velocities are clamped BEFORE the purge for the same reason: clamping is the
+  // stage that can introduce a bad value, so the purge has to come after it.
+  const steps: string[] = [];
 
-  if (diag.outOfBoundsCount > 0) {
-    const res = wrapOrTrimOutOfBounds(e);
-    logs.push(`✓ Auto-Fix Step 2/4: Re-centered ${res.trimmed} out-of-bounds particles.`);
-  }
-
-  if (diag.extremeVelocityCount > 0) {
+  if (getDiagnostics(e).extremeVelocityCount > 0) {
     const res = clampVelocities(e);
-    logs.push(`✓ Auto-Fix Step 3/4: Clamped velocities for ${res.clamped} hyper-fast particles.`);
+    steps.push(`Clamped velocities for ${res.clamped} hyper-fast particles.`);
+  }
+
+  if (getDiagnostics(e).nanCount > 0) {
+    const res = purgeNaNParticles(e);
+    steps.push(`Purged ${res.purged} corrupt particles.`);
+  }
+
+  if (getDiagnostics(e).outOfBoundsCount > 0) {
+    const res = recentreOutOfBounds(e);
+    steps.push(`Brought ${res.trimmed} escaped particles back inside the world.`);
   }
 
   reallocateBuffers(e);
-  logs.push("✓ Auto-Fix Step 4/4: Re-allocated canvas pixel buffers successfully.");
+  steps.push("Re-allocated canvas pixel buffers successfully.");
+
+  steps.forEach((message, i) => logs.push(`✓ Auto-Fix Step ${i + 1}/${steps.length}: ${message}`));
 
   const postDiag = getDiagnostics(e);
-  logs.push(`Auto-Fix Sequence Completed. System health status: ${postDiag.isHealthy ? "100% OPERATIONAL" : "RECOVERY COMPLETED"}.`);
+  if (postDiag.isHealthy) {
+    logs.push("Auto-Fix Sequence Completed. System health status: 100% OPERATIONAL.");
+  } else {
+    // Says so plainly rather than dressing a failure up as a recovery.
+    logs.push(`Auto-Fix Sequence Completed, but ${postDiag.issues.length} issue(s) remain:`);
+    for (const issue of postDiag.issues) logs.push(`  • ${issue}`);
+  }
   return { logs };
 }

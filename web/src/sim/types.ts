@@ -68,6 +68,14 @@ export interface ParticleObject {
   ignoreGravity?: boolean;
   originX?: number;
   originY?: number;
+  /**
+   * Bound to `originX`/`originY` by a spring, used by the quantum-lattice preset.
+   *
+   * Explicit rather than inferred. The restoring force used to be applied to
+   * anything that had an origin, ignored gravity and carried a charge — which was
+   * also true of seven orbital presets, and crushed them inward.
+   */
+  latticeBound?: boolean;
   type: 'standard' | 'emitter' | 'blackhole' | 'repulsor' | 'bouncy' | 'glow';
   trail: { x: number; y: number }[];
 }

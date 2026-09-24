@@ -16,6 +16,16 @@ export class Swarm {
     return this.n;
   }
 
+  /** Drop the newest particles so at most `limit` remain. */
+  trimTo(limit: number) {
+    const next = Math.max(0, Math.min(this.n, Math.floor(limit)));
+    if (next === this.n) return;
+    this.n = next;
+    this.colorTick++;
+    getSwarmGPU().dirty = true;
+    getSwarmGPU().resident = 0;
+  }
+
   clear() {
     this.n = 0;
     this.colorTick++;
@@ -61,7 +71,12 @@ export class Swarm {
       xy[i2 + 1] = cy + Math.sin(a) * d;
       v[i2] = (Math.random() - 0.5) * 6;
       v[i2 + 1] = (Math.random() - 0.5) * 6;
-      col[i] = colorUint32 || (0xff000000 | ((i * 97) & 255) | (((i * 57) & 255) << 8) | (((i * 13) & 255) << 16));
+      // `!== 0` rather than truthiness: a fully transparent/black colour is a
+      // legitimate value that used to be silently replaced by a generated one.
+      col[i] =
+        colorUint32 !== 0
+          ? colorUint32
+          : 0xff000000 | ((i * 97) & 255) | (((i * 57) & 255) << 8) | (((i * 13) & 255) << 16);
     }
     this.n = end;
     this.colorTick++;
@@ -77,6 +92,10 @@ export class Swarm {
     damp: number;
     bounce: number;
     collide: boolean;
+    /** Same global speed limit the object particles obey. */
+    maxSpeed: number;
+    /** Same boundary rule the object particles obey. */
+    boundaryMode: "bounce" | "wrap" | "void";
     mx: number;
     my: number;
     mouse: boolean;
@@ -107,6 +126,14 @@ export class Swarm {
     const force = (opts.attract ? 1 : -1) * opts.mouseForce * 0.08;
     const mouse = opts.mouse;
 
+    // The swarm obeys the same speed limit and boundary rule as the object
+    // particles. It previously ignored both: switching the world to wrap or void
+    // changed the behaviour of a few hundred objects while the million particles
+    // beside them carried on bouncing, and no speed cap applied to them at all.
+    const maxSpeed = opts.maxSpeed > 0 ? opts.maxSpeed : Infinity;
+    const maxSpeedSq = maxSpeed * maxSpeed;
+    const mode = opts.boundaryMode;
+
     for (let i = 0; i < n; i++) {
       const i2 = i * 2;
       vel[i2] = vel[i2] * damp + gx;
@@ -121,21 +148,38 @@ export class Swarm {
           vel[i2 + 1] += dy * inv;
         }
       }
+
+      const spdSq = vel[i2] * vel[i2] + vel[i2 + 1] * vel[i2 + 1];
+      if (spdSq > maxSpeedSq && spdSq > 0) {
+        const scale = maxSpeed / Math.sqrt(spdSq);
+        vel[i2] *= scale;
+        vel[i2 + 1] *= scale;
+      }
+
       xy[i2] += vel[i2];
       xy[i2 + 1] += vel[i2 + 1];
-      if (xy[i2] < 1) {
-        xy[i2] = 1;
-        vel[i2] *= -bounce;
-      } else if (xy[i2] > w - 1) {
-        xy[i2] = w - 1;
-        vel[i2] *= -bounce;
-      }
-      if (xy[i2 + 1] < 1) {
-        xy[i2 + 1] = 1;
-        vel[i2 + 1] *= -bounce;
-      } else if (xy[i2 + 1] > h - 1) {
-        xy[i2 + 1] = h - 1;
-        vel[i2 + 1] *= -bounce;
+
+      if (mode === "wrap") {
+        if (w > 0) xy[i2] = ((xy[i2] % w) + w) % w;
+        if (h > 0) xy[i2 + 1] = ((xy[i2 + 1] % h) + h) % h;
+      } else {
+        // "void" has no meaning for a fixed-size buffer with no per-particle
+        // lifetime, so it falls back to bouncing rather than silently leaking
+        // particles outside the world where nothing would ever bring them back.
+        if (xy[i2] < 1) {
+          xy[i2] = 1;
+          vel[i2] *= -bounce;
+        } else if (xy[i2] > w - 1) {
+          xy[i2] = w - 1;
+          vel[i2] *= -bounce;
+        }
+        if (xy[i2 + 1] < 1) {
+          xy[i2 + 1] = 1;
+          vel[i2 + 1] *= -bounce;
+        } else if (xy[i2 + 1] > h - 1) {
+          xy[i2 + 1] = h - 1;
+          vel[i2 + 1] *= -bounce;
+        }
       }
     }
 
@@ -147,13 +191,18 @@ export class Swarm {
 
   private collide(width: number, height: number) {
     const n = this.n;
+    // `link` is reused across frames and is only written for indices the striding
+    // loop below actually visits, so entries for skipped particles hold last
+    // frame's values. Traversing those chains followed stale neighbours — and
+    // could loop — so the live region is cleared first.
+    // (The `steps < 8` cap bounded the damage but did not remove it.)
     const cell = n > 120000 ? 7 : n > 40000 ? 5 : 4;
     const cols = Math.max(1, Math.ceil(width / cell));
     const rows = Math.max(1, Math.ceil(height / cell));
     const size = cols * rows;
     if (!this.owner || this.owner.length !== size) this.owner = new Int32Array(size);
-    else this.owner.fill(-1);
     if (!this.link || this.link.length < n) this.link = new Int32Array(Math.max(n, 8192));
+    else this.link.fill(-1, 0, n);
     const owner = this.owner;
     const link = this.link;
     const xy = this.xy;
@@ -270,9 +319,18 @@ export class Swarm {
     height: number,
     maxParticles: number,
   ) {
-    const n = Math.min(s.n, s.x.length);
+    // Clamped to the same budget the rest of the engine uses, and the capacity is
+    // grown directly rather than by calling spawn().
+    //
+    // The original called spawn() — which does trigonometry and two random draws
+    // per particle to scatter them — and then overwrote every value it had just
+    // computed. Worse, spawn() clamps to the budget while `this.n = n` did not, so a
+    // payload larger than the cap left `n` pointing past the allocated buffer: the
+    // writes below were silently dropped and every later read returned zero.
+    const n = Math.max(0, Math.min(s.n, s.x.length, MAX, Math.floor(maxParticles)));
     this.clear();
-    this.spawn(n, width, height, 0xffd4c8c8, maxParticles);
+    if (n === 0) return;
+    this.grow(n);
     this.n = n;
     const xy = this.xy;
     const vel = this.v;
@@ -283,7 +341,7 @@ export class Swarm {
       vel[i2] = s.vx[i];
       vel[i2 + 1] = s.vy[i];
     }
-    this.color.set(s.c);
+    this.color.set(s.c.slice(0, n));
     this.colorTick++;
     getSwarmGPU().dirty = true;
   }

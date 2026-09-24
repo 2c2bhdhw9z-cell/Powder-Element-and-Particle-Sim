@@ -1,3 +1,4 @@
+import { debug } from "@/lib/debug";
 const VS = `
 attribute vec2 a_pos;
 attribute vec4 a_col;
@@ -22,10 +23,23 @@ void main() {
 }
 `;
 
-function compile(gl: WebGLRenderingContext, type: number, src: string) {
-  const s = gl.createShader(type)!;
+/**
+ * Compiles a shader, or returns null with the driver's reason.
+ *
+ * The status was never checked, so a driver that rejected the shader produced a
+ * black canvas, no error anywhere, and an `attach()` that reported success — after
+ * which the view kept choosing the GL path forever.
+ */
+function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
+  const s = gl.createShader(type);
+  if (!s) return null;
   gl.shaderSource(s, src);
   gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+    debug.error("Particle shader failed to compile", gl.getShaderInfoLog(s));
+    gl.deleteShader(s);
+    return null;
+  }
   return s;
 }
 
@@ -58,10 +72,33 @@ export class ParticleGL {
     this.gl = gl;
     const vs = compile(gl, gl.VERTEX_SHADER, VS);
     const fs = compile(gl, gl.FRAGMENT_SHADER, FS);
-    const prog = gl.createProgram()!;
+    if (!vs || !fs) {
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      this.gl = null;
+      return false;
+    }
+    const prog = gl.createProgram();
+    if (!prog) {
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      this.gl = null;
+      return false;
+    }
     gl.attachShader(prog, vs);
     gl.attachShader(prog, fs);
     gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      debug.error("Particle shader program failed to link", gl.getProgramInfoLog(prog));
+      gl.deleteProgram(prog);
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      this.gl = null;
+      return false;
+    }
+    // Linked, so the shader objects themselves are no longer needed.
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
     this.program = prog;
     this.aPos = gl.getAttribLocation(prog, "a_pos");
     this.aCol = gl.getAttribLocation(prog, "a_col");
@@ -109,10 +146,20 @@ export class ParticleGL {
     gl.uniform1f(this.uSize, Math.max(1.5, Math.min(4, pointSize + 0.5)));
     gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
     gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, n * 2), gl.STREAM_DRAW);
+    // Capacity has to be recorded here as well as in drawXY. Both paths share these
+    // two buffers, and only drawXY tracked the size — so this call could shrink the
+    // buffer while drawXY still believed it was large, after which drawXY's partial
+    // upload exceeded the real allocation and the driver silently drew nothing.
+    this.posCap = n * 2;
     gl.enableVertexAttribArray(this.aPos);
     gl.vertexAttribPointer(this.aPos, 2, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.colBuf);
     gl.bufferData(gl.ARRAY_BUFFER, col.subarray(0, n * 4), gl.STREAM_DRAW);
+    this.colCap = n * 4;
+    // The colour cache belongs to drawXY and has just been invalidated by writing a
+    // different particle set into the shared buffer.
+    this.lastColorTick = -1;
+    this.lastColorN = 0;
     gl.enableVertexAttribArray(this.aCol);
     gl.vertexAttribPointer(this.aCol, 4, gl.FLOAT, false, 0, 0);
     gl.drawArrays(gl.POINTS, 0, n);

@@ -42,6 +42,12 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
     if (updateTrails && !p.fixed) {
       p.trail.push({ x: p.x, y: p.y });
       if (p.trail.length > 6) p.trail.shift();
+    } else if (p.trail.length > 0) {
+      // Discard a stale trail the moment trails stop being recorded, whether that is
+      // the user switching them off or the count crossing the threshold. Left in
+      // place, every particle drew a six-point streak from wherever it happened to be
+      // when recording stopped.
+      p.trail.length = 0;
     }
 
     // Automatic decay speed if configured globally
@@ -54,7 +60,16 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
       if (p.lifespan <= 0) {
         if (p.originX !== undefined && p.originY !== undefined) {
           // Recycle particle rather than deleting!
-          if (p.maxLife) p.lifespan = p.maxLife;
+          //
+          // The lifespan is restored unconditionally. When `maxLife` was absent the
+          // old code left it at zero or below, so the particle was teleported to its
+          // origin once and then frozen there forever — skipped by the force loop,
+          // never removed by the filter, but still drawn and still counted toward
+          // every level-of-detail threshold.
+          p.lifespan = p.maxLife && p.maxLife > 0 ? p.maxLife : 100;
+          // The trail has to go too, or the next frame draws a line from wherever it
+          // died clear across the world to its origin.
+          p.trail.length = 0;
           const angle = Math.random() * Math.PI * 2;
           const speed = 2 + Math.random() * 7;
           p.x = p.originX + Math.cos(angle) * 15;
@@ -80,7 +95,7 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
   }
 
   if (hasExpired) {
-    e.particles = e.particles.filter((p) => p && (p.lifespan === undefined || p.lifespan > 0));
+    e.removeParticles((p) => p.lifespan !== undefined && p.lifespan <= 0);
   }
 
   const count = e.particles.length;
@@ -110,21 +125,29 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
       const att = attractors[k];
       if (att === p1) continue;
 
+      // Resolved once, with fallbacks. These were guarded in the event-horizon test
+      // but used bare two lines later, and imported scenes and multiplayer payloads
+      // assign unvalidated values — so an undefined radius or mass wrote
+      // not-a-number straight into a position or velocity, which then spread to every
+      // other particle through the distance terms in the same frame.
+      const attRadius = att.radius || 12;
+      const attMass = att.mass || 80;
+
       const dx = att.x - p1.x;
       const dy = att.y - p1.y;
       const distSq = dx * dx + dy * dy + 10;
       const dist = Math.sqrt(distSq);
 
       if (att.type === "blackhole") {
-        if (dist < (att.radius || 12) + (p1.radius || 2) + 2) {
+        if (dist < attRadius + (p1.radius || 2) + 2) {
           // Particle entered event horizon! Re-emit into outer Keplerian orbit or jet!
-          const G = (att.mass || 80) * 200;
+          const G = attMass * 200;
           const isJet = Math.random() < 0.15;
           if (isJet) {
             const jetAngle = Math.random() * Math.PI * 2;
             const jetSpeed = Math.sqrt(G / 40) * 1.2;
-            p1.x = att.x + Math.cos(jetAngle) * (att.radius + 8);
-            p1.y = att.y + Math.sin(jetAngle) * (att.radius + 8);
+            p1.x = att.x + Math.cos(jetAngle) * (attRadius + 8);
+            p1.y = att.y + Math.sin(jetAngle) * (attRadius + 8);
             p1.vx = Math.cos(jetAngle) * jetSpeed;
             p1.vy = Math.sin(jetAngle) * jetSpeed;
           } else {
@@ -136,13 +159,15 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
             p1.vx = -Math.sin(orbitAngle) * orbitSpeed;
             p1.vy = Math.cos(orbitAngle) * orbitSpeed;
           }
+          // The trail would otherwise stretch from the event horizon to the new orbit.
+          p1.trail.length = 0;
           continue;
         }
-        const force = (att.mass * 200) / distSq;
+        const force = (attMass * 200) / distSq;
         p1.vx += (dx / dist) * force;
         p1.vy += (dy / dist) * force;
       } else if (att.type === "repulsor") {
-        const force = (att.mass * 150) / distSq;
+        const force = (attMass * 150) / distSq;
         p1.vx -= (dx / dist) * force;
         p1.vy -= (dy / dist) * force;
       }
@@ -234,8 +259,16 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
     }
 
     if (!p1.fixed) {
-      // Quantum Lattice spring restoring force to origin
-      if (p1.originX !== undefined && p1.originY !== undefined && p1.ignoreGravity && p1.charge !== 0) {
+      // Quantum Lattice restoring force toward its origin.
+      //
+      // Gated on `latticeBound`, which only the lattice preset sets. The condition
+      // used to be inferred from "has an origin, ignores gravity and is charged" —
+      // and because addParticle defaults an omitted charge to a random plus or minus
+      // one, that description also fitted the galaxy, black hole, double vortex,
+      // repulsor, solar flare, synchrotron and DNA helix presets. All seven were
+      // getting a spring pull toward the centre roughly ten times stronger than the
+      // orbital physics they were built around, quietly crushing them inward.
+      if (p1.latticeBound && p1.originX !== undefined && p1.originY !== undefined) {
         p1.vx += (p1.originX - p1.x) * 0.02;
         p1.vy += (p1.originY - p1.y) * 0.02;
       }
@@ -260,27 +293,47 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
         p1.vy += (targetY - p1.y) * 0.2;
       }
 
-      // Environmental Gravity & Friction
+      // Environmental Gravity & Friction. Orbital particles are exempt so their
+      // orbital energy is not continuously bled away by global damping.
       if (!p1.ignoreGravity) {
         p1.vx += e.gravityX;
         p1.vy += e.gravityY;
         p1.vx *= e.damping;
         p1.vy *= e.damping;
-      } else {
-        // Speed check for orbital particles so orbital energy isn't continuously bled by global damping
-        const spdSq = p1.vx * p1.vx + p1.vy * p1.vy;
-        if (spdSq > e.maxSpeed * e.maxSpeed) {
-          const spd = Math.sqrt(spdSq);
-          p1.vx = (p1.vx / spd) * e.maxSpeed;
-          p1.vy = (p1.vy / spd) * e.maxSpeed;
-        }
+      }
+
+      // Speed limit, applied to everything.
+      //
+      // This clamp used to live in the `else` above, so it only ever reached orbital
+      // particles: every ordinary particle was completely uncapped, despite the
+      // interface presenting one global "max speed" slider and the diagnostics
+      // repair applying it to all particles. Uncapped speed is also what let
+      // particles cross a whole world in one frame and escape the wrap boundary.
+      const spdSq = p1.vx * p1.vx + p1.vy * p1.vy;
+      const limitSq = e.maxSpeed * e.maxSpeed;
+      if (spdSq > limitSq && spdSq > 0) {
+        const scale = e.maxSpeed / Math.sqrt(spdSq);
+        p1.vx *= scale;
+        p1.vy *= scale;
       }
 
       p1.x += p1.vx;
       p1.y += p1.vy;
     }
 
-    // Boundary Conditions
+    // Boundary Conditions.
+    //
+    // Pinned particles are exempt. This whole block used to sit outside the
+    // `if (!p1.fixed)` above, so a fixed black hole placed near an edge was shoved
+    // inward on its very first step — and since velocity is only zeroed for fixed
+    // particles at the top of the tick, the bounce code was acting on velocity that
+    // the force loop had accumulated since.
+    if (p1.fixed) {
+      p1.vx = 0;
+      p1.vy = 0;
+      continue;
+    }
+
     const rad = p1.radius || e.particleSize;
 
     if (e.boundaryMode === "bounce") {
@@ -300,10 +353,12 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
         p1.vy *= -e.elasticity;
       }
     } else if (e.boundaryMode === "wrap") {
-      if (p1.x < 0) p1.x += e.width;
-      if (p1.x > e.width) p1.x -= e.width;
-      if (p1.y < 0) p1.y += e.height;
-      if (p1.y > e.height) p1.y -= e.height;
+      // True modulo rather than a single add or subtract. One correction per frame
+      // left anything travelling more than a world-width per frame permanently
+      // outside the world, and `x === width` exactly stayed one pixel past the edge
+      // the renderer draws.
+      if (e.width > 0) p1.x = ((p1.x % e.width) + e.width) % e.width;
+      if (e.height > 0) p1.y = ((p1.y % e.height) + e.height) % e.height;
     } else if (e.boundaryMode === "void") {
       if (p1.x < -10 || p1.x > e.width + 10 || p1.y < -10 || p1.y > e.height + 10) {
         p1.lifespan = 0;
@@ -313,7 +368,7 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
   }
 
   if (hasExpired) {
-    e.particles = e.particles.filter((p) => p && (p.lifespan === undefined || p.lifespan > 0));
+    e.removeParticles((p) => p.lifespan !== undefined && p.lifespan <= 0);
   }
 }
 
@@ -330,6 +385,10 @@ export function stepFlock(e: ParticleCtx) {
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
       const q = ps[j];
+      // Guarded and pinned-aware, like `p` above. A missing neighbour threw, and a
+      // fixed neighbour was averaged into the flock's velocity as though it were
+      // flying with them.
+      if (!q || q.fixed) continue;
       const dx = q.x - p.x;
       const dy = q.y - p.y;
       const d2 = dx * dx + dy * dy;
@@ -340,17 +399,22 @@ export function stepFlock(e: ParticleCtx) {
       cvx += q.vx;
       cvy += q.vy;
       if (d2 < 400) {
-        sepX -= dx;
-        sepY -= dy;
+        // Divided by distance, so closer neighbours push harder. Accumulating the
+        // raw offset made separation *weaker* the closer two particles got — exactly
+        // backwards for collision avoidance, and the reason flocks clumped.
+        const d = Math.sqrt(d2);
+        sepX -= dx / d;
+        sepY -= dy / d;
       }
     }
     if (!c) continue;
-    p.vx += (cx / c - p.x) * 0.002 + (cvx / c - p.vx) * 0.04 + sepX * 0.012;
-    p.vy += (cy / c - p.y) * 0.002 + (cvy / c - p.vy) * 0.04 + sepY * 0.012;
+    // Separation is scaled up to compensate for now being normalised by distance.
+    p.vx += (cx / c - p.x) * 0.002 + (cvx / c - p.vx) * 0.04 + sepX * 0.24;
+    p.vy += (cy / c - p.y) * 0.002 + (cvy / c - p.vy) * 0.04 + sepY * 0.24;
   }
 }
 
-/** Verlet-style spring constraints (cloth / rope / blob). */
+/** Hookean spring constraints (cloth / rope / blob). */
 export function stepSprings(e: ParticleCtx) {
   if (!e.springs.length) return;
   const ps = e.particles;
@@ -361,24 +425,60 @@ export function stepSprings(e: ParticleCtx) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 0.001;
-    if (d > s.rest * 4.5) continue;
+    // A rest length of zero made `d > rest * 4.5` true for every spring, so a cloth
+    // spawned on a canvas too narrow to give it any spacing had no working springs
+    // at all.
+    if (s.rest > 0 && d > s.rest * 4.5) continue;
     const f = ((d - s.rest) / d) * s.k;
     const fx = dx * f;
     const fy = dy * f;
+    // Divided by mass, like the electrostatic force is. Without it a heavier
+    // particle responded correctly to charge but far too strongly to springs.
     if (!a.fixed) {
-      a.vx += fx;
-      a.vy += fy;
+      const am = a.mass || 1;
+      a.vx += fx / am;
+      a.vy += fy / am;
     }
     if (!b.fixed) {
-      b.vx -= fx;
-      b.vy -= fy;
+      const bm = b.mass || 1;
+      b.vx -= fx / bm;
+      b.vy -= fy / bm;
     }
+  }
+}
+
+/**
+ * Mouse modes that mean something to the swarm, and which way they pull.
+ *
+ * The swarm only understands "pull toward" or "push away", so every mode has to map
+ * onto one of those or be ignored. Previously anything that was not attract or
+ * gravity_well was treated as repulsion, which meant painter, freeze and emitter —
+ * modes with well-defined and quite different meanings for the object particles —
+ * silently blew the swarm outward instead.
+ */
+function swarmMouseEffect(mode: ParticleCtx["mouseMode"]): "attract" | "repel" | null {
+  switch (mode) {
+    case "attract":
+    case "gravity_well":
+    case "hawk":
+      return "attract";
+    case "repel":
+    case "hyper_drive":
+      return "repel";
+    case "vortex":
+    case "emitter":
+    case "painter":
+    case "freeze":
+      // Nothing sensible to do to a million positions, so the swarm is left alone
+      // rather than being pushed around by a mode that means something else.
+      return null;
   }
 }
 
 /** Step the SoA swarm (GPU above threshold, CPU otherwise). */
 export function stepSwarm(e: ParticleCtx, mouseX?: number, mouseY?: number, mouseActive?: boolean) {
   if (!e.swarm.n) return;
+  const effect = swarmMouseEffect(e.mouseMode);
   e.swarm.step({
     width: e.width,
     height: e.height,
@@ -387,11 +487,13 @@ export function stepSwarm(e: ParticleCtx, mouseX?: number, mouseY?: number, mous
     damp: e.damping,
     bounce: e.elasticity,
     collide: e.collisionsEnabled,
+    maxSpeed: e.maxSpeed,
+    boundaryMode: e.boundaryMode,
     mx: mouseX ?? e.lastMouseX,
     my: mouseY ?? e.lastMouseY,
-    mouse: !!mouseActive,
+    mouse: !!mouseActive && effect !== null,
     mouseForce: e.mouseForceMultiplier * (e.mouseMode === "hawk" ? 2.4 : 1),
     mouseRadius: e.mouseRadius,
-    attract: e.mouseMode === "attract" || e.mouseMode === "gravity_well",
+    attract: effect === "attract",
   });
 }
