@@ -763,6 +763,15 @@ interface Result {
   hashLite: number;
   /** How many times the engine drew from the random stream. */
   randomDraws: number;
+  /**
+   * The compact multiplayer payload for this world, exactly as it goes on the wire.
+   *
+   * Recorded so the native port can be held to producing and consuming the identical
+   * bytes. That is what lets a player on a phone and a player in a browser share a
+   * world: if the two encoders disagree by a single byte, the host's divergence check
+   * fires forever and the two worlds never converge.
+   */
+  liteBase64: string;
 }
 
 function toRows(values: Uint16Array, width: number, height: number): string[] {
@@ -858,6 +867,7 @@ function run(scenario: Scenario): Result {
       activeCount: e.getActiveParticleCount(),
       hashLite: e.hashLite(),
       randomDraws,
+      liteBase64: (JSON.parse(e.serializeLite()) as { t: string }).t,
     };
   } finally {
     Math.random = previous;
@@ -897,6 +907,7 @@ describe("golden powder scenarios", () => {
       expect(results[i].velocityNonZero).toEqual(fixture.scenarios[i].velocityNonZero);
       expect(results[i].randomDraws).toBe(fixture.scenarios[i].randomDraws);
       expect(results[i].hashLite).toBe(fixture.scenarios[i].hashLite);
+      expect(results[i].liteBase64).toBe(fixture.scenarios[i].liteBase64);
     }
   });
 

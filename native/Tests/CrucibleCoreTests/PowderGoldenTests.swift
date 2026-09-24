@@ -59,6 +59,8 @@ struct PowderGoldenTests {
         var activeCount: Int
         var hashLite: Int32
         var randomDraws: Int
+        /// The compact multiplayer payload, byte for byte as the web engine sends it.
+        var liteBase64: String
     }
 
     struct Fixture: Decodable {
@@ -86,7 +88,10 @@ struct PowderGoldenTests {
     /// The world parameters are applied before painting and the shake after it,
     /// matching the order the fixture generator uses — the shake has to come last
     /// because it acts on cells that must already exist.
-    private func play(_ scenario: Scenario) -> PowderEngine {
+    /// Visible to the rest of the test target so other suites can replay the same
+    /// scenarios — the persistence tests check the wire format against these worlds, and
+    /// a second copy of this setup would be free to drift away from the fixture.
+    func play(_ scenario: Scenario) -> PowderEngine {
         let registry = ElementRegistry()
         for custom in scenario.customElements {
             #expect(registry.register(custom), "scenario \(scenario.name): element \(custom.id) was refused")

@@ -232,8 +232,13 @@ public final class PowderEngine {
     /// Momentum and pressure carry over with the cells; the pressure scratch
     /// buffer and the visited marks do not, since both are rebuilt every tick.
     public func resize(width newWidth: Int, height newHeight: Int) {
-        let safeWidth = max(0, newWidth)
-        let safeHeight = max(0, newHeight)
+        // Refused outright if the size cannot be used, rather than clamped into
+        // something nearby. Callers check afterwards whether the size they asked for is
+        // the size they got — that is how loading a world and restoring an undo step both
+        // avoid laying their cells down at a row length that was never adopted.
+        guard Self.isValidSize(width: newWidth, height: newHeight) else { return }
+        let safeWidth = newWidth
+        let safeHeight = newHeight
         if safeWidth == width && safeHeight == height { return }
 
         let oldWidth = width
@@ -427,7 +432,12 @@ public final class PowderEngine {
         let stride = max(1, cellCount / 4000)
         var i = 0
         while i < cellCount {
-            hash = hash &* 33 &+ Int32(truncatingIfNeeded: type[i])
+            // Mixes the value the compact format would actually send, not the raw cell.
+            // The two disagreed for any id that does not fit in a byte, so the sender's
+            // fingerprint described a world the receiver could not build: the "have we
+            // drifted apart?" test stayed true forever, resending the whole grid every
+            // tick while the two never converged.
+            hash = hash &* 33 &+ Int32(PowderEngine.liteByte(type[i]))
             i += stride
         }
         return hash
