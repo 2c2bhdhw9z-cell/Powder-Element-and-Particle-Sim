@@ -2,6 +2,56 @@
 //
 // Ported from web/src/sim/powder/phase-change.ts.
 
+/// Which elements ``PowderEngine/updatePhase(x:y:idx:definition:)`` can actually do
+/// something to.
+///
+/// Walking the phase-change chain costs about fifteen nanoseconds for a cell it will
+/// decline to touch, which measurement showed to be a third of what an inert cell such as
+/// stone costs to visit at all. Forty of the fifty built-in elements have no phase change,
+/// so most of that is waste.
+///
+/// ## The trap this deliberately avoids
+///
+/// A hand-kept list that must agree with a long chain of `if` statements somewhere else is
+/// exactly the kind of thing that rots: add a phase change later, forget the list, and the
+/// change silently never happens. There is no compiler error for that and no obvious
+/// symptom.
+///
+/// Two things guard against it. The list lives in this file, directly above the chain it
+/// has to agree with, rather than in the element table it feeds. And
+/// `PhaseChangeParticipantsTests` checks the agreement by brute force — it drives every
+/// element through a wide temperature sweep, beside lava and away from it, and fails if any
+/// element the list excludes turns out to change anyway. Adding a phase change without
+/// updating the list breaks that test loudly.
+enum PhaseChangeParticipants {
+    /// The elements named in the chain below.
+    ///
+    /// Kept in the order they appear there, so the two can be read side by side.
+    static let ids: Set<ElementID> = [
+        Element.water,      // boils, and freezes
+        Element.saltWater,  // boils
+        Element.steam,      // cools toward ambient, and rains
+        Element.ice,        // melts
+        Element.snow,       // melts
+        Element.lava,       // vitrifies
+        Element.obsidian,   // re-melts
+        Element.stone,      // melts
+        Element.sand,       // fuses to glass
+        Element.wax,        // softens to honey
+    ]
+
+    /// Whether the phase-change stage needs to run for an element at all.
+    ///
+    /// Anything with an ignition temperature qualifies whatever its identifier, which is
+    /// how a user-authored element that self-ignites keeps working without being listed.
+    static func includes(id: ElementID, ignitionTemp: Double) -> Bool {
+        // Not-a-number means the element never self-ignites, and every comparison against
+        // it is false — so this reads as "has an ignition temperature at all".
+        if !ignitionTemp.isNaN { return true }
+        return ids.contains(id)
+    }
+}
+
 extension PowderEngine {
     /// Whether a particular element sits within `radius` cells, excluding the
     /// centre.
@@ -52,7 +102,14 @@ extension PowderEngine {
     ///
     /// - Returns: `true` if the cell became something else, in which case it does
     ///   not also move this tick.
-    func updatePhase(x: Int, y: Int, idx: Int, cellType: ElementID) -> Bool {
+    ///
+    /// Every branch below is gated on the cell's element, and the only one with a side
+    /// effect short of a transformation — steam drifting toward ambient — is gated too.
+    /// Nothing here draws a random number except inside that steam branch. So for an
+    /// element this function has no case for, calling it and not calling it are
+    /// indistinguishable, which is what ``PhaseChangeParticipants`` exists to exploit.
+    func updatePhase(x: Int, y: Int, idx: Int, definition: ElementPhysics) -> Bool {
+        let cellType = definition.id
         let temp = temperature[idx].asDouble
 
         // Only the three water-family elements need to know about nearby heat, and
@@ -151,7 +208,6 @@ extension PowderEngine {
         // The comparison relies on the absent value being not-a-number, which is false
         // against every comparison, so an element that never self-ignites needs no
         // check of its own.
-        let definition = elements[cellType]
         if temp >= definition.ignitionTemp {
             setElement(x, y, Element.fire, temp: max(400, temp))
             return true

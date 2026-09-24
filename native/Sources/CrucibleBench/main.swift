@@ -177,3 +177,176 @@ if let empty = samples.first, let full = samples.last, full.fill > empty.fill {
     print("  process cells in a different order — which is precisely what gives falling")
     print("  sand its character, so it cannot be reordered without changing the result.")
 }
+
+// MARK: - Which sweep is the expensive one
+//
+// The figure above says the whole-grid sweeps cost more than a 120fps frame before a single
+// grain exists, but not which of them. Measured by subtraction through the engine's own
+// public switches, so nothing has to be instrumented and the measurement cannot perturb
+// what it measures. On an empty grid the walk itself does almost nothing, which is what
+// makes the remainder readable.
+//
+// Turning these off changes the simulation, obviously. That is acceptable in a benchmark
+// and nowhere else.
+
+print("")
+print("Which sweep costs what, on an empty grid at one cell per pixel:")
+print("")
+
+func emptyGridMs(heat: Bool, pressure: Bool) -> Double {
+    let engine = PowderEngine(width: breakdownWidth, height: breakdownHeight, seed: 99)
+    engine.heatConductionEnabled = heat
+    engine.pressureEnabled = pressure
+    for _ in 0 ..< 10 { engine.step() }
+    let started = now()
+    let steps = 24
+    for _ in 0 ..< steps { engine.step() }
+    return (now() - started) / Double(steps) * 1000
+}
+
+let everything = emptyGridMs(heat: true, pressure: true)
+let withoutHeat = emptyGridMs(heat: false, pressure: true)
+let withoutPressure = emptyGridMs(heat: true, pressure: false)
+let neither = emptyGridMs(heat: false, pressure: false)
+
+print(String(format: "  everything on                     %8.3f ms", everything))
+print(String(format: "  heat off                          %8.3f ms", withoutHeat))
+print(String(format: "  pressure off                      %8.3f ms", withoutPressure))
+print(String(format: "  both off (walk + visited clear)   %8.3f ms", neither))
+print("")
+print(String(format: "  so heat spreading costs about     %8.3f ms", everything - withoutHeat))
+print(String(format: "  and the pressure field about      %8.3f ms", everything - withoutPressure))
+print(String(format: "  and the bare walk about           %8.3f ms", neither))
+print("")
+print("  Heat and pressure both run on alternate ticks, so their true cost on the ticks")
+print("  they run is twice what is shown. Both are averages over ticks, which is the")
+print("  number that decides the frame rate.")
+
+// MARK: - What an occupied cell actually spends its time on
+//
+// The per-occupied-cell figure is the one that limits how many cells the app can afford, and
+// therefore the resolution it runs at. This breaks it down by what is in the cell, which
+// separates the two candidate explanations:
+//
+//   - Stone never moves, never reacts and never changes phase. Whatever it costs is the
+//     fixed overhead of visiting an occupied cell at all: the element lookup and the walk
+//     through the stages that then decline to do anything.
+//   - Sand, water and oil add their movement rules on top, and water and oil additionally
+//     inspect their neighbours.
+//
+// If stone is nearly as expensive as water, the cost is overhead and the element lookup is
+// the place to look. If stone is cheap, the cost is the movement rules themselves.
+//
+// Measured at a size that fits comfortably in cache pressure terms similar to the real app,
+// so the figures transfer.
+
+print("")
+print("What an occupied cell costs, by what is in it (420x910 at 40% fill):")
+print("")
+print("  element     ms/tick    ns per occupied cell")
+print("  ------------------------------------------------")
+
+let perCellWidth = 420
+let perCellHeight = 910
+let perCellFill = 0.40
+
+// The empty-grid cost at this size, subtracted off so the figure is the per-cell work rather
+// than the per-cell work plus the sweeps.
+let perCellBaseline: Double = {
+    let engine = PowderEngine(width: perCellWidth, height: perCellHeight, seed: 99)
+    for _ in 0 ..< 10 { engine.step() }
+    let started = now()
+    let steps = 40
+    for _ in 0 ..< steps { engine.step() }
+    return (now() - started) / Double(steps) * 1000
+}()
+
+// Deliberately all non-decaying, so the population does not shrink under the measurement
+// and change what is being measured half way through.
+let probes: [(name: String, id: ElementID)] = [
+    ("stone", Element.stone),
+    ("sand", Element.sand),
+    ("water", Element.water),
+    ("oil", Element.oil),
+    ("acid", Element.acid),
+]
+
+for probe in probes {
+    let engine = PowderEngine(width: perCellWidth, height: perCellHeight, seed: 99)
+    var rng = Mulberry32(seed: 4242)
+    let target = Int(Double(engine.cellCount) * perCellFill)
+    var placed = 0
+    var attempts = 0
+    while placed < target && attempts < target * 8 {
+        attempts += 1
+        let x = rng.int(below: engine.width)
+        let y = rng.int(below: engine.height)
+        guard engine.typeAt(x, y) == Element.empty else { continue }
+        engine.setElement(x, y, probe.id)
+        placed += 1
+    }
+    for x in 0 ..< engine.width { engine.setElement(x, engine.height - 1, Element.bedrock) }
+
+    for _ in 0 ..< 10 { engine.step() }
+    let started = now()
+    let steps = 40
+    for _ in 0 ..< steps { engine.step() }
+    let ms = (now() - started) / Double(steps) * 1000
+
+    let occupied = engine.activeParticleCount
+    let perCellNs = occupied > 0
+        ? (ms - perCellBaseline) * 1_000_000 / Double(occupied)
+        : 0
+    let name = probe.name.count >= 10
+        ? probe.name
+        : probe.name + String(repeating: " ", count: 10 - probe.name.count)
+    print("  \(name) " + String(format: "%8.3f    %8.1f", ms, perCellNs))
+}
+
+print("")
+print(String(format: "  (empty grid at this size: %.3f ms, subtracted from each figure above)", perCellBaseline))
+print("")
+print("  Stone is the interesting row. It never moves, never reacts and never changes")
+print("  phase, so its figure is the price of visiting an occupied cell and then doing")
+print("  nothing — pure overhead, and a large share of what the others cost.")
+
+// MARK: - Is the element lookup the overhead?
+//
+// The hypothesis worth testing before restructuring anything: the properties of an element
+// are a hundred-byte record held in a Swift array, and the walk reads one per cell. If
+// fetching that record is most of the overhead above, then the fix is to make the fetch
+// cheap. If it is a small fraction, the overhead is elsewhere and the array is a red herring.
+//
+// Measured with the same access the engine uses, over the same number of cells, doing nothing
+// else. Crude, but decisive either way.
+
+print("")
+print("How much of that overhead is just fetching the element's properties:")
+print("")
+
+let lookupEngine = PowderEngine(width: perCellWidth, height: perCellHeight, seed: 99)
+populate(lookupEngine, fill: perCellFill)
+let lookupCells = lookupEngine.cellCount
+var lookupSink = 0.0
+
+// Warmed, so the caches are in the same state the timed run will find them.
+for _ in 0 ..< 5 {
+    for i in 0 ..< lookupCells { lookupSink += lookupEngine.elements[lookupEngine.type[i]].density }
+}
+
+let lookupStarted = now()
+let lookupRounds = 40
+for _ in 0 ..< lookupRounds {
+    for i in 0 ..< lookupCells { lookupSink += lookupEngine.elements[lookupEngine.type[i]].density }
+}
+let lookupMs = (now() - lookupStarted) / Double(lookupRounds) * 1000
+
+// Printed so the compiler cannot decide the whole loop was pointless and remove it.
+if lookupSink == .infinity { print("  (unreachable)") }
+
+print(String(format: "  one lookup per cell, %d cells:  %.3f ms", lookupCells, lookupMs))
+print(String(format: "  which is                        %.1f ns per cell", lookupMs * 1_000_000 / Double(lookupCells)))
+print("")
+print("  Compare that against the stone figure above. Stone's cost is one such lookup plus")
+print("  the walk through the stages, so the gap between them is everything that is not")
+print("  the lookup.")

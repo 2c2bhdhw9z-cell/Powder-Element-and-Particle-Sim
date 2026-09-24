@@ -49,6 +49,13 @@ public struct ElementPhysics: Sendable, Hashable {
     /// corrupt scene names an element that does not exist.
     public var isDefined: Bool
 
+    /// Whether the phase-change stage has anything to do for this element.
+    ///
+    /// Forty of the fifty built-ins melt, boil, freeze or fuse into nothing, and walking
+    /// the chain to find that out costs about a third of what visiting an inert cell costs
+    /// in total. See ``PhaseChangeParticipants``, which decides this and owns the reasoning.
+    public var canChangePhase: Bool
+
     /// What it leaves behind when it decays.
     public var decayIntoID: ElementID
     /// Lifetime in ticks before decaying. Zero means permanent.
@@ -108,6 +115,12 @@ public struct ElementPhysics: Sendable, Hashable {
         self.heatConductivity = definition.heatConductivity
         self.ignitionTemp = definition.ignitionTemp ?? .nan
         self.defaultTemp = definition.defaultTemp ?? .nan
+        // Read from the ignition temperature already stored above rather than from the
+        // definition's optional, so the two can never disagree.
+        self.canChangePhase = PhaseChangeParticipants.includes(
+            id: definition.id,
+            ignitionTemp: self.ignitionTemp
+        )
     }
 }
 

@@ -596,7 +596,12 @@ public final class PowderEngine {
 
                 // A cell that changed phase or was consumed by a reaction does not
                 // also move this tick.
-                if updatePhase(x: x, y: y, idx: idx, cellType: cellType) {
+                //
+                // Skipped outright for the forty elements that have no phase change at
+                // all. The stage is gated on the element in every one of its branches and
+                // draws no random numbers outside them, so for those elements calling it
+                // and not calling it cannot be told apart. See ``PhaseChangeParticipants``.
+                if definition.canChangePhase, updatePhase(x: x, y: y, idx: idx, definition: definition) {
                     x += stepX
                     continue
                 }
