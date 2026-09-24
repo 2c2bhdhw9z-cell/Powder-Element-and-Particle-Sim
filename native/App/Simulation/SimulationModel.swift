@@ -152,7 +152,16 @@ final class SimulationModel {
     /// rather than on either side, because that is what the tick actually costs.
     func resize(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
-        let maximumCells = 420_000.0
+        // Chosen from measurement, not taste. On Apple hardware the engine simulates a
+        // thirty-percent-full world at roughly 3.2ms for 86,000 cells and 13.2ms for 382,000
+        // — see the Benchmark step of the Engine workflow, which prints this on every run.
+        //
+        // A 120fps frame is 8.33ms in total and the simulation does not get all of it, so
+        // 150,000 cells leaves the drawing and the interface a real share. That is a long way
+        // short of one cell per screen pixel, which on this phone is over three million cells
+        // and currently 124ms a tick: reaching it needs the tick spread across processor
+        // cores, which is a change to the engine rather than a number to raise here.
+        let maximumCells = 150_000.0
 
         var width = Double(size.width * scale)
         var height = Double(size.height * scale)

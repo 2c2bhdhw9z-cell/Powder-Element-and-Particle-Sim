@@ -46,19 +46,50 @@ would rather set the project's **Root Directory** to `web` in the Vercel
 dashboard, that is the more conventional arrangement — delete `vercel.json` at
 the same time, or the two will fight over the output location.
 
-## Build the native app
+## Installing it
 
-The native app targets iPhone and is built entirely in CI — no Mac required
-locally. See [`native/README.md`](native/README.md) for the full pipeline.
+Every push to `main` builds an unsigned `.ipa` and attaches it to a release.
+
+**[Latest build →](https://github.com/2c2bhdhw9z-cell/Powder-Element-and-Particle-Sim/releases/latest)**
+
+Download `Crucible.ipa` from there on the device, sign it with your own
+certificate, and install. The link is permanent and each build gets its own, so an
+older one keeps working.
+
+It is deliberately unsigned, and the app deliberately has no entitlements, no app
+extensions and no dynamic frameworks — each of those needs a provisioning profile
+that matches it, and each is a way for signing on the device to fail.
+
+## Build it yourself
+
+The simulation engine builds and tests anywhere, with no Apple hardware:
 
 ```bash
 cd native
-swift test              # simulation core: runs on Linux and macOS, no Apple hardware needed
+swift test              # 227 tests, Linux or macOS
+swift test -c release   # the optimiser is allowed to change floating-point results
 ```
 
-The iOS app itself (Metal renderer + SwiftUI shell) is compiled by the
-[GitHub Actions workflow](.github/workflows), which produces an unsigned `.ipa`
-attached to a release for on-device signing.
+The iOS app needs a Mac, or the CI that stands in for one:
+
+```bash
+cd native
+brew install xcodegen
+xcodegen generate       # the .xcodeproj is generated, not committed
+open Crucible.xcodeproj
+```
+
+Two workflows do this on every push:
+
+| Workflow | What it proves |
+| -------- | -------------- |
+| [Engine](.github/workflows/engine.yml) | The simulation behaves identically on Linux and on macOS, in debug and optimised builds. Also prints the benchmark, so performance claims come from measurement. |
+| [iOS app](.github/workflows/ipa.yml) | The app compiles, and produces an installable `.ipa`. |
+
+Running the engine suite on two operating systems is not redundancy. The engine
+carries [its own trigonometry](native/Sources/CrucibleCore/Support/FDLibm.swift)
+so that every device computes identical results, and this is the check that the
+claim holds on the platform the app actually ships to.
 
 ## Run the web reference
 
