@@ -99,8 +99,6 @@ public struct RoomSettings: Codable, Sendable, Hashable {
 /// Encoded with a discriminator rather than relying on which fields are present, so an unknown kind from
 /// a newer build is recognisably unknown rather than silently decoding as something else.
 public enum RoomMessage: Codable, Sendable {
-    /// Sent on joining: who this is.
-    case hello(name: String)
     /// A follower confirming it has received and drawn a world frame.
     ///
     /// This is what lets the host pace itself. It sends the next frame once the last one has been
@@ -110,34 +108,38 @@ public enum RoomMessage: Codable, Sendable {
     /// Someone painted.
     case stroke(RoomStroke)
     /// The world's settings changed.
+    ///
+    /// Only wind and the ambient temperature really need this — gravity is in every world frame — but
+    /// all four travel together because comparing four numbers is cheaper than tracking which of them
+    /// changed.
     case settings(RoomSettings)
-    /// The host's fingerprint, for followers to compare against their own.
-    case fingerprint(value: Int32, frame: Int)
     /// A follower asking for a frame right now.
     ///
     /// Sent on joining, so the first world arrives immediately instead of after however long the host's
     /// pacing would have taken, and again after a gap — a frame that failed to decode, or a stretch with
     /// nothing arriving at all.
     case needWorld
-    /// The world was cleared or replaced wholesale.
-    case reset
+
+    // Four messages, and every one of them is sent. There were briefly three more — an introduction, the
+    // host's fingerprint, and a notice that the world had been cleared — and all three were dead weight.
+    // The fingerprint travels inside the world frame, where the receiver can check its own work against
+    // it; a cleared world is simply the next frame; and an introduction carried nothing the transport
+    // does not already say. Protocol vocabulary that nothing speaks is worse than none, because the next
+    // person here would build against a message that is never sent.
 
     // MARK: Coding
 
     private enum Kind: String, Codable {
-        case hello, worldAck, stroke, settings, fingerprint, needWorld, reset
+        case worldAck, stroke, settings, needWorld
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, name, sequence, stroke, settings, value, frame
+        case kind, sequence, stroke, settings
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case let .hello(name):
-            try container.encode(Kind.hello, forKey: .kind)
-            try container.encode(name, forKey: .name)
         case let .worldAck(sequence):
             try container.encode(Kind.worldAck, forKey: .kind)
             try container.encode(sequence, forKey: .sequence)
@@ -147,14 +149,8 @@ public enum RoomMessage: Codable, Sendable {
         case let .settings(settings):
             try container.encode(Kind.settings, forKey: .kind)
             try container.encode(settings, forKey: .settings)
-        case let .fingerprint(value, frame):
-            try container.encode(Kind.fingerprint, forKey: .kind)
-            try container.encode(value, forKey: .value)
-            try container.encode(frame, forKey: .frame)
         case .needWorld:
             try container.encode(Kind.needWorld, forKey: .kind)
-        case .reset:
-            try container.encode(Kind.reset, forKey: .kind)
         }
     }
 
@@ -162,23 +158,14 @@ public enum RoomMessage: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let kind = try container.decode(Kind.self, forKey: .kind)
         switch kind {
-        case .hello:
-            self = .hello(name: try container.decode(String.self, forKey: .name))
         case .worldAck:
             self = .worldAck(sequence: try container.decode(UInt32.self, forKey: .sequence))
         case .stroke:
             self = .stroke(try container.decode(RoomStroke.self, forKey: .stroke))
         case .settings:
             self = .settings(try container.decode(RoomSettings.self, forKey: .settings))
-        case .fingerprint:
-            self = .fingerprint(
-                value: try container.decode(Int32.self, forKey: .value),
-                frame: try container.decode(Int.self, forKey: .frame)
-            )
         case .needWorld:
             self = .needWorld
-        case .reset:
-            self = .reset
         }
     }
 }

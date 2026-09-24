@@ -40,6 +40,49 @@ struct RoomCoordinatorTests {
         #expect(RoomPacket.unwrap([255]) == nil)
     }
 
+    // MARK: Which frame is the newer
+
+    @Test("A later frame is newer, and an overtaken one is not")
+    func newerFramesRecognised() {
+        #expect(RoomSequence.isNewer(1, than: 0), "nothing shown yet, so anything is newer")
+        #expect(RoomSequence.isNewer(2, than: 1))
+        #expect(RoomSequence.isNewer(1000, than: 1))
+        #expect(!RoomSequence.isNewer(1, than: 2), "a frame that arrived late was treated as newer")
+        #expect(!RoomSequence.isNewer(5, than: 5), "the same frame is not newer than itself")
+    }
+
+    /// The reason this is not a plain comparison. Four and a half years of continuous play to reach the
+    /// wrap, and if it were `>` the follower would then refuse every frame from then on and sit frozen
+    /// forever while the link worked perfectly.
+    @Test("The comparison survives the numbering wrapping round")
+    func wrapIsHandled() {
+        let last = UInt32.max
+        #expect(RoomSequence.isNewer(1, than: last), "the frame after the wrap was rejected as old")
+        #expect(RoomSequence.isNewer(3, than: last - 2))
+        #expect(!RoomSequence.isNewer(last, than: 1), "a pre-wrap frame was accepted after the wrap")
+        #expect(!RoomSequence.isNewer(last - 2, than: 3))
+    }
+
+    /// Walking the whole way round, which is the only way to be sure the halfway point is not where it
+    /// goes wrong.
+    @Test("Stepping through the wrap, every frame in turn is the newer one")
+    func steppingThroughTheWrap() {
+        var current: UInt32 = UInt32.max - 20
+        for _ in 0 ..< 40 {
+            var next = current &+ 1
+            if next == 0 { next = 1 }
+            #expect(
+                RoomSequence.isNewer(next, than: current),
+                "frame \(next) was not recognised as newer than \(current)"
+            )
+            #expect(
+                !RoomSequence.isNewer(current, than: next),
+                "frame \(current) was recognised as newer than \(next)"
+            )
+            current = next
+        }
+    }
+
     // MARK: Who is in charge
 
     @Test("A peer alone in a room is its own host")

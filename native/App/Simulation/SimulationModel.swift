@@ -186,6 +186,76 @@ final class SimulationModel {
     /// and every test does.
     var audio: LabAudio?
 
+    // MARK: - Sharing a world
+
+    /// Whether this device is being shown somebody else's world.
+    ///
+    /// When it is, this engine does not step and does not read the phone's tilt. Both would be fighting
+    /// the frames arriving from the host, and the host's world is the one everybody is looking at.
+    var isFollowingRoom = false
+
+    /// Called whenever a stroke is painted here, so a shared room can pass it on.
+    var onLocalStroke: (@MainActor (RoomStroke) -> Void)?
+
+    /// Called at the end of every tick, whether or not time is running.
+    ///
+    /// A hook rather than a second timer, for the same reason `alsoStep` is one: two clocks drift, and the
+    /// display's refresh is the only honest one.
+    var onTicked: (@MainActor () -> Void)?
+
+    /// How many arriving worlds did not match the fingerprint their sender included.
+    ///
+    /// Should be nought. Anything else means this build assembled a world its sender did not describe —
+    /// a fault here rather than on the link, since the frame arrived intact enough to be read at all.
+    /// Counted and shown, because a world that is quietly slightly wrong is the hardest kind of problem
+    /// to notice.
+    private(set) var roomMismatches = 0
+
+    /// The world, packed for sending to the room.
+    func roomWorld(sequence: UInt32) -> RoomWorld {
+        engine.captureRoomWorld(sequence: sequence)
+    }
+
+    /// The settings a peer needs to match this world.
+    func roomSettings() -> RoomSettings {
+        engine.roomSettings()
+    }
+
+    /// Adopts a world sent by the host.
+    ///
+    /// - Returns: whether it could be used. `false` leaves this world untouched.
+    @discardableResult
+    func applyRemote(world: RoomWorld) -> Bool {
+        guard engine.apply(roomWorld: world) else { return false }
+        if engine.hashLite() != world.fingerprint { roomMismatches += 1 }
+
+        // The readouts are normally refreshed by the tick, which a follower never runs — so they are
+        // refreshed here instead, at the same once-a-second rate. Counting occupied cells is a full pass
+        // over the grid and worlds arrive dozens of times a second; doing it per frame would cost more
+        // than displaying them.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastSampleTime >= 1 {
+            activeCells = engine.activeParticleCount
+            fillHistory.record(fillFraction * 100)
+            heatHistory.record(hottestCell)
+            lastSampleTime = now
+        }
+        return true
+    }
+
+    /// Applies a stroke somebody else painted.
+    ///
+    /// No undo point. Undo is for taking back what *you* did, and quietly filling somebody's history with
+    /// other people's marks would make their own last action several taps away.
+    func applyRemote(stroke: RoomStroke) {
+        _ = engine.apply(stroke, now: CFAbsoluteTimeGetCurrent())
+    }
+
+    /// Adopts the host's settings.
+    func applyRemote(settings: RoomSettings) {
+        engine.apply(settings)
+    }
+
     /// Something else to step whenever this one steps.
     ///
     /// Only one chamber is on screen, and only the chamber on screen has a Metal view driving a clock
@@ -319,7 +389,12 @@ final class SimulationModel {
         // Before the pause check, so that tipping the phone still turns the world while time is
         // stopped. Gravity is the state of the world rather than an event in it, and watching a
         // paused pile hang at an angle is how you see what is about to happen when you unpause.
-        steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+        //
+        // Skipped entirely while being shown somebody else's world: gravity then arrives in every frame
+        // from the host, and tilting this phone would be two things fighting over which way is down.
+        if !isFollowingRoom {
+            steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+        }
         // Outside the pause check too: a shake left mid-decay when time stopped would hold the
         // whole screen at an offset until it started again.
         decayScreenShake()
@@ -328,8 +403,22 @@ final class SimulationModel {
         // companion decides for itself whether it is running.
         alsoStep?()
 
-        guard isRunning else { return }
+        // A follower does not simulate, and this is the line that makes that true. It cannot simulate:
+        // the physics draws thousands of random numbers a tick from this engine's own stream, so two
+        // engines stepping the same world come apart inside a single frame. The host's world is the
+        // truth and this one is shown it.
+        if isRunning, !isFollowingRoom {
+            advanceTime()
+        }
 
+        // Last of all, so a shared room is offered the world as it now stands rather than as it was
+        // before this tick. Called whether or not time is running: a paused host still has a world worth
+        // sending, and a follower still needs a regular moment to notice the link has gone quiet.
+        onTicked?()
+    }
+
+    /// Runs the simulation forward by this frame's share of time.
+    private func advanceTime() {
         // Whole steps this frame, plus a running remainder so a fractional speed averages out
         // rather than rounding to nothing. At a quarter speed this steps once every fourth
         // frame instead of never.
@@ -441,14 +530,29 @@ final class SimulationModel {
             return
         }
 
+        let target = brushShape == .replace ? replaceTarget : nil
         engine.drawBrush(
             centerX: x,
             centerY: y,
             radius: brushRadius,
             elementID: brushElement,
             shape: brushShape,
-            targetElementID: brushShape == .replace ? replaceTarget : nil,
+            targetElementID: target,
             now: CFAbsoluteTimeGetCurrent()
+        )
+
+        // Passed on as the *instruction* rather than the cells it changed. Smaller, composes with
+        // whatever else is happening at that moment in the host's world, and arrives as one stroke rather
+        // than a scattering of unrelated changes.
+        onLocalStroke?(
+            RoomStroke(
+                x: x,
+                y: y,
+                radius: brushRadius,
+                elementID: brushElement,
+                shape: brushShape,
+                targetElementID: target
+            )
         )
 
         // After painting, so it reports what is now there rather than what was there a moment ago.

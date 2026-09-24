@@ -46,6 +46,11 @@ struct ContentView: View {
     @State private var recorder = ScreenRecorder()
     /// Connects the two chambers. Built once both models exist.
     @State private var bridge: ChamberBridge?
+    /// Connects the powder chamber to a shared room. Built once the model exists.
+    ///
+    /// Always present, whether or not a room is open — it is what carries a stroke to the room and a
+    /// world back, and it owns the tick hook the room is driven from. With no room open it does nothing.
+    @State private var room: RoomBridge?
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -58,6 +63,7 @@ struct ContentView: View {
     @State private var showingFieldSettings = false
     @State private var showingHelp = false
     @State private var showingPerformance = false
+    @State private var showingRoom = false
     /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
     /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
     @State private var paletteVersion = 0
@@ -98,6 +104,25 @@ struct ContentView: View {
     private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
     private var temperatureUnit: TemperatureUnit {
         TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
+    }
+
+    /// One line describing the room, for the menu row.
+    ///
+    /// Worth having on the row rather than only inside the panel: a room left open keeps this phone
+    /// sending its world to somebody, and that should be visible without going looking for it.
+    private var roomSummary: String {
+        guard let session = room?.session else { return "Paint in the same world as somebody nearby" }
+        switch session.status {
+        case .closed:
+            return "Paint in the same world as somebody nearby"
+        case .open:
+            return "Open as \(session.code) — waiting for somebody"
+        case .connected:
+            let others = session.peers.count == 1 ? "1 other phone" : "\(session.peers.count) other phones"
+            return session.isHost
+                ? "\(session.code) — you are running the world, \(others)"
+                : "\(session.code) — watching, \(others)"
+        }
     }
 
     var body: some View {
@@ -163,6 +188,9 @@ struct ContentView: View {
                 connected.isEnabled = chambersAffectEachOther
                 bridge = connected
             }
+            if room == nil {
+                room = RoomBridge(powder: powder)
+            }
             restoreAutosaveOnce()
             updateCompanionStepping()
         }
@@ -222,8 +250,18 @@ struct ContentView: View {
                     // Closed first: a sheet cannot sensibly present another on top of itself.
                     showingSettings = false
                     showingHelp = true
-                }
+                },
+                onShowRoom: {
+                    showingSettings = false
+                    showingRoom = true
+                },
+                roomSummary: roomSummary
             )
+        }
+        .sheet(isPresented: $showingRoom) {
+            if let room {
+                RoomSheet(bridge: room, glass: glass)
+            }
         }
         .sheet(isPresented: $showingDiagnostics) {
             DiagnosticsSheet(model: powder, glass: glass, unit: temperatureUnit)
@@ -362,7 +400,13 @@ struct ContentView: View {
     }
 
     private var framesPerSecond: Int {
-        chamber == .powder ? powder.ticksPerSecond : field.ticksPerSecond
+        // While being shown somebody else's world this chamber is not ticking at all, so its own rate is
+        // nought — which the header would draw in red as though the app had stopped. The honest number
+        // then is how often a new world is arriving, because that is what the picture is changing at.
+        if chamber == .powder, powder.isFollowingRoom, let session = room?.session {
+            return session.framesPerSecond
+        }
+        return chamber == .powder ? powder.ticksPerSecond : field.ticksPerSecond
     }
 
     private func toggleRunning() {

@@ -52,6 +52,30 @@ public enum RoomPacket {
     }
 }
 
+// MARK: - Which of two frames is the newer
+
+/// Comparing frame numbers.
+///
+/// Needed because "is this frame newer than the one I am showing?" is not `>`. The number wraps, so a
+/// plain comparison decides that frame 1 is older than frame 4,294,967,295 — and a follower that reached
+/// the wrap would then refuse every frame from then on and sit frozen forever, with the link working
+/// perfectly.
+///
+/// Four and a half years of continuous play to reach that, so this is not about the wrap being likely.
+/// It is about the alternative being three lines and correct.
+public enum RoomSequence {
+    /// Whether `candidate` is newer than `current`.
+    ///
+    /// Nought means nothing has been shown yet, so anything is newer. Otherwise the two are compared by
+    /// the distance between them: a gap in the nearer half of the range means forward, and in the further
+    /// half means a frame that arrived late and has already been overtaken.
+    public static func isNewer(_ candidate: UInt32, than current: UInt32) -> Bool {
+        guard current != 0 else { return true }
+        guard candidate != current else { return false }
+        return candidate &- current < UInt32.max / 2
+    }
+}
+
 // MARK: - Who is in charge
 
 /// Deciding which peer owns the world.

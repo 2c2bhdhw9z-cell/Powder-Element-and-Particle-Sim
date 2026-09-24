@@ -63,11 +63,6 @@ struct RoomProtocolTests {
         )
         let settings = RoomSettings(gravityX: 0.5, gravityY: -1, windX: 3, ambientTemp: 42)
 
-        switch try roundTrip(.hello(name: "Someone")) {
-        case let .hello(name): #expect(name == "Someone")
-        default: Issue.record("hello came back as something else")
-        }
-
         switch try roundTrip(.stroke(stroke)) {
         case let .stroke(decoded): #expect(decoded == stroke)
         default: Issue.record("stroke came back as something else")
@@ -76,13 +71,6 @@ struct RoomProtocolTests {
         switch try roundTrip(.settings(settings)) {
         case let .settings(decoded): #expect(decoded == settings)
         default: Issue.record("settings came back as something else")
-        }
-
-        switch try roundTrip(.fingerprint(value: -12345, frame: 678)) {
-        case let .fingerprint(value, frame):
-            #expect(value == -12345)
-            #expect(frame == 678)
-        default: Issue.record("fingerprint came back as something else")
         }
 
         switch try roundTrip(.worldAck(sequence: 4_000_000_001)) {
@@ -96,11 +84,6 @@ struct RoomProtocolTests {
         switch try roundTrip(.needWorld) {
         case .needWorld: break
         default: Issue.record("needWorld came back as something else")
-        }
-
-        switch try roundTrip(.reset) {
-        case .reset: break
-        default: Issue.record("reset came back as something else")
         }
     }
 
@@ -334,10 +317,11 @@ struct RoomProtocolTests {
         #expect(bytes < 100, "an acknowledgement should be tiny, was \(bytes) bytes")
     }
 
-    /// And the fingerprint is smaller still, which is what makes it affordable to send often.
-    @Test("A fingerprint is tiny")
-    func fingerprintIsTiny() throws {
-        let bytes = try JSONEncoder().encode(RoomMessage.fingerprint(value: 12345, frame: 678)).count
-        #expect(bytes < 100, "a fingerprint should be tiny, was \(bytes) bytes")
+    /// Asking for a frame has to be cheap too, since a peer that has lost its way sends one of these and
+    /// then keeps asking until something arrives.
+    @Test("Asking for a world is tiny")
+    func requestIsTiny() throws {
+        let bytes = try JSONEncoder().encode(RoomMessage.needWorld).count
+        #expect(bytes < 100, "a request should be tiny, was \(bytes) bytes")
     }
 }

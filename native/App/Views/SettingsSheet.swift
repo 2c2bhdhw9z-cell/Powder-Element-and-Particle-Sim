@@ -18,6 +18,9 @@ struct SettingsSheet: View {
     @Binding var temperatureUnit: TemperatureUnit
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
+    let onShowRoom: () -> Void
+    /// What the room row should say about itself, so somebody already in a room can see that from here.
+    let roomSummary: String
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
@@ -26,6 +29,7 @@ struct SettingsSheet: View {
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves", glass: glass) {
             help
+            room
             detail
             appearance
             view
@@ -47,6 +51,21 @@ struct SettingsSheet: View {
                 detail: "What everything does, and what the materials do to each other",
                 symbol: "questionmark.circle",
                 action: onShowHelp
+            )
+        }
+    }
+
+    // MARK: Sharing
+
+    /// Second, because it is the only thing in this panel that involves another person, and because the
+    /// summary on the row is how somebody notices they are still in a room.
+    private var room: some View {
+        LabGroup {
+            LabAction(
+                label: "Shared room",
+                detail: roomSummary,
+                symbol: "person.2",
+                action: onShowRoom
             )
         }
     }

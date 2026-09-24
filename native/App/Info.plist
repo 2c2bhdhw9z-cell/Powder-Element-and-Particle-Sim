@@ -76,6 +76,22 @@
 	     refused rather than merely unavailable, and the refusal is silent. -->
 	<key>NSMotionUsageDescription</key>
 	<string>Tilt your phone to change which way things fall, and shake it to rattle a pile loose.</string>
+	<!-- Both of the next two keys are required before a shared room will work at all, and iOS gives no
+	     error when they are missing: advertising simply never finds anybody and looking never sees
+	     anybody. There is nothing to debug because nothing fails.
+
+	     NSBonjourServices must list the service under BOTH tcp and udp. MultipeerConnectivity uses
+	     whichever suits the link — wifi or Bluetooth — and declaring only one means it works in some
+	     rooms and not others, which is a far worse problem to be handed than it never working at all.
+
+	     The name must match RoomTransport.serviceType exactly. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Crucible looks for other phones nearby so you can share a world with somebody in the same room. Nothing is sent over the internet.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_crucible-room._tcp</string>
+		<string>_crucible-room._udp</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Syne-Medium.ttf</string>
