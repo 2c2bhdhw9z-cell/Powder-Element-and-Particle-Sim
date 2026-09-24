@@ -45,8 +45,15 @@ struct ElementDock: View {
         VStack(spacing: 0) {
             handle
             header
-            if isOpen { expanded }
-            collapsedStrip
+            if isOpen {
+                expanded
+            } else {
+                // Only while closed, which is what it is for — the name says so. It used to show in both
+                // states, and open it sat directly beneath the category filter showing a fixed dozen
+                // materials that the filter has no effect on. Choose "Gases" and the row underneath
+                // still reads sand, water, lava: it looks exactly like a filter that does not work.
+                collapsedStrip
+            }
             transport
         }
         .background(alignment: .top) {
@@ -155,16 +162,37 @@ struct ElementDock: View {
     }
 
     /// The full set, only while the tray is open.
+    ///
+    /// ## One scrolling area, with a floor under it
+    ///
+    /// This used to be a plain stack with the materials in a scrolling box of their own, and the
+    /// materials disappeared entirely. Opening the tray showed the headings, the brushes, the search
+    /// box, the categories — and then nothing where the fifty materials should have been.
+    ///
+    /// The cause is worth writing down because it is invisible and it will happen again. The tray's
+    /// natural height is taller than what is left of a phone screen below the world, so something has
+    /// to give. A scrolling box is the only thing in that stack with no height of its own, so it is the
+    /// thing that gives — all of it, down to nothing, in silence. Everything above it looked perfect,
+    /// which is why it read as the materials having failed to load rather than as a layout fault.
+    ///
+    /// So: one scrolling area for the whole tray, the materials laid out at their natural height inside
+    /// it, and **a minimum height** — which is the part that actually fixes it. A maximum alone still
+    /// permits nought.
     private var expanded: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            destinations
-            brushRow
-            searchRow
-            categoryRow
-            palette
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                destinations
+                brushRow
+                searchRow
+                categoryRow
+                palette
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
+        .frame(minHeight: 220, maxHeight: 380)
+        // No rubber-banding when it all fits, so a short tray does not feel broken.
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     /// How a touch paints, and the eyedropper.
@@ -324,7 +352,10 @@ struct ElementDock: View {
         let _ = paletteVersion
         let matches = model.paletteElements(category: category, search: search)
 
-        return ScrollView {
+        // No scrolling box of its own — the tray around it does the scrolling. Two nested ones would
+        // fight over a drag, and the inner one collapsing to nothing is exactly what hid all fifty
+        // materials.
+        return Group {
             if matches.isEmpty {
                 Text("Nothing matches “\(search.trimmingCharacters(in: .whitespaces))”.")
                     .font(.labBody(12))
@@ -342,7 +373,6 @@ struct ElementDock: View {
                 }
             }
         }
-        .frame(maxHeight: 240)
     }
 
     /// The favourites row, always visible.

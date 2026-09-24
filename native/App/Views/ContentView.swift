@@ -182,10 +182,14 @@ struct ContentView: View {
 
             dock
         }
-        // Only the bottom, so the dock's backdrop reaches under the home indicator. The top is left
-        // alone deliberately: the header should sit below the island rather than under it.
-        .ignoresSafeArea(edges: .bottom)
-        .background(Palette.background)
+        // The background fills the whole screen; the *content* does not.
+        //
+        // This used to ignore the bottom safe area so the dock's backdrop reached under the home
+        // indicator, and it took the dock's controls down there with it. The play button and the
+        // clear button ended up sitting inside the home-indicator strip, where they are both clipped
+        // and half-unusable — iOS takes the upward swipe from that band, so pressing them is a
+        // gamble. Anything you can press has to stay above it.
+        .background(Palette.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(Palette.primary)
         .onAppear {
@@ -346,8 +350,14 @@ struct ContentView: View {
         ) { target in
             // Full screen rather than a sheet, because the preview is a video player with its own
             // controls and a half-height card would leave it unusable.
+            //
+            // It deliberately does **not** ignore the safe area. This used to, and the result was that
+            // the preview's own close and Save buttons — which it lays out relative to the top of the
+            // view it is given — sat up underneath the clock and the battery, overlapping them. That
+            // view is ReplayKit's, not this app's, so there is no way to nudge its buttons down; the
+            // only fix is to stop handing it the whole screen.
             RecordingPreview(controller: target.controller)
-                .ignoresSafeArea()
+                .background(Color.black.ignoresSafeArea())
         }
         .alert(
             "Recording",
@@ -397,8 +407,11 @@ struct ContentView: View {
                     .padding(.top, 8)
                 }
 
-                // Opposite the tools, so the two never collide however wide either gets. Only the
-                // powder chamber has cells to inspect.
+                // The opposite corner from the tools. That used to be described here as meaning the two
+                // could never collide, which was wrong: they are separate layers of the same stack, so
+                // nothing stops one growing under the other — and the tools did exactly that, being
+                // wider than the phone. The tools are two rows now and this keeps its corner; the
+                // readout is also a single short line, so it cannot grow to meet them.
                 if which == .powder, which == chamber {
                     HStack {
                         Spacer(minLength: 0)
@@ -680,9 +693,11 @@ struct FieldToolCluster: View {
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
 
+    /// Two rows, for the same reason as the powder chamber's. See the note on `ToolCluster`: on one row
+    /// this came to more than a phone is wide, so the tilt button sat on the screen's edge or past it.
     var body: some View {
         GlassGroup(level: glass) {
-            HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 0) {
                     button("arrow.uturn.backward", "Undo", enabled: model.canUndo) { model.undo() }
                     button("arrow.uturn.forward", "Redo", enabled: model.canRedo) { model.redo() }
@@ -698,24 +713,26 @@ struct FieldToolCluster: View {
                 }
                 .glassPanel(glass)
 
-                HStack(spacing: 0) {
-                    ForEach(Self.speeds, id: \.self) { value in
-                        Button {
-                            model.speed = value
-                        } label: {
-                            Text(ToolClusterLabels.speed(value))
-                                .font(.labNumeric(11))
-                                .foregroundStyle(
-                                    model.speed == value ? Palette.foreground : Palette.muted
-                                )
-                                .frame(minWidth: 34, minHeight: 40)
+                HStack(spacing: 6) {
+                    HStack(spacing: 0) {
+                        ForEach(Self.speeds, id: \.self) { value in
+                            Button {
+                                model.speed = value
+                            } label: {
+                                Text(ToolClusterLabels.speed(value))
+                                    .font(.labNumeric(11))
+                                    .foregroundStyle(
+                                        model.speed == value ? Palette.foreground : Palette.muted
+                                    )
+                                    .frame(minWidth: 34, minHeight: 40)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
-                }
-                .glassPanel(glass)
+                    .glassPanel(glass)
 
-                TiltButton(tilt: tilt, glass: glass)
+                    TiltButton(tilt: tilt, glass: glass)
+                }
             }
         }
     }

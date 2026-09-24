@@ -271,7 +271,20 @@ struct FieldDock: View {
         .buttonStyle(.plain)
     }
 
+    /// Scrolling, with a floor under it, for the reason written out on the powder tray's equivalent: a
+    /// tray taller than the screen has to give somewhere, and without a minimum height the thing that
+    /// gives is whatever has no height of its own — silently, and all the way to nothing.
     private var expanded: some View {
+        ScrollView {
+            expandedContents
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+        .frame(minHeight: 220, maxHeight: 380)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var expandedContents: some View {
         VStack(alignment: .leading, spacing: 14) {
             destinations
             presetChips
@@ -331,10 +344,53 @@ struct FieldDock: View {
             .font(.labBody(11))
             .foregroundStyle(Palette.muted)
             .tint(Palette.primary)
+
+            colourModes
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
     }
+
+    /// How the bodies are coloured.
+    ///
+    /// Chips rather than a menu. This was a `Picker` in the bottom row, which drew the system's own
+    /// pop-up menu button — grey text and a pair of tiny chevrons, sitting between the play button and
+    /// the clear button looking like a piece of a different application had been left in by mistake.
+    /// Nothing else in Crucible looks like that, and it was also the widest thing in that row, which is
+    /// what pushed the buttons either side of it into the corners.
+    private var colourModes: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("COLOUR BY")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ForEach(Self.colourChoices, id: \.mode) { choice in
+                    let selected = model.colorMode == choice.mode
+                    Button {
+                        model.colorMode = choice.mode
+                    } label: {
+                        Text(choice.name)
+                            .font(.labBody(12, selected ? .semiBold : .regular))
+                            .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
+                            .padding(.horizontal, 11)
+                            .frame(height: 32)
+                            .background(
+                                Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private static let colourChoices: [(mode: ParticleColorMode, name: String)] = [
+        (.native, "Own"),
+        (.velocity, "Speed"),
+        (.charge, "Charge"),
+        (.rainbow, "Place"),
+        (.density, "Crowd"),
+        (.lifespan, "Life"),
+    ]
 
     private var toolStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -379,22 +435,24 @@ struct FieldDock: View {
             .buttonStyle(.plain)
             .accessibilityLabel(model.isRunning ? "Pause" : "Play")
 
-            Picker("Colour by", selection: Binding(
-                get: { model.colorMode },
-                set: { model.colorMode = $0 }
-            )) {
-                Text("Own").tag(ParticleColorMode.native)
-                Text("Speed").tag(ParticleColorMode.velocity)
-                Text("Charge").tag(ParticleColorMode.charge)
-                Text("Place").tag(ParticleColorMode.rainbow)
-                Text("Crowd").tag(ParticleColorMode.density)
-                Text("Life").tag(ParticleColorMode.lifespan)
+            // How far a touch reaches — this chamber's equivalent of brush size, and the same control
+            // in the same place, which is what this file's opening comment promises and what the
+            // colour-mode menu that used to sit here was breaking.
+            HStack(spacing: 8) {
+                Image(systemName: "circle.dotted")
+                    .font(.labBody(12))
+                    .foregroundStyle(Palette.subtleForeground)
+                Slider(
+                    value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
+                    in: 40 ... 820
+                )
+                .tint(Palette.primary)
+                Text(model.mouseRadius >= 800 ? "all" : "\(Int(model.mouseRadius))")
+                    .font(.labNumeric(11))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 26, alignment: .trailing)
             }
-            .pickerStyle(.menu)
-            .tint(Palette.muted)
-            .font(.labBody(12))
-
-            Spacer(minLength: 0)
+            .accessibilityLabel("How far a touch reaches")
 
             iconButton("trash", "Clear") { model.clear() }
         }

@@ -17,12 +17,24 @@ struct ToolCluster: View {
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
 
+    /// Two rows, not one, and this is the whole reason the file needed changing.
+    ///
+    /// On one row these came to about 446 points: five 40-point buttons, five 34-point speed steps and
+    /// the tilt button. A large iPhone is 440 points wide. So the row ran off the right-hand edge —
+    /// the fastest speed and the tilt button were simply not on the screen — and on the way there it
+    /// slid underneath the readout in the opposite corner, which the comment beside that readout
+    /// confidently described as impossible.
+    ///
+    /// Split this way the widest row is about 240, which leaves the readout its corner on every phone
+    /// rather than only on the largest one.
     var body: some View {
         GlassGroup(level: glass) {
-            HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
                 actions
-                speedDial
-                TiltButton(tilt: tilt, glass: glass)
+                HStack(spacing: 6) {
+                    speedDial
+                    TiltButton(tilt: tilt, glass: glass)
+                }
             }
         }
     }
