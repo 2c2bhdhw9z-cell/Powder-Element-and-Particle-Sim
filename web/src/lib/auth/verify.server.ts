@@ -63,9 +63,59 @@ export async function getSessionUser(bearerToken?: string): Promise<VerifiedUser
     headers = new Headers(request.headers);
     headers.set("Authorization", `Bearer ${bearerToken}`);
   }
+  return userFromHeaders(headers);
+}
+
+/** Resolve a user from an explicit set of headers. Shared by both callers below. */
+async function userFromHeaders(headers: Headers): Promise<VerifiedUser | null> {
   const session = await auth.api.getSession({ headers });
   if (!session?.user) return null;
   return { id: session.user.id, email: session.user.email ?? null };
+}
+
+/**
+ * Resolve the user for a plain HTTP API route (`/api/v1/*`), from a bearer token
+ * and **nothing else**.
+ *
+ * ## Why this refuses to look at cookies
+ *
+ * `getSessionUser` reads whatever the request carried, cookie included, which is
+ * right for the web app's own server functions — those are protected from a
+ * malicious same-site sibling riding a `SameSite=Lax` cookie by the
+ * Fetch-Metadata check in `isolation.server.ts`.
+ *
+ * These routes could have relied on that same check. They deliberately do not.
+ * A route that accepts a cookie is a route another site can make a browser send
+ * a request to on the visitor's behalf; a route that accepts *only* a token the
+ * caller has to know cannot be, whatever headers the browser adds. The native
+ * app always holds a token, so it loses nothing — and this way the guarantee is
+ * structural rather than a header check that has to be kept correct.
+ *
+ * When auth is switched off entirely (`VITE_AUTH_ENABLED=false`) this follows
+ * exactly the same rule as `requireUserId`: the shared local user with no
+ * database, and a refusal when there is a real one.
+ */
+export async function requireUserIdForApi(request: Request): Promise<string> {
+  if (!authConfigured) {
+    if (databaseConfigured) {
+      throw new Error(
+        "Auth is disabled (VITE_AUTH_ENABLED=false) but DATABASE_URL is set — " +
+          "refusing to fall back to the shared dev user against a real database.",
+      );
+    }
+    return DEV_USER_ID;
+  }
+
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  const token = match?.[1]?.trim();
+  if (!token) throw new UnauthorizedError();
+
+  // Built from scratch, carrying the token and nothing else. Copying the request's
+  // own headers would bring the cookie back in and undo the point of this.
+  const user = await userFromHeaders(new Headers({ Authorization: `Bearer ${token}` }));
+  if (!user) throw new UnauthorizedError();
+  return user.id;
 }
 
 /**
