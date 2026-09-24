@@ -19,11 +19,32 @@ deliberately separate.
 
 ### Why the web version stays
 
-Its test suite (93 tooling tests + 47 simulation tests, deterministic via a
-seeded random generator) encodes the real behavior of the sim: gravity,
-buoyancy, decay, lava quenching, undo/redo, serialization. Those tests are
-translated into the native test suite and act as the behavioral oracle. When the
-native engine and the web tests disagree, the native engine is wrong.
+Two reasons, and the second one outlives the first.
+
+**It is the specification.** Nobody ever wrote down how this simulation behaves —
+how sand piles, when lava crusts over, how an orbit decays. That behaviour only
+exists as the accumulated result of a long series of small tuning decisions, and
+the only way to carry it across to Swift intact is to run the same world in both
+implementations and compare every cell and every body. Two golden fixtures do
+exactly that: 38 powder scenarios and 39 particle scenarios, matched exactly,
+down to the number of random numbers each engine consumes.
+
+**It is also the server.** The deployed web app is a TanStack Start application
+with Postgres, authentication and server routes — which is precisely the backend
+the native app will need for accounts, cloud saves and the workshop. The browser
+front end is scaffolding and will go; the server behind it is not.
+
+## Deployment
+
+The repository root holds no `package.json`, because the web app lives in
+[`web/`](web/). [`vercel.json`](vercel.json) bridges that: it installs and builds
+inside `web/`, then moves the generated `.vercel/output` up to the repository
+root, which is where Vercel looks for it.
+
+That file exists so the Vercel project needs no dashboard configuration. If you
+would rather set the project's **Root Directory** to `web` in the Vercel
+dashboard, that is the more conventional arrangement — delete `vercel.json` at
+the same time, or the two will fight over the output location.
 
 ## Build the native app
 
