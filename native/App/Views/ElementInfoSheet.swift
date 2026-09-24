@@ -152,6 +152,10 @@ struct ElementInfoSheet: View {
         case .liquid: "Liquid — flows and finds its level"
         case .gas: "Gas — rises and drifts"
         case .plasma: "Plasma — searingly hot"
+        // Not states of matter at all. Sparks and lasers travel rather than sit, and the special
+        // ones — portals, cloners, the void — are machinery wearing the shape of a material.
+        case .energy: "Energy — travels through things"
+        case .special: "Special — behaves by its own rules"
         }
     }
 }

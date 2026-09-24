@@ -65,7 +65,10 @@ final class LabAudio {
     ///
     /// The engine resamples to whatever the speaker wants. Fixing it here means the synthesis does
     /// not have to care what device it is on, and the sounds are identical on all of them.
-    private static let sampleRate = 44_100.0
+    ///
+    /// Outside the actor, because the synthesis runs on a background task and a constant needs no
+    /// protection — there is nothing to race against a number that never changes.
+    nonisolated static let sampleRate = 44_100.0
 
     // MARK: Playing
 
