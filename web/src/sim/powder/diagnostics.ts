@@ -1,11 +1,21 @@
-import { EMPTY_ELEMENT_ID } from "../element-registry";
+import { EMPTY_ELEMENT_ID, MAX_ELEMENT_ID } from "../element-registry";
 import type { PowderCtx } from "./context";
 
 // --- Diagnostics & System Health Inspection ---
 
 export function getDiagnostics(e: PowderCtx) {
   let activeParticles = 0;
+  // Counted separately, then combined per cell.
+  //
+  // A single count incremented in both places double-counted any cell that was bad in
+  // both ways — which is exactly what the corrupt-cell injector produces, so twenty
+  // damaged cells were reported as forty, and the repair that followed then truthfully
+  // said it had cleared twenty. Keeping them apart also lets the automatic pass tell
+  // the two faults apart, which it has to: they need different repairs.
+  let corruptTypeCount = 0;
+  let nanTempCount = 0;
   let corruptCellCount = 0;
+  let validTempCount = 0;
   // Tracked with an explicit "did we see anything" flag rather than magic starting
   // temperatures. The original started these at -273 and 3000 and then mapped those
   // exact values back to 20 in the report, so a world genuinely uniform at absolute
@@ -18,13 +28,20 @@ export function getDiagnostics(e: PowderCtx) {
   const totalCells = e.width * e.height;
 
   for (let i = 0; i < totalCells; i++) {
+    let cellIsCorrupt = false;
     const type = e.gridType[i];
     if (type !== EMPTY_ELEMENT_ID) {
       activeParticles++;
       // gridType is a Uint16Array, so `type` is always an integer in 0..65535 —
       // the old `type < 0 || Number.isNaN(type)` tests could never fire.
-      if (type >= 500) {
-        corruptCellCount++;
+      //
+      // Bounded by what the registry can describe. The old threshold of 500 left ids
+      // from 100 to 499 in a blind spot: the registry falls back to air for them, so
+      // they drew and behaved as air, this count ignored them, the repair could not
+      // clear them, and they still counted as active particles forever.
+      if (type > MAX_ELEMENT_ID) {
+        corruptTypeCount++;
+        cellIsCorrupt = true;
       }
     }
     const t = e.gridTemp[i];
@@ -33,12 +50,19 @@ export function getDiagnostics(e: PowderCtx) {
       if (!sawTemp || t < minTemp) minTemp = t;
       sawTemp = true;
       sumTemp += t;
+      validTempCount++;
     } else {
-      corruptCellCount++;
+      nanTempCount++;
+      cellIsCorrupt = true;
     }
+    if (cellIsCorrupt) corruptCellCount++;
   }
 
-  const avgTemp = sawTemp ? Math.round(sumTemp / totalCells) : Math.round(e.ambientTemp);
+  // Averaged over the cells that actually contributed. Dividing by every cell while
+  // skipping the unreadable ones dragged the reported average toward zero in
+  // proportion to how damaged the world was — so the number was least trustworthy
+  // exactly when it was being consulted.
+  const avgTemp = validTempCount > 0 ? Math.round(sumTemp / validTempCount) : Math.round(e.ambientTemp);
   // 19 bytes per cell: gridType 2 + gridTemp 4 + gridLife 2 + gridVisited 1 +
   // gridVx 1 + gridVy 1 + gridP 4 + gridPNext 4. The old figure of 6 was written
   // when temperature was a single byte and the pressure fields did not exist, so it
@@ -58,6 +82,17 @@ export function getDiagnostics(e: PowderCtx) {
     totalCells,
     activeParticles,
     corruptCellCount,
+    /** Cells holding an element id the registry cannot describe. */
+    corruptTypeCount,
+    /**
+     * Cells whose temperature is not a number.
+     *
+     * Reported separately because the automatic pass has to be able to see it. Its
+     * thermal repair used to be gated on the hottest and coldest readings, and an
+     * unreadable temperature is neither — so a world whose only fault was unreadable
+     * temperatures had nothing done to it and was then declared recovered.
+     */
+    nanTempCount,
     // Guarded like avgTemp above. A zero-cell grid used to report NaN here.
     loadPercentage: totalCells > 0 ? Math.round((activeParticles / totalCells) * 100) : 0,
     maxTemp: sawTemp ? Math.round(maxTemp) : Math.round(e.ambientTemp),
@@ -80,9 +115,17 @@ export function flushStuckCells(e: PowderCtx): { success: boolean; cleared: numb
   e.gridVisited.fill(0);
   for (let i = 0; i < totalCells; i++) {
     const type = e.gridType[i];
-    if (type >= 500) {
+    // Same bound the inspection uses, so what is reported is what gets cleared.
+    if (type > MAX_ELEMENT_ID) {
       e.gridType[i] = EMPTY_ELEMENT_ID;
-      e.gridTemp[i] = 20;
+      // Emptied completely, like `purgeOutOfBounds` does. Clearing only the id and the
+      // temperature left the cell holding the lifetime and momentum of whatever had
+      // been there, so the next thing to occupy it inherited a stranger's motion and a
+      // countdown to decay.
+      e.gridTemp[i] = e.ambientTemp;
+      e.gridLife[i] = 0;
+      e.gridVx[i] = 0;
+      e.gridVy[i] = 0;
       cleared++;
     }
   }
@@ -95,7 +138,10 @@ export function zeroThermalExtremes(e: PowderCtx): { success: boolean; normalize
   for (let i = 0; i < totalCells; i++) {
     const t = e.gridTemp[i];
     if (Number.isNaN(t) || t > 3000 || t < -273) {
-      e.gridTemp[i] = 20;
+      // The world's own ambient temperature, not a hardcoded 20. Three of the repairs
+      // used 20 and three used the ambient, so on a world set to -40 the repairs
+      // disagreed with each other and with the physics they were restoring.
+      e.gridTemp[i] = e.ambientTemp;
       normalizedCount++;
     }
   }
@@ -183,37 +229,52 @@ export function neutralizeAcids(e: PowderCtx): { success: boolean; neutralized: 
   return { success: true, neutralized };
 }
 
+/**
+ * Walls the world in with bedrock.
+ *
+ * Deliberately a manual action only. It is not a repair — it replaces whatever was
+ * around the edge, and most of the built-in scenes leave the top and the upper side
+ * walls open on purpose, so running it over a scene destroys its shape. The automatic
+ * pass used to run it on any unhealthy world, including one whose only complaint was
+ * that it was nearly full.
+ */
 export function sealBedrockBorders(e: PowderCtx): { success: boolean; borderCellsSet: number } {
   let borderCellsSet = 0;
+  // A world with no cells has no border. Without this the loops below computed an
+  // index of -1, whose write is silently dropped by the typed array while the read
+  // beside it returns undefined — so the count went up for writes that never landed.
+  if (e.width <= 0 || e.height <= 0) return { success: true, borderCellsSet };
+
+  const set = (x: number, y: number) => {
+    if (!e.isValid(x, y)) return;
+    const idx = e.getIndex(x, y);
+    if (e.gridType[idx] === 29) return;
+    e.gridType[idx] = 29;
+    // Bedrock does not burn, decay or move, so the state of whatever it replaced has
+    // to go with it. Leaving it behind turned a burning cell into bedrock that was
+    // still at 900°C with a decay countdown running, quietly cooking its neighbours
+    // from inside something that is supposed to be inert.
+    e.gridTemp[idx] = e.ambientTemp;
+    e.gridLife[idx] = 0;
+    e.gridVx[idx] = 0;
+    e.gridVy[idx] = 0;
+    borderCellsSet++;
+  };
+
   for (let x = 0; x < e.width; x++) {
-    const iTop = e.getIndex(x, 0);
-    const iBot = e.getIndex(x, e.height - 1);
-    if (e.gridType[iTop] !== 29) {
-      e.gridType[iTop] = 29;
-      borderCellsSet++;
-    }
-    if (e.gridType[iBot] !== 29) {
-      e.gridType[iBot] = 29;
-      borderCellsSet++;
-    }
+    set(x, 0);
+    set(x, e.height - 1);
   }
   for (let y = 0; y < e.height; y++) {
-    const iLeft = e.getIndex(0, y);
-    const iRight = e.getIndex(e.width - 1, y);
-    if (e.gridType[iLeft] !== 29) {
-      e.gridType[iLeft] = 29;
-      borderCellsSet++;
-    }
-    if (e.gridType[iRight] !== 29) {
-      e.gridType[iRight] = 29;
-      borderCellsSet++;
-    }
+    set(0, y);
+    set(e.width - 1, y);
   }
   return { success: true, borderCellsSet };
 }
 
 export function coolAllCells(e: PowderCtx): { success: boolean } {
-  e.gridTemp.fill(20);
+  // The world's ambient, not a hardcoded 20 — see `zeroThermalExtremes`.
+  e.gridTemp.fill(e.ambientTemp);
   return { success: true };
 }
 
@@ -228,9 +289,13 @@ export function injectThermalSpike(e: PowderCtx): { success: boolean } {
       // the edge wrap onto the next row, which is how the spike used to smear across
       // rows on a narrow grid.
       if (!e.isValid(cx + dx, cy + dy)) continue;
-      const i = e.getIndex(cx + dx, cy + dy);
-      e.gridTemp[i] = 2800;
-      e.gridType[i] = 4; // Fire
+      // Placed through setElementAt so the fire gets its decay countdown.
+      //
+      // Writing the id straight into the grid left the countdown at zero, and the
+      // decay handler turns any decaying cell whose countdown has run out into its
+      // successor immediately — so on the very next tick the whole spike became smoke
+      // at smoke's own temperature, erasing the thermal extreme this exists to create.
+      e.setElementAt(cx + dx, cy + dy, 4, 2800); // Fire
     }
   }
   return { success: true };
@@ -240,8 +305,10 @@ export function injectAcidFlood(e: PowderCtx): { success: boolean } {
   const startY = Math.floor(e.height * 0.7);
   for (let y = startY; y < e.height - 1; y++) {
     for (let x = 1; x < e.width - 1; x++) {
-      const i = e.getIndex(x, y);
-      e.gridType[i] = 8; // Acid
+      // Through setElementAt, so the acid arrives at its own temperature rather than
+      // inheriting whatever occupied the cell. Poured over lava it used to start at
+      // well above boiling and flash straight to steam.
+      e.setElementAt(x, y, 8); // Acid
     }
   }
   return { success: true };
@@ -280,14 +347,20 @@ export function runAutoFix(e: PowderCtx): { logs: string[] } {
   const steps: string[] = [];
   const step = (message: string) => steps.push(message);
 
-  if (diag.corruptCellCount > 0) {
+  if (diag.corruptTypeCount > 0) {
     const res = flushStuckCells(e);
-    step(`Cleared ${res.cleared} corrupted/NaN element cells.`);
+    step(`Cleared ${res.cleared} cells holding an unusable element.`);
   }
 
-  if (diag.maxTemp > 3000 || diag.minTemp < -273) {
+  // Unreadable temperatures are included in the condition.
+  //
+  // This used to be gated on the hottest and coldest readings alone, and an unreadable
+  // temperature is neither — it is excluded from both. So a world whose only fault was
+  // unreadable temperatures had its thermal repair skipped entirely, was then told
+  // "recovery completed", and still reported itself unhealthy the moment anyone looked.
+  if (diag.nanTempCount > 0 || diag.maxTemp > 3000 || diag.minTemp < -273) {
     const res = zeroThermalExtremes(e);
-    step(`Normalized ${res.normalizedCount} thermal extremes to room temp (20°C).`);
+    step(`Returned ${res.normalizedCount} unusable or extreme temperatures to ambient.`);
   }
 
   const oob = purgeOutOfBounds(e);
@@ -295,11 +368,11 @@ export function runAutoFix(e: PowderCtx): { logs: string[] } {
     step(`Cleared ${oob.purged} cells wedged against the world frame.`);
   }
 
-  // Only done while repairing a damaged world. Sealing the perimeter replaces it
-  // with bedrock, which would be destructive to run on a healthy world that
-  // deliberately has open edges — hence the early return above.
-  const seal = sealBedrockBorders(e);
-  step(`Verified bedrock perimeter boundary enclosure (${seal.borderCellsSet} cells updated).`);
+  // Note: the perimeter is deliberately NOT sealed here. See `sealBedrockBorders` —
+  // it replaces whatever is around the edge with bedrock, and most of the built-in
+  // scenes leave the top and upper sides open on purpose. Running it as part of an
+  // automatic pass destroyed the shape of any such scene, in response to faults that
+  // had nothing to do with the world's edges. It remains available as a manual action.
 
   const realloc = reallocateBuffers(e);
   if (realloc.success) {
@@ -308,7 +381,15 @@ export function runAutoFix(e: PowderCtx): { logs: string[] } {
 
   steps.forEach((message, i) => logs.push(`✓ Auto-Fix Step ${i + 1}/${steps.length}: ${message}`));
 
+  // Says what is actually left, rather than dressing a failure up as a success. The
+  // old message printed "RECOVERY COMPLETED" whenever the world was still broken,
+  // which is the one case where the detail matters.
   const postDiag = getDiagnostics(e);
-  logs.push(`Auto-Fix Sequence Completed. System health status: ${postDiag.isHealthy ? "100% OPERATIONAL" : "RECOVERY COMPLETED"}.`);
+  if (postDiag.isHealthy) {
+    logs.push("Auto-Fix complete. System health: 100% OPERATIONAL.");
+  } else {
+    logs.push(`Auto-Fix complete, but ${postDiag.issues.length} issue(s) could not be repaired:`);
+    for (const issue of postDiag.issues) logs.push(`  • ${issue}`);
+  }
   return { logs };
 }

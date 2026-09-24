@@ -28,6 +28,7 @@ import { stepParticles, stepFlock, stepSwarm, stepSprings, spawnEmitter } from "
 import {
   getDiagnostics,
   purgeNaNParticles,
+  repairSwarm,
   clampVelocities,
   recentreOutOfBounds,
   reallocateBuffers,
@@ -713,6 +714,11 @@ export class ParticleEngine implements ParticleCtx {
   // --- Manual Fix Actions ---
   public purgeNaNParticles() {
     return purgeNaNParticles(this);
+  }
+
+  /** Repair corrupt swarm entries. See `repairSwarm`. */
+  public repairSwarm() {
+    return repairSwarm(this);
   }
 
   public clampVelocities() {

@@ -7,6 +7,10 @@ export function getDiagnostics(e: ParticleCtx) {
   let outOfBoundsCount = 0;
   let extremeVelocityCount = 0;
   let maxSpeedFound = 0;
+  // Accumulated in the main pass rather than in a second walk of the same array.
+  // Counting trail points used to be a separate loop over every particle, which on a
+  // large field is a second million-element traversal for one addition per element.
+  let trailPoints = 0;
 
   // The threshold is the world's own speed limit, not a hardcoded 100. With the two
   // out of step, particles well past the limit were reported "healthy" while the
@@ -17,6 +21,7 @@ export function getDiagnostics(e: ParticleCtx) {
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
+    if (p.trail) trailPoints += p.trail.length;
     // `isFinite`, not `!isNaN`: an infinite coordinate or velocity is just as corrupt
     // and used to pass straight through as healthy.
     if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy)) {
@@ -51,6 +56,10 @@ export function getDiagnostics(e: ParticleCtx) {
     }
     const speed = Math.sqrt(swarmV[i2] * swarmV[i2] + swarmV[i2 + 1] * swarmV[i2 + 1]);
     if (speed > maxSpeedFound) maxSpeedFound = speed;
+    // Counted, like the object particles. The swarm only fed the headline top speed, so
+    // the report could show a top speed of 900 beside a count of zero particles over
+    // the limit — and an escaped swarm was invisible to the automatic pass.
+    if (speed > speedLimit) extremeVelocityCount++;
   }
   nanCount += swarmCorruptCount;
 
@@ -58,15 +67,6 @@ export function getDiagnostics(e: ParticleCtx) {
   if (nanCount > 0) issues.push(`Detected ${nanCount} particles with corrupt coordinates or velocities`);
   if (outOfBoundsCount > 0) issues.push(`Detected ${outOfBoundsCount} particles drifted outside viewport boundary`);
   if (extremeVelocityCount > 0) issues.push(`Detected ${extremeVelocityCount} particles exceeding the ${Math.round(speedLimit)} speed limit`);
-
-  // Trails are counted. A particle carrying a six-point trail is several more heap
-  // objects than the flat 128 bytes this used to assume, which put the estimate out
-  // by an order of magnitude with trails enabled.
-  let trailPoints = 0;
-  for (let i = 0; i < e.particles.length; i++) {
-    const p = e.particles[i];
-    if (p && p.trail) trailPoints += p.trail.length;
-  }
 
   const approxMemoryBytes =
     e.particles.length * 128 +
@@ -80,6 +80,15 @@ export function getDiagnostics(e: ParticleCtx) {
     particleCount: e.particles.length + e.swarm.n,
     maxParticles: e.maxParticles,
     nanCount,
+    /**
+     * How much of `nanCount` belongs to the swarm.
+     *
+     * Reported separately because the two halves need different repairs: the object
+     * particles are removed, the swarm's entries are reset in place. Without this the
+     * automatic pass could only reach the object half, so it announced "purged 0" for a
+     * corrupt swarm and left the issue on the list permanently.
+     */
+    swarmCorruptCount,
     outOfBoundsCount,
     extremeVelocityCount,
     maxSpeedFound: Math.round(maxSpeedFound),
@@ -103,6 +112,13 @@ export function purgeNaNParticles(e: ParticleCtx): { success: boolean; purged: n
 
 export function clampVelocities(e: ParticleCtx): { success: boolean; clamped: number } {
   let clamped = 0;
+  // The same reading of the limit the inspection uses: a limit of zero or less means
+  // "no limit", not "freeze everything". Taken literally — and `maxSpeed` is a plain
+  // field, so anything can put a zero there — every particle in the world was
+  // multiplied by a factor of zero and stopped dead, while the inspection that
+  // triggered the repair had treated the same value as no limit at all and reported
+  // nothing wrong.
+  const limit = e.maxSpeed > 0 ? e.maxSpeed : Infinity;
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
@@ -117,14 +133,58 @@ export function clampVelocities(e: ParticleCtx): { success: boolean; clamped: nu
       continue;
     }
     const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-    if (speed > e.maxSpeed && speed > 0) {
-      const factor = e.maxSpeed / speed;
+    if (speed > limit && speed > 0) {
+      const factor = limit / speed;
       p.vx *= factor;
       p.vy *= factor;
       clamped++;
     }
   }
   return { success: true, clamped };
+}
+
+/**
+ * Zeroes any swarm position or velocity that is not a real number.
+ *
+ * The swarm had no repair at all. Its corruption was counted into the headline figure,
+ * so the report said "17 corrupt particles", the purge said it had removed none — it
+ * only ever touched the object list — and the issue stayed on the list forever with no
+ * way to clear it.
+ *
+ * Corrupt entries are reset rather than removed: the swarm is a flat pair of buffers
+ * with no per-body identity, so removing one would mean compacting a million entries
+ * to no visible benefit.
+ */
+export function repairSwarm(e: ParticleCtx): { success: boolean; repaired: number } {
+  let repaired = 0;
+  const xy = e.swarm.xy;
+  const v = e.swarm.v;
+  const limit = e.maxSpeed > 0 ? e.maxSpeed : Infinity;
+  for (let i = 0; i < e.swarm.n; i++) {
+    const i2 = i * 2;
+    let touched = false;
+    if (!Number.isFinite(xy[i2]) || !Number.isFinite(xy[i2 + 1])) {
+      // Back to the middle of the world, which is the only position guaranteed valid.
+      xy[i2] = e.width / 2;
+      xy[i2 + 1] = e.height / 2;
+      touched = true;
+    }
+    if (!Number.isFinite(v[i2]) || !Number.isFinite(v[i2 + 1])) {
+      v[i2] = 0;
+      v[i2 + 1] = 0;
+      touched = true;
+    } else if (Number.isFinite(limit)) {
+      const speed = Math.sqrt(v[i2] * v[i2] + v[i2 + 1] * v[i2 + 1]);
+      if (speed > limit && speed > 0) {
+        const factor = limit / speed;
+        v[i2] *= factor;
+        v[i2 + 1] *= factor;
+        touched = true;
+      }
+    }
+    if (touched) repaired++;
+  }
+  return { success: true, repaired };
 }
 
 /**
@@ -141,7 +201,11 @@ export function recentreOutOfBounds(e: ParticleCtx): { success: boolean; trimmed
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
     if (!p) continue;
-    const rad = p.radius || e.particleSize;
+    // `!== undefined`, not a truthiness test. A radius of exactly zero is a legitimate
+    // value that `addParticle` goes out of its way to preserve, and a falsy test
+    // silently replaced it with the default size — quietly resizing a particle inside
+    // a repair that is only supposed to move it.
+    const rad = p.radius !== undefined && Number.isFinite(p.radius) ? p.radius : e.particleSize;
     const minX = Math.min(rad, e.width / 2);
     const maxX = Math.max(minX, e.width - rad);
     const minY = Math.min(rad, e.height / 2);
@@ -211,12 +275,25 @@ export function resetCharges(e: ParticleCtx): { success: boolean; balancedCount:
     if (p.type === "blackhole" || p.type === "repulsor") continue;
     charged.push(i);
   }
-  // Drop the odd one out so the result really is balanced.
-  const balancedCount = charged.length - (charged.length % 2);
-  for (let k = 0; k < balancedCount; k++) {
-    e.particles[charged[k]].charge = k % 2 === 0 ? 1 : -1;
+  // Alternating plus and minus over an even number of particles, and the odd one out —
+  // if there is one — made neutral so the total really does come to zero.
+  //
+  // It used to be skipped entirely, which left it carrying whatever it had before,
+  // possibly a charge of five. The function reported a balanced field and had not
+  // produced one.
+  const paired = charged.length - (charged.length % 2);
+  for (let k = 0; k < paired; k++) {
+    const p = e.particles[charged[k]];
+    // Re-checked rather than assumed. Nothing mutates the list between the two loops
+    // today, but the indices were captured earlier and a stale one would otherwise be
+    // dereferenced blindly.
+    if (p) p.charge = k % 2 === 0 ? 1 : -1;
   }
-  return { success: true, balancedCount };
+  if (paired !== charged.length) {
+    const odd = e.particles[charged[charged.length - 1]];
+    if (odd) odd.charge = 0;
+  }
+  return { success: true, balancedCount: charged.length };
 }
 
 // --- Stress Test Injectors (for testing debug diagnostics) ---
@@ -278,9 +355,19 @@ export function runAutoFix(e: ParticleCtx): { logs: string[] } {
     steps.push(`Clamped velocities for ${res.clamped} hyper-fast particles.`);
   }
 
-  if (getDiagnostics(e).nanCount > 0) {
+  const beforePurge = getDiagnostics(e);
+  // The object half and the swarm half are counted together but repaired differently,
+  // so each is checked against its own figure. Purging only ever touched the object
+  // list, so a corrupt swarm produced "Purged 0 corrupt particles" and an issue that
+  // could never be cleared.
+  if (beforePurge.nanCount - beforePurge.swarmCorruptCount > 0) {
     const res = purgeNaNParticles(e);
     steps.push(`Purged ${res.purged} corrupt particles.`);
+  }
+
+  if (getDiagnostics(e).swarmCorruptCount > 0) {
+    const res = repairSwarm(e);
+    steps.push(`Repaired ${res.repaired} corrupt swarm particles.`);
   }
 
   if (getDiagnostics(e).outOfBoundsCount > 0) {

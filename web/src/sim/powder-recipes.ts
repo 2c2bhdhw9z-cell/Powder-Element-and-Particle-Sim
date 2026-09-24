@@ -253,7 +253,16 @@ export function seedKiln(e: PowderEngine) {
   fillRect(e, x0 + 2, y0 + 2, x0 + 4, y0 + 5, 4, 700);
 }
 
-export function seedRemix(e: PowderEngine) {
+/**
+ * A source of random numbers in `[0, 1)`.
+ *
+ * Recipes take one so that a caller who needs the result to be reproducible can supply
+ * a seeded generator. Only Remix actually consults it; the other twelve are laid out
+ * entirely from the world's dimensions and are identical every time.
+ */
+export type RandomSource = () => number;
+
+export function seedRemix(e: PowderEngine, random: RandomSource = Math.random) {
   const pack = [
     seedVolcano,
     seedAntFarm,
@@ -268,18 +277,22 @@ export function seedRemix(e: PowderEngine) {
     seedForest,
     seedKiln,
   ];
-  pack[Math.floor(Math.random() * pack.length)](e);
+  pack[Math.floor(random() * pack.length)](e);
   const w = e.width;
   const h = e.height;
+  const ids = [1, 2, 6, 9, 11, 13, 47, 49];
   for (let i = 0; i < 40; i++) {
-    const x = 4 + Math.floor(Math.random() * (w - 8));
-    const y = Math.floor(h * 0.3) + Math.floor(Math.random() * (h * 0.5));
-    const ids = [1, 2, 6, 9, 11, 13, 47, 49];
-    put(e, x, y, ids[Math.floor(Math.random() * ids.length)]);
+    const x = 4 + Math.floor(random() * (w - 8));
+    const y = Math.floor(h * 0.3) + Math.floor(random() * (h * 0.5));
+    put(e, x, y, ids[Math.floor(random() * ids.length)]);
   }
 }
 
-export const POWDER_RECIPES: { id: string; name: string; run: (e: PowderEngine) => void }[] = [
+export const POWDER_RECIPES: {
+  id: string;
+  name: string;
+  run: (e: PowderEngine, random?: RandomSource) => void;
+}[] = [
   { id: "volcano", name: "Volcano", run: seedVolcano },
   { id: "ants", name: "Ant farm", run: seedAntFarm },
   { id: "oil", name: "Oil fire", run: seedOilFire },

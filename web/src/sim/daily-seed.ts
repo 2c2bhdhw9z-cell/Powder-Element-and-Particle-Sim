@@ -31,10 +31,32 @@ export function dailyParticleName(): string {
   return PARTICLE_PRESETS[(h >>> 8) % PARTICLE_PRESETS.length];
 }
 
+/**
+ * A generator seeded from a number, so a given day always produces a given world.
+ *
+ * mulberry32 — small, fast, and the same generator the simulation uses elsewhere.
+ */
+function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function applyDailyPowder(engine: PowderEngine) {
   const h = dailyHash();
   const recipe = POWDER_RECIPES[h % POWDER_RECIPES.length];
-  recipe?.run(engine);
+  // Handed a generator seeded from the day itself.
+  //
+  // One of the thirteen recipes is Remix, which scatters elements at random. It used to
+  // read the global random source, so on roughly one day in thirteen the "daily" world
+  // — the whole point of which is that everyone gets the same one — was different for
+  // every player, while the interface still announced it by name.
+  recipe?.run(engine, seededRandom(h));
   return { day: utcDay(), name: recipe?.name ?? "Today", hash: h };
 }
 
