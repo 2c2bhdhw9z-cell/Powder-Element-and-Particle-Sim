@@ -36,6 +36,14 @@ public struct ElementPhysics: Sendable, Hashable {
     /// Whether sparks travel through it.
     public var isConductor: Bool
 
+    /// Whether this element has any declarative reaction rules.
+    ///
+    /// The rules themselves are not stored here — an array would put a reference
+    /// back into a struct whose whole purpose is to avoid them. This flag lets the
+    /// chemistry skip the lookup entirely for the forty-seven built-in elements
+    /// that have no rules, and pay for it only for the three that do.
+    public var hasInteractions: Bool
+
     /// Whether the element's name mentions "Laser".
     ///
     /// The web implementation tests `def.name.includes("Laser")` inside both the
@@ -96,6 +104,7 @@ public struct ElementPhysics: Sendable, Hashable {
         self.id = definition.id
         self.state = definition.state
         self.isConductor = definition.isConductor
+        self.hasInteractions = !definition.interactions.isEmpty
         self.nameMentionsLaser = definition.name.contains("Laser")
         self.isDefined = isDefined
         self.decayIntoID = definition.decayIntoID
@@ -131,6 +140,10 @@ public struct ElementTable: Sendable, Hashable {
     /// One record per identifier, from zero through the last custom slot.
     public let records: [ElementPhysics]
 
+    /// Declarative reaction rules per identifier, kept out of ``ElementPhysics`` so
+    /// that struct stays free of references. Almost every entry is empty.
+    public let interactionRules: [[InteractionRule]]
+
     /// Builds a table from a set of definitions. Identifiers with no definition
     /// are filled with air's properties and marked undefined.
     public init(definitions: [ElementDefinition]) {
@@ -140,10 +153,20 @@ public struct ElementTable: Sendable, Hashable {
         let filler = ElementPhysics(airDefinition, isDefined: false)
 
         var records = [ElementPhysics](repeating: filler, count: Element.capacity)
+        var rules = [[InteractionRule]](repeating: [], count: Element.capacity)
         for definition in definitions where Int(definition.id) < Element.capacity {
             records[Int(definition.id)] = ElementPhysics(definition)
+            rules[Int(definition.id)] = definition.interactions
         }
         self.records = records
+        self.interactionRules = rules
+    }
+
+    /// The declarative rules for an element, or none for an unknown identifier.
+    @inlinable
+    public func interactions(for id: ElementID) -> [InteractionRule] {
+        let index = Int(id)
+        return index < interactionRules.count ? interactionRules[index] : []
     }
 
     /// The properties of an element.

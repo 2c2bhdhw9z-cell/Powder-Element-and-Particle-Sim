@@ -63,9 +63,12 @@ public final class PowderEngine {
     /// Vertical momentum.
     public private(set) var velocityY: UnsafeMutablePointer<Int8>
     /// Pressure field.
-    public private(set) var pressure: UnsafeMutablePointer<Float>
+    ///
+    /// Settable within the module only, because the relaxation pass exchanges this
+    /// with ``pressureNext`` rather than copying. See ``swapPressureBuffers()``.
+    public internal(set) var pressure: UnsafeMutablePointer<Float>
     /// Scratch buffer the pressure relaxation writes into before swapping.
-    public private(set) var pressureNext: UnsafeMutablePointer<Float>
+    public internal(set) var pressureNext: UnsafeMutablePointer<Float>
 
     // MARK: - Elements
 
@@ -387,6 +390,18 @@ public final class PowderEngine {
         windX = max(-5, min(5, value))
     }
 
+    /// Makes the pressure scratch buffer the live one and vice versa.
+    ///
+    /// The pressure relaxation pass writes its results into the scratch buffer so
+    /// that every cell sees the same generation of input rather than a mixture of
+    /// old and new. Exchanging the two afterwards is free, where copying would
+    /// cost a pass over the whole grid.
+    func swapPressureBuffers() {
+        let previous = pressure
+        pressure = pressureNext
+        pressureNext = previous
+    }
+
     /// Adds shake energy, keeping whichever is larger so a gentle jolt cannot
     /// cancel a violent one already in progress.
     public func jostle(_ amount: Double) {
@@ -416,31 +431,66 @@ public final class PowderEngine {
 
     /// Advances the world one tick.
     ///
-    /// The order here is not arbitrary and is preserved from the web
-    /// implementation exactly, because every stage sees the results of the ones
-    /// before it:
+    /// The order is preserved from the web implementation exactly, because every
+    /// stage sees the results of the ones before it:
     ///
     /// 1. Clear the visited marks.
-    /// 2. Move cells, bottom row upward when gravity points down, alternating
-    ///    left-to-right and right-to-left on each row.
+    /// 2. Spread heat, and move it along copper — on alternate ticks.
+    /// 3. Blow gases sideways — every third tick.
+    /// 4. Rebuild the pressure field — on alternate ticks.
+    /// 5. Apply any shake energy, then let it decay.
+    /// 6. Find the portals, before anything has moved.
+    /// 7. Walk every cell: decay, then phase change, then chemistry, then movement.
     ///
-    /// The vertical direction matters because a falling grain must be moved
-    /// before the grain above it, or a whole column collapses in a single tick
-    /// instead of falling at a sane speed. The horizontal alternation matters
-    /// because scanning one way every time makes piles lean — whichever side is
-    /// scanned first gets first refusal on the empty space below.
+    /// Several stages deliberately run less often than every tick. That is not a
+    /// shortcut bolted on for speed — the rates are part of the tuning. Heat
+    /// diffusing on every tick would even out temperatures faster than material can
+    /// move through them, and the thresholds the chemistry depends on would be
+    /// reached at the wrong moments.
     ///
-    /// Heat, wind, pressure, shake, chemistry and phase changes are additional
-    /// stages that sit inside this sequence; they are ported in the commit that
-    /// follows this one. Elements whose behavior is purely mechanical — sand,
-    /// bedrock and the other inert solids — are already fully simulated, which is
-    /// what the accompanying tests cover.
+    /// Within the cell walk, the vertical direction matters because a falling grain
+    /// must be moved before the grain above it, or a whole column collapses in a
+    /// single tick instead of falling at a sane speed. The horizontal alternation
+    /// matters because scanning one way every time makes piles lean — whichever side
+    /// is scanned first gets first refusal on the empty space below.
     public func step() {
         frameCount += 1
         elements = registry.table
 
         guard cellCount > 0 else { return }
         visited.update(repeating: 0, count: cellCount)
+
+        if heatConductionEnabled && frameCount % 2 == 0 {
+            diffuseHeat()
+            pipeHeat()
+        }
+
+        if windX != 0 && frameCount % 3 == 0 {
+            applyWindDrift()
+        }
+
+        if pressureEnabled && frameCount % 2 == 0 {
+            updatePressure()
+        }
+
+        if jostleLeft > 0 {
+            applyJostle()
+            // Decays fast, so a shake is a jolt rather than a sustained rumble.
+            jostleLeft *= 0.72
+            if jostleLeft < 0.15 { jostleLeft = 0 }
+        }
+
+        // Portals are located before anything moves, so a pair sees a consistent
+        // snapshot of the world. Gathering them lazily would let a portal that has
+        // already been stepped over teleport into a cell that no longer exists.
+        var portalsB: [(Int, Int)] = []
+        for y in 0 ..< height {
+            for x in 0 ..< width {
+                if type[index(x, y)] == Element.portalB {
+                    portalsB.append((x, y))
+                }
+            }
+        }
 
         // Bottom-up under normal gravity; top-down when it is inverted.
         let scanBottomUp = gravityY >= 0
@@ -482,6 +532,18 @@ public final class PowderEngine {
                         x += stepX
                         continue
                     }
+                }
+
+                // A cell that changed phase or was consumed by a reaction does not
+                // also move this tick.
+                if updatePhase(x: x, y: y, idx: idx, cellType: cellType) {
+                    x += stepX
+                    continue
+                }
+
+                if updateReactions(x: x, y: y, idx: idx, definition: definition, portalsB: portalsB) {
+                    x += stepX
+                    continue
                 }
 
                 updateMovement(x: x, y: y, idx: idx, definition: definition)

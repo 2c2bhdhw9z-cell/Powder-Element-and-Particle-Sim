@@ -27,6 +27,14 @@ import Testing
 /// nothing test-only has to be added to the engine.
 @Suite("Powder engine matches the web engine tick for tick")
 struct PowderGoldenTests {
+    struct PaintedCell: Decodable {
+        var x: Int
+        var y: Int
+        var id: Int
+        var temp: Double?
+        var life: Int?
+    }
+
     struct Scenario: Decodable {
         var name: String
         var why: String
@@ -34,10 +42,16 @@ struct PowderGoldenTests {
         var height: Int
         var gravityX: Double
         var gravityY: Double
+        var windX: Double
+        var ambientTemp: Double
+        var pressureEnabled: Bool
+        var heatConductionEnabled: Bool
+        var jostle: Double
         var steps: Int
         var seed: UInt32
-        var setup: [[Int]]
+        var setup: [PaintedCell]
         var typeRows: [String]
+        var temperatureRows: [String]
         var velocityNonZero: [[Int]]
         var activeCount: Int
         var hashLite: Int32
@@ -65,6 +79,10 @@ struct PowderGoldenTests {
     }()
 
     /// Runs one scenario on the native engine, set up exactly as the web side was.
+    ///
+    /// The world parameters are applied before painting and the shake after it,
+    /// matching the order the fixture generator uses — the shake has to come last
+    /// because it acts on cells that must already exist.
     private func play(_ scenario: Scenario) -> PowderEngine {
         let engine = PowderEngine(
             width: scenario.width,
@@ -73,8 +91,16 @@ struct PowderGoldenTests {
         )
         engine.gravityX = scenario.gravityX
         engine.gravityY = scenario.gravityY
+        engine.windX = scenario.windX
+        engine.ambientTemp = scenario.ambientTemp
+        engine.pressureEnabled = scenario.pressureEnabled
+        engine.heatConductionEnabled = scenario.heatConductionEnabled
+
         for cell in scenario.setup {
-            engine.setElement(cell[0], cell[1], ElementID(cell[2]))
+            engine.setElement(cell.x, cell.y, ElementID(cell.id), temp: cell.temp, life: cell.life)
+        }
+        if scenario.jostle > 0 {
+            engine.jostle(scenario.jostle)
         }
         for _ in 0 ..< scenario.steps {
             engine.step()
@@ -102,9 +128,34 @@ struct PowderGoldenTests {
         }
     }
 
+    /// Temperatures formatted to two decimals, matching how the fixture records
+    /// them. Formatted by hand because the grid holds single-precision floats and
+    /// their full expansion is noise.
+    private func temperatureRows(of engine: PowderEngine) -> [String] {
+        (0 ..< engine.height).map { y in
+            (0 ..< engine.width)
+                .map { x in twoDecimals(engine.temperature[engine.index(x, y)].asDouble) }
+                .joined(separator: ",")
+        }
+    }
+
+    /// Mirrors JavaScript's `toFixed(2)`, including how it renders negative zero.
+    private func twoDecimals(_ value: Double) -> String {
+        guard value.isFinite else { return value.isNaN ? "NaN" : (value > 0 ? "Infinity" : "-Infinity") }
+        let scaled = (value * 100).rounded()
+        // `toFixed` prints "-0.00" for a small negative, so the sign is taken from
+        // the original value rather than from the rounded result.
+        let negative = scaled < 0 || (scaled == 0 && value < 0)
+        let magnitude = Int(abs(scaled))
+        let whole = magnitude / 100
+        let fraction = magnitude % 100
+        let fractionText = fraction < 10 ? "0\(fraction)" : "\(fraction)"
+        return "\(negative ? "-" : "")\(whole).\(fractionText)"
+    }
+
     @Test("The fixture loaded and covers every scenario")
     func fixtureLoads() {
-        #expect(Self.fixture.scenarios.count == 8)
+        #expect(Self.fixture.scenarios.count == 31)
         for scenario in Self.fixture.scenarios {
             #expect(scenario.typeRows.count == scenario.height)
             #expect(!scenario.setup.isEmpty, "\(scenario.name) paints nothing")
@@ -128,6 +179,27 @@ struct PowderGoldenTests {
                 """
                 \(scenario.name): row \(y) differs.
                   why this scenario exists: \(scenario.why)
+                  native: \(produced[y])
+                  web:    \(expected)
+                """
+            )
+        }
+    }
+
+    @Test("Temperatures match the web engine", arguments: Self.fixture.scenarios)
+    func temperaturesMatch(scenario: Scenario) {
+        // Temperature drives the chemistry. A port could place every element
+        // correctly while running slightly hot or cold, and would then diverge at
+        // one of the hard thresholds — 700°C for lava setting, 100°C for water
+        // boiling, 1450°C for sand fusing.
+        let engine = play(scenario)
+        let produced = temperatureRows(of: engine)
+
+        for (y, expected) in scenario.temperatureRows.enumerated() where y < produced.count {
+            #expect(
+                produced[y] == expected,
+                """
+                \(scenario.name): temperature row \(y) differs.
                   native: \(produced[y])
                   web:    \(expected)
                 """

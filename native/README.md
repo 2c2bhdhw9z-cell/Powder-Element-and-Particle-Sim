@@ -25,8 +25,9 @@ native/
 ## The two-layer split, and why it matters
 
 **`Sources/CrucibleCore` imports no Apple frameworks.** Not Metal, not SwiftUI,
-not UIKit, not CoreMotion — not even Foundation. It is standard-library Swift and
-nothing else.
+not UIKit, not CoreMotion, not even Foundation. It is standard-library Swift plus
+the platform's C maths library, which is needed only because Swift's standard
+library has square roots but no powers or trigonometry.
 
 That constraint is load-bearing, for two reasons.
 
@@ -76,16 +77,49 @@ everything downstream diverges even though the logic looks equivalent.
 
 Beyond translating the test suite, whole worlds are run in both engines and
 compared cell by cell. `Tests/CrucibleCoreTests/Fixtures/web-powder-golden.json`
-holds eight scenarios produced by the web engine, and the native engine must
-reproduce every cell, every cell's momentum, the occupied-cell count, the world
-fingerprint, **and the exact number of random numbers consumed** — currently 11,
-292, 6348, 2679, 1824, 995, 182 and 33,658 draws respectively.
+holds **31 scenarios** produced by the web engine, and the native engine must
+reproduce, for every one of them:
+
+- every cell's element,
+- every cell's temperature,
+- every cell's momentum,
+- the occupied-cell count and the world fingerprint,
+- **and the exact number of random numbers consumed** — up to 141,431 draws in the
+  heaviest scenario.
 
 That last check is the one that catches subtle errors. Two implementations can
 produce an identical picture while consuming a different number of draws, which
 means they reach their decisions at different points in the stream and will
 disagree on some other world later. Matching both proves the ported logic takes
 the same branches in the same order.
+
+The scenarios deliberately include the cases most likely to expose a divergence:
+explosions and chain reactions (the heaviest users of randomness, with the most
+intricate draw order), lightning seeking water along a wire, and the two lava-and-
+water regression cases run for 400 and 700 ticks.
+
+### Quirks reproduced rather than corrected
+
+Comparing the two engines this closely surfaced behaviour in the original that
+looks unintended. It is reproduced faithfully, because a one-sided "fix" would
+break the cell-for-cell agreement that makes the whole verification meaningful.
+Recorded here so each can be decided on deliberately:
+
+- **Explosion embers can overwrite bedrock.** The blast wave itself has an explicit
+  bedrock exemption and honours it completely, but the ember phase that follows
+  does not check what it lands on. Bedrock is documented as indestructible.
+- **The crater core places C4 explosive.** The code comment says plasma, but the
+  identifier used is C4. So a large blast seeds unexploded charge at its centre,
+  which is part of how explosions currently chain.
+- **Explosion debris is thermite.** Another case where the comment says sparks and
+  the identifier says something else. This one at least produces plausible
+  behaviour — hot incendiary debris.
+- **A liquid at the grid edge sees a wrapped neighbour.** The cohesion rule computes
+  neighbour indices without bounds checking and then filters by range, so at the
+  left and right walls one index lands on the adjacent row. This affects how
+  liquids behave against the walls.
+- **A target element is ignored unless the brush shape is "replace".** Passing one
+  with a circle or square shape silently paints over everything.
 
 ### Where the JavaScript and Swift genuinely differ
 
@@ -133,18 +167,18 @@ Numbers come from `swift run -c release crucible-bench`, not from estimates. The
 were taken on the Linux development machine, **single-threaded**, with no
 multi-core work done yet — they are a floor and a regression baseline, not a
 prediction of phone performance. Each grid is 30% full of a mix of sand, water,
-stone and smoke.
+stone and smoke, with the full chemistry running.
 
 | Grid                              | Cells     | ms per tick | Ticks/sec |
 | --------------------------------- | --------- | ----------- | --------- |
-| 200 × 430 (web's "Fast" quality)  | 86,000    | 2.1         | 471       |
-| 420 × 910 (web's "Native" quality)| 382,200   | 9.2         | 109       |
-| 1206 × 2622 (one cell per pixel)  | 3,162,132 | 79.3        | 13        |
+| 200 × 430 (web's "Fast" quality)  | 86,000    | 3.5         | 285       |
+| 420 × 910 (web's "Native" quality)| 382,200   | 15.2        | 66        |
+| 1206 × 2622 (one cell per pixel)  | 3,162,132 | 129.4       | 8         |
 
 For context, the web version targets **30 frames per second** at roughly the first
 of those sizes. So the straight single-threaded rewrite already has a wide margin
-there, comfortably clears 60 at the middle size, and one-cell-per-pixel is the
-case that needs the planned multi-core work.
+there, clears 60 at the middle size, and one-cell-per-pixel is the case that needs
+the planned multi-core work.
 
 Cost tracks occupied cells, so a sparsely filled world is much cheaper than these
 figures suggest. The real targets get re-measured on the device once the app shell
