@@ -21,10 +21,21 @@ let package = Package(
     ],
     products: [
         .library(name: "CrucibleCore", targets: ["CrucibleCore"]),
+        .executable(name: "crucible-bench", targets: ["CrucibleBench"]),
     ],
     targets: [
         .target(
             name: "CrucibleCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        // Measures the simulation rather than guessing at it. Performance claims
+        // about this port should come from `swift run -c release crucible-bench`
+        // on real hardware, not from reasoning about what ought to be fast.
+        .executableTarget(
+            name: "CrucibleBench",
+            dependencies: ["CrucibleCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

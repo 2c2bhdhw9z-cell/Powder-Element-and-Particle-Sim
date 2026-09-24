@@ -29,3 +29,38 @@ printf '{"type":"module"}' > /tmp/extract/package.json
 `tsc` drops the type-only import automatically, so the emitted module runs under
 plain Node. Importing it is safe outside a browser: the registry's constructor
 checks for `window` before touching local storage.
+
+
+## `web-powder-golden.json`
+
+Eight powder scenarios run on the web engine, recording the resulting grid, the
+cells carrying momentum, the occupied-cell count, the world fingerprint, and —
+importantly — **how many random numbers the engine consumed**.
+
+The draw count matters as much as the grid. Two engines can produce the same
+picture while making their decisions at different points in the random stream; if
+so they agree here by luck and will disagree somewhere else. Matching both means
+the ported logic reaches the same branches in the same order.
+
+Every scenario uses **only sand and bedrock**, and that restriction is what makes
+the comparison meaningful. Neither element appears in any branch of
+`reactions.ts`, has any declarative interaction, or matches any case in
+`updatePhase`, and at ambient temperature heat diffusion has nothing to do. So
+movement is the only subsystem with any effect, and the only one drawing from the
+random stream. A scenario with water in it would consume draws in the water-spread
+reaction, and the two streams would drift apart for reasons that say nothing about
+whether the port is correct.
+
+The generator lives at `web/src/sim/__tests__/golden-powder.spec.ts` and works in
+both directions:
+
+```bash
+cd web
+CRUCIBLE_WRITE_GOLDEN=1 npx vitest run golden-powder   # regenerate the fixture
+npx vitest run golden-powder                           # assert the web engine still matches it
+```
+
+Run without the variable it guards the *web* engine against drifting unnoticed.
+So if a deliberate physics change is made on the web side, that test fails first,
+the fixture gets regenerated, and the native suite then shows the same diff
+instead of silently disagreeing.

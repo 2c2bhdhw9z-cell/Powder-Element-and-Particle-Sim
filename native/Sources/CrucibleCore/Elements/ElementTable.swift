@@ -24,10 +24,29 @@
 /// false, so `temperature >= ignitionTemp` naturally answers "no" for an element
 /// that never self-ignites, with no check needed.
 public struct ElementPhysics: Sendable, Hashable {
+    /// Which element this describes.
+    ///
+    /// Needed by the physics itself, not just for bookkeeping: the liquid
+    /// cohesion rule counts how many of a cell's neighbours are the *same*
+    /// element, which requires comparing identifiers.
+    public var id: ElementID
+
     /// Bulk behavior, which selects the movement rules.
     public var state: ElementState
     /// Whether sparks travel through it.
     public var isConductor: Bool
+
+    /// Whether the element's name mentions "Laser".
+    ///
+    /// The web implementation tests `def.name.includes("Laser")` inside both the
+    /// movement and reaction hot paths, so that a user-authored element called
+    /// something like "Laser Mk II" behaves like a beam. Evaluating that per cell
+    /// per frame would mean string scanning in the inner loop, so the answer is
+    /// computed once here. Kept as the raw fact rather than folded into a
+    /// combined "is a beam" flag, because the two call sites pair it with
+    /// different additional conditions and both need to stay readable against the
+    /// original.
+    public var nameMentionsLaser: Bool
     /// Whether an element is actually registered at this identifier. Unregistered
     /// slots hold air's properties so the simulation stays well-behaved if a
     /// corrupt scene names an element that does not exist.
@@ -74,8 +93,10 @@ public struct ElementPhysics: Sendable, Hashable {
 
     /// Builds the packed form from an authoring definition.
     public init(_ definition: ElementDefinition, isDefined: Bool = true) {
+        self.id = definition.id
         self.state = definition.state
         self.isConductor = definition.isConductor
+        self.nameMentionsLaser = definition.name.contains("Laser")
         self.isDefined = isDefined
         self.decayIntoID = definition.decayIntoID
         self.decayTicks = Int32(clamping: definition.decayTicks)

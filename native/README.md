@@ -10,11 +10,14 @@ here is verified against. Nothing from it ships.
 
 ```
 native/
-  Package.swift              Swift package defining the CrucibleCore library
+  Package.swift              Swift package: the CrucibleCore library and the benchmark
   Sources/CrucibleCore/      The simulation engine. Platform-independent.
-    Support/                 Random generator, color packing
-    Elements/                Element model and registry
-  Tests/CrucibleCoreTests/   The behavioral oracle, translated from the web suite
+    Support/                 Random generator, colour packing, JavaScript numeric semantics
+    Elements/                Element model, the 50 built-ins, registry, packed physics table
+    Powder/                  The cellular-automata grid: state, tick order, movement
+  Sources/CrucibleBench/     Performance measurement (`swift run -c release crucible-bench`)
+  Tests/CrucibleCoreTests/   The behavioural oracle, translated from the web suite
+    Fixtures/                Data and golden output extracted from the web engine
   App/                       iOS app: Metal renderer, SwiftUI shell, shaders
   project.yml                Recipe the Xcode project is generated from
 ```
@@ -69,6 +72,37 @@ rather than rewriting the arithmetic. How many random draws a piece of code
 consumes, and in what order, is part of its observable behavior — change that and
 everything downstream diverges even though the logic looks equivalent.
 
+### Golden scenarios
+
+Beyond translating the test suite, whole worlds are run in both engines and
+compared cell by cell. `Tests/CrucibleCoreTests/Fixtures/web-powder-golden.json`
+holds eight scenarios produced by the web engine, and the native engine must
+reproduce every cell, every cell's momentum, the occupied-cell count, the world
+fingerprint, **and the exact number of random numbers consumed** — currently 11,
+292, 6348, 2679, 1824, 995, 182 and 33,658 draws respectively.
+
+That last check is the one that catches subtle errors. Two implementations can
+produce an identical picture while consuming a different number of draws, which
+means they reach their decisions at different points in the stream and will
+disagree on some other world later. Matching both proves the ported logic takes
+the same branches in the same order.
+
+### Where the JavaScript and Swift genuinely differ
+
+Three things do not translate directly, and each one is a silent behavior change
+rather than a compile error. They are handled in `Support/JSMath.swift`:
+
+- JavaScript rounds a half **upward**; Swift rounds a half **away from zero**. The
+  two disagree on every negative half, and the momentum code rounds negative
+  positions constantly.
+- Storing out-of-range numbers into JavaScript's narrow typed arrays **wraps**;
+  Swift's initialisers **trap**. The momentum code legitimately produces
+  out-of-range velocities.
+- The web grid keeps temperature and pressure as **32-bit floats**, so every store
+  rounds. The native grid does the same deliberately. Holding them at double
+  precision would let values drift, and the chemistry has hard thresholds — 700°C
+  decides whether lava becomes obsidian — so drift eventually flips real decisions.
+
 ## Performance approach
 
 The two chambers get different treatment, because they have different shapes.
@@ -93,7 +127,28 @@ translate into Metal Shading Language.
 **Both are drawn by Metal**, which is where the bulk of the rendering win is
 regardless of where the physics runs.
 
-Numbers will be measured and reported rather than assumed.
+### Measured so far
+
+Numbers come from `swift run -c release crucible-bench`, not from estimates. These
+were taken on the Linux development machine, **single-threaded**, with no
+multi-core work done yet — they are a floor and a regression baseline, not a
+prediction of phone performance. Each grid is 30% full of a mix of sand, water,
+stone and smoke.
+
+| Grid                              | Cells     | ms per tick | Ticks/sec |
+| --------------------------------- | --------- | ----------- | --------- |
+| 200 × 430 (web's "Fast" quality)  | 86,000    | 2.1         | 471       |
+| 420 × 910 (web's "Native" quality)| 382,200   | 9.2         | 109       |
+| 1206 × 2622 (one cell per pixel)  | 3,162,132 | 79.3        | 13        |
+
+For context, the web version targets **30 frames per second** at roughly the first
+of those sizes. So the straight single-threaded rewrite already has a wide margin
+there, comfortably clears 60 at the middle size, and one-cell-per-pixel is the
+case that needs the planned multi-core work.
+
+Cost tracks occupied cells, so a sparsely filled world is much cheaper than these
+figures suggest. The real targets get re-measured on the device once the app shell
+exists.
 
 ## Element property defaults
 
