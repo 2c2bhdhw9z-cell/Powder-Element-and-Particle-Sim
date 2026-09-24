@@ -17,6 +17,16 @@ export function getDiagnostics(e: ParticleCtx) {
   // repair action clamped them anyway, and at a high limit nothing in between was
   // reported at all.
   const speedLimit = e.maxSpeed > 0 ? e.maxSpeed : Infinity;
+  // Judged against the limit plus a hair.
+  //
+  // Bringing a particle down to the limit means scaling its two components by
+  // `limit / speed`, and the speed recomputed from the scaled components can land a
+  // fraction above the limit — the arithmetic cannot always represent "exactly at the
+  // limit". Compared strictly, such a particle is reported as over the limit on every
+  // inspection for ever: the automatic pass clamps it, re-inspects, still sees it, and
+  // finishes by announcing an issue it has just failed to fix. The physics applies the
+  // same clamp every frame, so this affects ordinary fast worlds, not only repaired ones.
+  const overLimit = Number.isFinite(speedLimit) ? speedLimit * (1 + 1e-9) : Infinity;
 
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];
@@ -32,7 +42,7 @@ export function getDiagnostics(e: ParticleCtx) {
       }
       const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
       if (speed > maxSpeedFound) maxSpeedFound = speed;
-      if (speed > speedLimit) extremeVelocityCount++;
+      if (speed > overLimit) extremeVelocityCount++;
     }
   }
 
@@ -59,7 +69,7 @@ export function getDiagnostics(e: ParticleCtx) {
     // Counted, like the object particles. The swarm only fed the headline top speed, so
     // the report could show a top speed of 900 beside a count of zero particles over
     // the limit — and an escaped swarm was invisible to the automatic pass.
-    if (speed > speedLimit) extremeVelocityCount++;
+    if (speed > overLimit) extremeVelocityCount++;
   }
   nanCount += swarmCorruptCount;
 
