@@ -49,8 +49,10 @@ export function triggerExplosion(
       e.gridTemp[idx] = Math.max(e.gridTemp[idx], tempPulse);
 
       if (dist2 < r2 * 0.25) {
-        // Hollow Crater Core: Vaporize matter into Plasma (15) or Fire (4) with ultra heat
-        e.setElementAt(x, y, Math.random() < 0.7 ? 15 : 4, Math.max(2800, tempPulse), 35);
+        // Hollow Crater Core: vaporize matter into Plasma (32) or Fire (4) with ultra heat.
+        // This used to place 15 (C4 Explosive) while claiming to place plasma, so every
+        // large blast seeded live charge at its own centre.
+        e.setElementAt(x, y, Math.random() < 0.7 ? 32 : 4, Math.max(2800, tempPulse), 35);
         e.gridVx[idx] = Math.round(vx * 1.5);
         e.gridVy[idx] = Math.round(vy * 1.5);
       } else if (dist2 < r2 * 0.85) {
@@ -67,13 +69,14 @@ export function triggerExplosion(
             // Ice -> Water/Steam
             e.setElementAt(x, y, Math.random() < 0.5 ? 2 : 14, 150);
           } else if (type === 12 || type === 1) {
-            // Glass / Sand -> Flying Sparks (26) or Lava (6)
+            // Glass / Sand -> molten Thermite (26) or Lava (6). 26 is Thermite, not
+            // Spark (16) as this comment used to claim.
             e.setElementAt(x, y, Math.random() < 0.6 ? 26 : 6, 1200, 25);
           } else if (type === 3) {
             // Wood -> Flying Embers / Fire (4) / Smoke (5)
             e.setElementAt(x, y, Math.random() < 0.7 ? 4 : 5, 1400, 40);
           } else {
-            // Solids break apart into flying fiery debris/embers
+            // Solids break apart into flying fiery debris/embers (26 is Thermite)
             if (Math.random() < 0.6) {
               e.setElementAt(x, y, Math.random() < 0.5 ? 4 : 26, 1100, 30);
             } else if (Math.random() < 0.4) {
@@ -87,11 +90,16 @@ export function triggerExplosion(
         e.gridVx[idx] = vx;
         e.gridVy[idx] = vy;
       } else {
-        // Outer Shockwave Wave: Impart violent outward velocity to ALL surrounding particles!
-        e.gridVx[idx] = Math.round(vx * 1.2);
-        e.gridVy[idx] = Math.round(vy * 1.2);
-
+        // Outer Shockwave Wave: impart violent outward velocity to surrounding matter.
+        //
+        // Only to cells that actually hold something. Velocity written into empty air
+        // is never damped, because `step()` skips empty cells — and `swapCells`
+        // exchanges velocity, so the next particle to drift into that cell inherited
+        // the stale shockwave and got launched seconds later for no visible reason.
         if (type !== EMPTY_ELEMENT_ID) {
+          e.gridVx[idx] = Math.round(vx * 1.2);
+          e.gridVy[idx] = Math.round(vy * 1.2);
+
           const def = e.registry.getElement(type);
           if (def.flammability && Math.random() < 0.6) {
             e.setElementAt(x, y, 4, 700, 30);
@@ -109,24 +117,30 @@ export function triggerExplosion(
     const ex = Math.round(centerX + Math.cos(angle) * (radius * 0.4));
     const ey = Math.round(centerY + Math.sin(angle) * (radius * 0.4));
 
-    if (e.isValid(ex, ey)) {
+    // Bedrock is blast-proof and that has to hold here too. The radial blast above
+    // skips it explicitly, but the ember phase used to overwrite it, so debris could
+    // punch holes in a wall the explosion itself could not touch.
+    if (e.isValid(ex, ey) && e.gridType[e.getIndex(ex, ey)] !== 29) {
       const eIdx = e.getIndex(ex, ey);
-      const emberType = Math.random() < 0.4 ? 26 : 4; // Spark or Fire
+      const emberType = Math.random() < 0.4 ? 26 : 4; // Thermite or Fire
       e.setElementAt(ex, ey, emberType, 1600, 40 + Math.floor(Math.random() * 30));
       e.gridVx[eIdx] = Math.round(Math.cos(angle) * speed);
       e.gridVy[eIdx] = Math.round(Math.sin(angle) * speed - 2); // Slight upward launch bias
     }
   }
 
-  // 3. Billowing Smoke Plume above the blast
+  // 3. Billowing Smoke Plume, rising against gravity.
+  // Previously hardcoded upward, so under inverted gravity the plume was emitted
+  // into the ground while everything else in the engine respected gravityY.
+  const up = -(Math.sign(e.gravityY) || 1);
   for (let s = 0; s < radius; s++) {
     const sx = Math.round(centerX + (Math.random() - 0.5) * radius * 1.2);
-    const sy = Math.round(centerY - (Math.random() * radius * 0.8));
+    const sy = Math.round(centerY + up * (Math.random() * radius * 0.8));
     if (e.isValid(sx, sy) && e.gridType[e.getIndex(sx, sy)] === EMPTY_ELEMENT_ID) {
       const sIdx = e.getIndex(sx, sy);
       e.setElementAt(sx, sy, 5, 250, 60 + Math.floor(Math.random() * 40)); // Smoke
       e.gridVx[sIdx] = Math.round((Math.random() - 0.5) * 6);
-      e.gridVy[sIdx] = -Math.round(4 + Math.random() * 6); // Upward rise
+      e.gridVy[sIdx] = Math.round(up * (4 + Math.random() * 6));
     }
   }
 

@@ -59,10 +59,15 @@ export class PowderHistory {
 
   /** Record the current state as an undo point (call BEFORE mutating). */
   push(e: PowderCtx) {
+    // Cleared FIRST. The original cleared it last, inside the same try — so if
+    // capturing threw (an allocation failure, which is exactly what the catch is
+    // there for) the redo stack survived, still holding snapshots taken before the
+    // mutation that was about to happen. A later redo would then apply a future that
+    // never existed.
+    this.redoStack = [];
     try {
       this.undoStack.push(this.capture(e));
       if (this.undoStack.length > this.maxSteps) this.undoStack.shift();
-      this.redoStack = [];
     } catch {
       /* never break a stroke over a snapshot failure */
     }
@@ -79,6 +84,7 @@ export class PowderHistory {
   undo(e: PowderCtx): boolean {
     if (this.undoStack.length === 0) return false;
     this.redoStack.push(this.capture(e));
+    if (this.redoStack.length > this.maxSteps) this.redoStack.shift();
     const prev = this.undoStack.pop()!;
     this.restore(e, prev);
     return true;
@@ -87,6 +93,9 @@ export class PowderHistory {
   redo(e: PowderCtx): boolean {
     if (this.redoStack.length === 0) return false;
     this.undoStack.push(this.capture(e));
+    // Trimmed here as well as in push(). Without it, repeated undo/redo cycling grew
+    // the undo stack past its own limit.
+    if (this.undoStack.length > this.maxSteps) this.undoStack.shift();
     const next = this.redoStack.pop()!;
     this.restore(e, next);
     return true;

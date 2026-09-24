@@ -73,18 +73,14 @@ extension PowderEngine {
                     temperature[idx] = JS.toFloat32(max(temperature[idx].asDouble, heatPulse))
 
                     if distanceSquared < radiusSquared * 0.25 {
-                        // Crater core: everything is vaporised.
+                        // Crater core: everything is vaporised into plasma or flame.
                         //
-                        // Note the element placed here. The original's comment calls
-                        // it plasma, but the identifier it uses is C4 explosive, not
-                        // plasma. That is reproduced rather than corrected: changing
-                        // it would alter how every explosion looks and behaves, and
-                        // a crater that seeds unexploded charge is a real part of
-                        // how blasts currently chain together. Worth revisiting
-                        // deliberately, not silently.
+                        // The original placed C4 explosive here while its comment
+                        // said plasma, so every large blast seeded live charge at its
+                        // own centre and explosions chained off their own debris.
                         setElement(
                             x, y,
-                            rng.chance(0.7) ? Element.c4 : Element.fire,
+                            rng.chance(0.7) ? Element.plasma : Element.fire,
                             temp: max(2800, heatPulse),
                             life: 35
                         )
@@ -103,10 +99,9 @@ extension PowderEngine {
                             case Element.ice:
                                 setElement(x, y, rng.chance(0.5) ? Element.water : Element.steam, temp: 150)
                             case Element.glass, Element.sand:
-                                // Thermite here, again following the original's
-                                // identifier rather than its comment, which calls it
-                                // sparks. Hot incendiary debris is a reasonable
-                                // outcome, so this one is at least plausible.
+                                // Molten thermite or lava. The original's comment
+                                // called 26 "sparks"; 26 is thermite, and hot
+                                // incendiary debris is what was intended here.
                                 setElement(x, y, rng.chance(0.6) ? Element.thermite : Element.lava, temp: 1200, life: 25)
                             case Element.wood:
                                 setElement(x, y, rng.chance(0.7) ? Element.fire : Element.smoke, temp: 1400, life: 40)
@@ -131,12 +126,19 @@ extension PowderEngine {
                         velocityX[idx] = JS.toInt8(velocityXValue)
                         velocityY[idx] = JS.toInt8(velocityYValue)
                     } else {
-                        // Outer shockwave: everything gets thrown, and anything
-                        // flammable probably catches.
-                        velocityX[idx] = JS.toInt8(JS.round(velocityXValue * 1.2))
-                        velocityY[idx] = JS.toInt8(JS.round(velocityYValue * 1.2))
-
+                        // Outer shockwave: matter gets thrown, and anything flammable
+                        // probably catches.
+                        //
+                        // Velocity is written only to cells that hold something. The
+                        // original wrote it to empty air as well, where nothing ever
+                        // damps it — the tick loop skips empty cells — and since
+                        // swapping exchanges velocity, the next particle to drift
+                        // into that cell inherited the stale shockwave and got
+                        // launched long afterwards for no visible reason.
                         if cellType != Element.empty {
+                            velocityX[idx] = JS.toInt8(JS.round(velocityXValue * 1.2))
+                            velocityY[idx] = JS.toInt8(JS.round(velocityYValue * 1.2))
+
                             if elements[cellType].flammability > 0 && rng.chance(0.6) {
                                 setElement(x, y, Element.fire, temp: 700, life: 30)
                             }
@@ -156,7 +158,11 @@ extension PowderEngine {
             let emberX = Int(JS.round(Double(centerX) + jsCos(angle) * (Double(radius) * 0.4)))
             let emberY = Int(JS.round(Double(centerY) + jsSin(angle) * (Double(radius) * 0.4)))
 
-            guard isValid(emberX, emberY) else { continue }
+            // Bedrock is blast-proof, and that has to hold here too. The radial blast
+            // above skips it explicitly, but the ember phase used to overwrite it, so
+            // flying debris could punch holes in a wall the explosion itself could
+            // not touch.
+            guard isValid(emberX, emberY), typeAt(emberX, emberY) != Element.bedrock else { continue }
             let emberIdx = index(emberX, emberY)
             let emberType = rng.chance(0.4) ? Element.thermite : Element.fire
             setElement(emberX, emberY, emberType, temp: 1600, life: 40 + rng.int(below: 30))
@@ -165,17 +171,21 @@ extension PowderEngine {
             velocityY[emberIdx] = JS.toInt8(JS.round(jsSin(angle) * speed - 2))
         }
 
-        // Zone 3: a smoke plume above the blast.
+        // Zone 3: a smoke plume, rising against gravity.
+        //
+        // The original hardcoded "up", so under inverted gravity it emitted the plume
+        // into the ground while every other part of the engine respected gravity.
+        let up = Double(-JS.signOrFallback(gravityY, fallback: 1))
         for _ in 0 ..< max(0, radius) {
             let smokeX = Int(JS.round(Double(centerX) + (rng.next() - 0.5) * Double(radius) * 1.2))
-            let smokeY = Int(JS.round(Double(centerY) - rng.next() * Double(radius) * 0.8))
+            let smokeY = Int(JS.round(Double(centerY) + up * (rng.next() * Double(radius) * 0.8)))
             guard isValid(smokeX, smokeY) else { continue }
             let smokeIdx = index(smokeX, smokeY)
             guard type[smokeIdx] == Element.empty else { continue }
 
             setElement(smokeX, smokeY, Element.smoke, temp: 250, life: 60 + rng.int(below: 40))
             velocityX[smokeIdx] = JS.toInt8(JS.round((rng.next() - 0.5) * 6))
-            velocityY[smokeIdx] = JS.toInt8(-JS.round(4 + rng.next() * 6))
+            velocityY[smokeIdx] = JS.toInt8(JS.round(up * (4 + rng.next() * 6)))
         }
 
         // The app hears about this so it can shake the screen or make a noise. The

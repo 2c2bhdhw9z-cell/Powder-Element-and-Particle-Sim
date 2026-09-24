@@ -5,9 +5,17 @@ export function parseColorToRgbComponents(colorStr: string): { r: number; g: num
   if (colorStr.startsWith("#")) {
     let hex = colorStr.slice(1);
     if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
-    const r = parseInt(hex.substring(0, 2), 16) || 0;
-    const g = parseInt(hex.substring(2, 4), 16) || 0;
-    const b = parseInt(hex.substring(4, 6), 16) || 0;
+    // Unparseable input falls through to the white fallback at the end of this
+    // function, which is the documented "I could not read this" signal. The original
+    // coerced NaN to 0 per channel, so a malformed colour rendered as pure black and
+    // was indistinguishable from a legitimately black element. Custom elements are
+    // loaded from storage without colour validation, so this is reachable.
+    if (!/^[0-9a-fA-F]{6}$/.test(hex.substring(0, 6)) || (hex.length !== 6 && hex.length !== 8)) {
+      return { r: 255, g: 255, b: 255 };
+    }
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
     return { r, g, b };
   }
   if (colorStr.startsWith("hsl")) {

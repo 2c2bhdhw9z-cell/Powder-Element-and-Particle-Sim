@@ -165,20 +165,44 @@ export function updateMovement(e: PowderCtx, x: number, y: number, idx: number, 
     const viscosity = def.viscosity || 1;
     if (viscosity > 3 && Math.random() < 0.35) return;
 
-    // Cohesion: well-supported liquid (3+ same neighbors) almost never spreads
+    // Cohesion: well-supported liquid (3+ same neighbors) almost never spreads.
+    //
+    // Checked as coordinates rather than as raw indices. Computing the index first
+    // and only range-checking it meant that at x = 0 the "left" neighbour was the
+    // last cell of the row above — not adjacent at all — so liquids behaved
+    // differently against the walls than anywhere else.
     let same = 0;
-    const n4 = [e.getIndex(x - 1, y), e.getIndex(x + 1, y), e.getIndex(x, y - 1), e.getIndex(x, y + 1)];
-    for (const n of n4) {
-      if (n >= 0 && n < e.gridType.length && e.gridType[n] === def.id) same++;
+    const n4: [number, number][] = [
+      [x - 1, y],
+      [x + 1, y],
+      [x, y - 1],
+      [x, y + 1],
+    ];
+    for (const [nx, ny] of n4) {
+      if (e.isValid(nx, ny) && e.gridType[e.getIndex(nx, ny)] === def.id) same++;
     }
     if (same >= 3 && Math.random() < 0.82) return;
 
     const spread = viscosity <= 1 ? (Math.random() < 0.35 ? 2 : 1) : 1;
     const pHere = e.pressureEnabled ? e.gridP[idx] : 0;
     const extra = pHere > 3 ? 1 : 0;
+    // Walk outward one cell at a time, and stop a direction as soon as it is
+    // blocked. Trying s = 2 without having confirmed s = 1 was passable let liquid
+    // hop straight through a one-cell-thick wall, which drained sealed tanks.
+    const clear = (sx: number): boolean =>
+      e.isValid(sx, y) && e.gridType[e.getIndex(sx, y)] === EMPTY_ELEMENT_ID;
+    let blocked1 = false;
+    let blocked2 = false;
     for (let s = 1; s <= spread + extra; s++) {
-      if (tryMoveEmpty(e, idx, x + dx1 * s, y)) return;
-      if (tryMoveEmpty(e, idx, x + dx2 * s, y)) return;
+      if (!blocked1) {
+        if (tryMoveEmpty(e, idx, x + dx1 * s, y)) return;
+        if (!clear(x + dx1 * s)) blocked1 = true;
+      }
+      if (!blocked2) {
+        if (tryMoveEmpty(e, idx, x + dx2 * s, y)) return;
+        if (!clear(x + dx2 * s)) blocked2 = true;
+      }
+      if (blocked1 && blocked2) break;
     }
   }
 
@@ -223,8 +247,14 @@ export function updateMovement(e: PowderCtx, x: number, y: number, idx: number, 
     if (tryMoveOrSwap(e, idx, x, y, x + dx2, y, def.density)) return;
   }
 
-  // Energy / Laser Beam Propagation
-  if (def.state === "energy" || def.id === 36 || def.name.includes("Laser")) {
+  // Energy / Laser Beam Propagation.
+  //
+  // Dispatched on state alone. This used to also test `def.name.includes("Laser")`,
+  // which was both redundant — Laser Beam is id 36 and its state is already
+  // "energy" — and a hazard: custom elements are loaded from storage without
+  // validation, so anything a user happened to name "Laser …" silently inherited
+  // full beam physics. Behaviour belongs to state, not to spelling.
+  if (def.state === "energy") {
     const stepDir = e.gravityY !== 0 ? Math.sign(e.gravityY) : 1;
     for (let dist = 1; dist <= 3; dist++) {
       const ny = y + dist * stepDir;
@@ -234,8 +264,11 @@ export function updateMovement(e: PowderCtx, x: number, y: number, idx: number, 
         if (targetType === EMPTY_ELEMENT_ID) {
           e.swapCells(idx, nIdx);
           return;
-        } else if (targetType !== 29 && targetType !== 36) {
-          // Bedrock intact
+        }
+        // Bedrock stops a beam dead. Without breaking out here the loop carried on
+        // to dist + 1 and the beam reappeared on the far side of the wall.
+        if (targetType === 29) break;
+        if (targetType !== 36) {
           e.gridTemp[nIdx] += 400;
           if (targetType === 2 || targetType === 13) {
             e.setElementAt(x, ny, 14); // Water/Ice -> Steam

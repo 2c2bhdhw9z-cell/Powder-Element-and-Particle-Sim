@@ -12,15 +12,33 @@ extension PowderEngine {
     /// Spreads heat between neighbouring cells.
     ///
     /// Sampled rather than exhaustive — every second cell in each direction, so a
-    /// quarter of the grid per pass — which is why it runs on alternate ticks. Heat
-    /// still travels correctly because the sampling grid is offset by the movement
-    /// that happens in between.
+    /// quarter of the grid per pass — which is why it runs on alternate ticks.
+    ///
+    /// Two corrections over the original:
+    ///
+    /// 1. **The sampled lattice shifts every pass.** It used to start at (1, 1) and
+    ///    stride by two forever, so only odd/odd cells ever acted as a diffusion
+    ///    centre — and because all four neighbours of an odd/odd cell sit at even
+    ///    coordinates, those neighbours were never sampled themselves. Heat flowed
+    ///    one way out of a fixed lattice and pooled where it could not be
+    ///    redistributed, leaving a permanent checkerboard in the temperature field.
+    ///    Cycling the offset visits all four sub-lattices.
+    /// 2. **Heat is conserved.** The centre cell gained `delta` while each of its
+    ///    four neighbours gave up only `delta * 0.15` — six tenths of it — so every
+    ///    pass quietly destroyed heat around hot cells and invented it around cold
+    ///    ones, despite the original's comment claiming to conserve.
     func diffuseHeat() {
         guard width > 2, height > 2 else { return }
 
-        var y = 1
+        // This runs on every second tick, so halving the frame count gives a pass
+        // counter; four passes cover all four sub-lattices.
+        let phase = (frameCount / 2) % 4
+        let offsetX = phase % 2
+        let offsetY = (phase >> 1) % 2
+
+        var y = 1 + offsetY
         while y < height - 1 {
-            var x = 1
+            var x = 1 + offsetX
             while x < width - 1 {
                 let idx = index(x, y)
                 let cellType = type[idx]
@@ -56,10 +74,14 @@ extension PowderEngine {
                 let delta = (average - own) * conductivity * 0.15
                 temperature[idx] = JS.toFloat32(own + delta)
 
-                // Take back from the neighbours what this cell gained, so heat is
-                // moved rather than invented.
-                for neighbour in neighbours where neighbour >= 0 && neighbour < cellCount {
-                    temperature[neighbour] = JS.toFloat32(temperature[neighbour].asDouble - delta * 0.15)
+                // Take back from the neighbours exactly what this cell gained, so
+                // heat is moved rather than created or destroyed.
+                let contributors = count - 1
+                if contributors > 0 {
+                    let share = delta / contributors
+                    for neighbour in neighbours where neighbour >= 0 && neighbour < cellCount {
+                        temperature[neighbour] = JS.toFloat32(temperature[neighbour].asDouble - share)
+                    }
                 }
 
                 x += 2
@@ -256,15 +278,19 @@ extension PowderEngine {
             let x = i % width
             let y = i / width
 
+            // Checked as coordinates, not raw offsets. At x = 0 the offset i - 1 is
+            // the last cell of the row above: not adjacent, yet the original counted
+            // it toward "sealed", so pockets against the left and right walls
+            // detonated on the wrong evidence.
             var walls = 0
-            for neighbour in [i - 1, i + 1, i - width, i + width] {
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
                 // Off the grid counts as a wall — the world's edges contain
                 // pressure just as stone does.
-                if neighbour < 0 || neighbour >= cellCount {
+                guard isValid(nx, ny) else {
                     walls += 1
                     continue
                 }
-                switch type[neighbour] {
+                switch type[index(nx, ny)] {
                 case Element.stone, Element.metal, Element.concrete,
                      Element.bedrock, Element.glass, Element.copper:
                     walls += 1

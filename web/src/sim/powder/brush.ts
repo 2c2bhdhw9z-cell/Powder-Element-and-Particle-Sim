@@ -70,9 +70,12 @@ export function drawBrush(
       if (shape === "circle" && dx * dx + dy * dy > r2) continue;
       if (shape === "spray" && (dx * dx + dy * dy > r2 || Math.random() > 0.25)) continue;
 
-      if (shape === "replace") {
+      // A target element filters the stroke whatever the shape is. Honouring it
+      // only for the "replace" shape meant that passing one alongside a circle or
+      // square silently painted over everything instead.
+      if (targetElementId !== undefined) {
         const currentId = e.gridType[e.getIndex(x, y)];
-        if (targetElementId !== undefined && currentId !== targetElementId) continue;
+        if (currentId !== targetElementId) continue;
       }
 
       if (elementId === 48 && e.gridType[e.getIndex(x, y)] === 48) {
@@ -94,6 +97,10 @@ export function drawBrush(
 export function spawnAmount(e: PowderCtx, elementId: number, amount: number) {
   let placed = 0;
   const totalCells = e.width * e.height;
+  // Clamped to the grid. An unclamped caller value burned three attempts per
+  // requested particle before giving up, so asking for far more than could fit
+  // stalled a frame doing nothing.
+  amount = Math.max(0, Math.min(amount, totalCells));
   const maxAttempts = amount * 3;
 
   for (let attempt = 0; attempt < maxAttempts && placed < amount && placed < totalCells; attempt++) {

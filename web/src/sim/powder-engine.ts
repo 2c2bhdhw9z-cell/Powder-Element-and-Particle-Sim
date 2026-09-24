@@ -98,7 +98,30 @@ export class PowderEngine implements PowderCtx {
     this.resetGrid();
   }
 
+  /**
+   * Largest grid the engine will allocate, per side. Well beyond any real display,
+   * but low enough that a hostile or corrupt scene file cannot ask for terabytes.
+   */
+  public static readonly MAX_DIMENSION = 8192;
+
+  /** Whether a pair of dimensions is something this engine will accept. */
+  public static isValidSize(w: unknown, h: unknown): boolean {
+    return (
+      typeof w === "number" &&
+      typeof h === "number" &&
+      Number.isInteger(w) &&
+      Number.isInteger(h) &&
+      w > 0 &&
+      h > 0 &&
+      w <= PowderEngine.MAX_DIMENSION &&
+      h <= PowderEngine.MAX_DIMENSION
+    );
+  }
+
   public resize(newWidth: number, newHeight: number) {
+    // Reject anything unusable rather than half-applying it. Dimensions reach here
+    // straight from scene files and multiplayer payloads.
+    if (!PowderEngine.isValidSize(newWidth, newHeight)) return;
     if (this.width === newWidth && this.height === newHeight) return;
 
     const oldWidth = this.width;
@@ -110,18 +133,45 @@ export class PowderEngine implements PowderCtx {
     const oldVy = this.gridVy;
     const oldP = this.gridP;
 
+    // Allocate everything into locals FIRST and only publish once all eight have
+    // succeeded. The original assigned width/height and then allocated one array at
+    // a time, so an allocation failure part-way through left the engine claiming a
+    // new size while still holding old, smaller buffers — and because typed arrays
+    // ignore out-of-range writes silently, every later write vanished and the world
+    // was permanently broken with nothing reported.
+    const size = newWidth * newHeight;
+    let nextType: Uint16Array;
+    let nextTemp: Float32Array;
+    let nextLife: Uint16Array;
+    let nextVisited: Uint8Array;
+    let nextVx: Int8Array;
+    let nextVy: Int8Array;
+    let nextP: Float32Array;
+    let nextPNext: Float32Array;
+    try {
+      nextType = new Uint16Array(size);
+      nextTemp = new Float32Array(size);
+      nextLife = new Uint16Array(size);
+      nextVisited = new Uint8Array(size);
+      nextVx = new Int8Array(size);
+      nextVy = new Int8Array(size);
+      nextP = new Float32Array(size);
+      nextPNext = new Float32Array(size);
+    } catch (err) {
+      debug.error("Powder resize failed to allocate; keeping the existing grid", err);
+      return;
+    }
+
     this.width = newWidth;
     this.height = newHeight;
-
-    const size = newWidth * newHeight;
-    this.gridType = new Uint16Array(size);
-    this.gridTemp = new Float32Array(size);
-    this.gridLife = new Uint16Array(size);
-    this.gridVisited = new Uint8Array(size);
-    this.gridVx = new Int8Array(size);
-    this.gridVy = new Int8Array(size);
-    this.gridP = new Float32Array(size);
-    this.gridPNext = new Float32Array(size);
+    this.gridType = nextType;
+    this.gridTemp = nextTemp;
+    this.gridLife = nextLife;
+    this.gridVisited = nextVisited;
+    this.gridVx = nextVx;
+    this.gridVy = nextVy;
+    this.gridP = nextP;
+    this.gridPNext = nextPNext;
 
     this.resetGrid();
 
@@ -312,16 +362,15 @@ export class PowderEngine implements PowderCtx {
       if (this.jostleLeft < 0.15) this.jostleLeft = 0;
     }
 
-    const portalsA: [number, number][] = [];
+    // First pass: locate the exit portals, before anything has moved, so a portal
+    // pair sees a consistent snapshot of the world.
+    //
+    // Only Portal B is collected. Portal A positions used to be gathered and passed
+    // along as well, but nothing ever read them — teleporting is one-way by design.
     const portalsB: [number, number][] = [];
-
-    // First pass: locate portals
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
-        const idx = this.getIndex(x, y);
-        const type = this.gridType[idx];
-        if (type === 22) portalsA.push([x, y]);
-        if (type === 23) portalsB.push([x, y]);
+        if (this.gridType[this.getIndex(x, y)] === 23) portalsB.push([x, y]);
       }
     }
 
@@ -363,7 +412,7 @@ export class PowderEngine implements PowderCtx {
         }
 
         // Custom & Preset Chemical Reaction Evaluator
-        if (updateReactions(this, x, y, idx, def, portalsA, portalsB)) {
+        if (updateReactions(this, x, y, idx, def, portalsB)) {
           continue; // Particle consumed or transformed
         }
 
@@ -389,21 +438,46 @@ export class PowderEngine implements PowderCtx {
     renderToCanvas(this, ctx, overlayMode);
   }
 
-  // Export state to compressed string
+  /**
+   * Cheap world fingerprint, used to detect multiplayer desync.
+   *
+   * `gravityY` is now part of it. Leaving it out meant two worlds differing only in
+   * gravity direction — an utterly different simulation — produced the same
+   * fingerprint, which is exactly the divergence this is supposed to catch.
+   */
   public hashLite(): number {
     const t = this.gridType;
-    let h = this.width * 131 + this.height + ((this.gravityX * 10) | 0) * 17;
+    let h =
+      this.width * 131 +
+      this.height +
+      (Math.round(this.gravityX * 10) | 0) * 17 +
+      (Math.round(this.gravityY * 10) | 0) * 29;
     const step = Math.max(1, (t.length / 4000) | 0);
     for (let i = 0; i < t.length; i += step) h = (h * 33 + t[i]) | 0;
     return h;
   }
 
+  /**
+   * Compact element-layout payload, used for multiplayer world sync.
+   *
+   * Encoded one byte per cell. Element ids are capped at 99 by the registry, so a
+   * byte is enough — but `gridType` is 16-bit and the id space is documented as
+   * reaching 499, so anything above 255 is clamped rather than silently corrupting
+   * the stream (`btoa` would throw outright).
+   *
+   * The chunk size also matters: spreading a subarray into `String.fromCharCode`
+   * passes one argument per cell, and a large enough chunk exceeds the engine's
+   * argument limit. 8192 keeps it well clear.
+   */
   public serializeLite(): string {
     const t = this.gridType;
     let raw = "";
-    const chunk = 32768;
+    const chunk = 8192;
     for (let i = 0; i < t.length; i += chunk) {
-      raw += String.fromCharCode(...t.subarray(i, Math.min(t.length, i + chunk)));
+      const end = Math.min(t.length, i + chunk);
+      const bytes: number[] = [];
+      for (let k = i; k < end; k++) bytes.push(t[k] > 255 ? 0 : t[k]);
+      raw += String.fromCharCode(...bytes);
     }
     return JSON.stringify({ w: this.width, h: this.height, t: btoa(raw), gx: this.gravityX, gy: this.gravityY });
   }
@@ -411,14 +485,34 @@ export class PowderEngine implements PowderCtx {
   public deserializeLite(json: string) {
     try {
       const o = JSON.parse(json) as { w: number; h: number; t: string; gx?: number; gy?: number };
-      if (o.w !== this.width || o.h !== this.height) this.resize(o.w, o.h);
+      if (!PowderEngine.isValidSize(o.w, o.h) || typeof o.t !== "string") return;
+      if (o.w !== this.width || o.h !== this.height) {
+        this.resize(o.w, o.h);
+        // If the resize was refused, the payload does not describe this world.
+        if (o.w !== this.width || o.h !== this.height) return;
+      }
+      // Reset first. The original wrote element ids straight over the existing grid
+      // without clearing, so every cell kept the PREVIOUS world's temperature,
+      // lifetime, momentum and pressure under a brand-new layout: incoming ice
+      // landed at 1200°C where lava had been and melted immediately, and incoming
+      // fire or smoke inherited a lifetime of 0 and vanished on the next tick. This
+      // is the payload a joining multiplayer peer receives, so it mattered.
+      this.resetGrid();
       const bin = atob(o.t);
       const n = Math.min(this.gridType.length, bin.length);
-      for (let i = 0; i < n; i++) this.gridType[i] = bin.charCodeAt(i);
-      if (o.gx !== undefined) this.gravityX = o.gx;
-      if (o.gy !== undefined) this.gravityY = o.gy;
-    } catch {
-      /* ignore */
+      for (let i = 0; i < n; i++) {
+        const id = bin.charCodeAt(i);
+        this.gridType[i] = id;
+        // Give each cell the temperature and lifetime its element should start with,
+        // since the lite format does not carry them.
+        const def = this.registry.getElement(id);
+        this.gridTemp[i] = def.defaultTemp !== undefined ? def.defaultTemp : this.ambientTemp;
+        this.gridLife[i] = def.decayTicks || 0;
+      }
+      if (typeof o.gx === "number" && Number.isFinite(o.gx)) this.gravityX = o.gx;
+      if (typeof o.gy === "number" && Number.isFinite(o.gy)) this.gravityY = o.gy;
+    } catch (err) {
+      debug.error("Failed to parse lite grid payload", err);
     }
   }
 
@@ -441,28 +535,41 @@ export class PowderEngine implements PowderCtx {
     try {
       const obj = JSON.parse(jsonStr);
       if (obj.gridType && Array.isArray(obj.gridType)) {
-        if (typeof obj.width === "number" && typeof obj.height === "number") {
+        if (PowderEngine.isValidSize(obj.width, obj.height)) {
           if (obj.width !== this.width || obj.height !== this.height) {
             this.resize(obj.width, obj.height);
           }
         }
         this.resetGrid();
         const len = Math.min(this.width * this.height, obj.gridType.length);
+        // Every value is validated on the way in. Scene files are user data: a raw id
+        // of 9999 used to sit in the grid forever behaving as air but counting as an
+        // active particle, and a string in the temperature array became NaN and then
+        // spread through heat diffusion to poison the whole world.
         for (let i = 0; i < len; i++) {
-          this.gridType[i] = obj.gridType[i];
+          const id = Number(obj.gridType[i]);
+          this.gridType[i] = Number.isInteger(id) && id >= 0 && id < 500 ? id : EMPTY_ELEMENT_ID;
         }
         if (Array.isArray(obj.gridTemp)) {
           const tlen = Math.min(len, obj.gridTemp.length);
-          for (let i = 0; i < tlen; i++) this.gridTemp[i] = obj.gridTemp[i];
+          for (let i = 0; i < tlen; i++) {
+            const t = Number(obj.gridTemp[i]);
+            this.gridTemp[i] = Number.isFinite(t) ? t : this.ambientTemp;
+          }
         }
         if (Array.isArray(obj.gridLife)) {
           const llen = Math.min(len, obj.gridLife.length);
-          for (let i = 0; i < llen; i++) this.gridLife[i] = obj.gridLife[i];
+          for (let i = 0; i < llen; i++) {
+            const l = Number(obj.gridLife[i]);
+            this.gridLife[i] = Number.isFinite(l) && l >= 0 ? l : 0;
+          }
         }
-        if (obj.gravityX !== undefined) this.gravityX = obj.gravityX;
-        if (obj.gravityY !== undefined) this.gravityY = obj.gravityY;
-        if (obj.windX !== undefined) this.windX = obj.windX;
-        if (obj.ambientTemp !== undefined) this.ambientTemp = obj.ambientTemp;
+        if (Number.isFinite(Number(obj.gravityX))) this.gravityX = Number(obj.gravityX);
+        if (Number.isFinite(Number(obj.gravityY))) this.gravityY = Number(obj.gravityY);
+        // Routed through setWind so the [-5, 5] clamp applies here too. Assigning
+        // windX directly bypassed it, which no other caller is allowed to do.
+        if (Number.isFinite(Number(obj.windX))) this.setWind(Number(obj.windX));
+        if (Number.isFinite(Number(obj.ambientTemp))) this.ambientTemp = Number(obj.ambientTemp);
       }
     } catch (e) {
       debug.error("Failed to parse grid state", e);

@@ -1,14 +1,22 @@
 import { EMPTY_ELEMENT_ID } from "../element-registry";
 import type { PowderCtx } from "./context";
 
-/** Water-like elements that lightning seeks out. */
+/**
+ * Water-like elements that lightning seeks out.
+ *
+ * Oil (9) used to be in this list, which meant a spark treated the most flammable
+ * liquid in the game as if it were water and could never set it alight. Removed, so
+ * lightning now ignites oil through the flammability branch as its description
+ * promises.
+ */
 export function isWet(type: number): boolean {
-  return type === 2 || type === 27 || type === 44 || type === 9;
+  return type === 2 || type === 27 || type === 44;
 }
 
 /**
- * Flood-fill size of the conductor network (wire / copper / salt water)
- * connected to (x, y), capped at 80 cells.
+ * Flood-fill size of the conductor network (wire / copper / mercury) connected to
+ * (x, y), capped at 80 cells. Salt water conducts a strike but is deliberately not
+ * part of the load network.
  */
 export function conductorLoad(e: PowderCtx, x: number, y: number): number {
   const seen = new Set<number>();
@@ -60,7 +68,10 @@ export function wireHasBoom(e: PowderCtx, x: number, y: number): boolean {
 export function steerSpark(e: PowderCtx, x: number, y: number, idx: number): boolean {
   let bestX = x;
   let bestY = y;
-  let best = -1;
+  // Starts at 0, not -1. At -1 the first non-empty neighbour scoring zero — inert
+  // stone, say — became the "target", which pointed stepX/stepY at a wall and left
+  // the spark unable to move while still believing it had found something.
+  let best = 0;
   const R = 5;
   for (let dy = -R; dy <= R; dy++) {
     for (let dx = -R; dx <= R; dx++) {
@@ -116,7 +127,10 @@ export function steerSpark(e: PowderCtx, x: number, y: number, idx: number): boo
         e.setElementAt(nx, ny, 14, 130, 70);
         e.gridVy[nIdx] = -2;
       }
-      e.setElementAt(x, y, 16, 1000, Math.max(4, e.gridLife[idx]));
+      // Stay hot, but do NOT refresh the lifetime. Re-stamping it every tick made a
+      // spark immortal beside anything "wet", and beside Mercury — which is never
+      // converted to steam — it also seeded a brand-new spark every tick, forever.
+      e.gridTemp[idx] = 1000;
       if (e.isValid(nx + stepX, ny + stepY)) {
         const fIdx = e.getIndex(nx + stepX, ny + stepY);
         if (e.gridType[fIdx] === EMPTY_ELEMENT_ID) {

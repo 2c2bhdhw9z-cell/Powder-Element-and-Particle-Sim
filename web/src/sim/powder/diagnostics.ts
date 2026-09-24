@@ -15,7 +15,9 @@ export function getDiagnostics(e: PowderCtx) {
     const type = e.gridType[i];
     if (type !== EMPTY_ELEMENT_ID) {
       activeParticles++;
-      if (type < 0 || type >= 500 || Number.isNaN(type)) {
+      // gridType is a Uint16Array, so `type` is always an integer in 0..65535 —
+      // the old `type < 0 || Number.isNaN(type)` tests could never fire.
+      if (type >= 500) {
         corruptCellCount++;
       }
     }
@@ -30,7 +32,11 @@ export function getDiagnostics(e: PowderCtx) {
   }
 
   const avgTemp = totalCells > 0 ? Math.round(sumTemp / totalCells) : 20;
-  const memoryBytes = totalCells * (2 + 1 + 2 + 1) + (e.imageData ? e.imageData.data.byteLength : 0);
+  // 19 bytes per cell: gridType 2 + gridTemp 4 + gridLife 2 + gridVisited 1 +
+  // gridVx 1 + gridVy 1 + gridP 4 + gridPNext 4. The old figure of 6 was written
+  // when temperature was a single byte and the pressure fields did not exist, so it
+  // under-reported memory use by roughly three times.
+  const memoryBytes = totalCells * 19 + (e.imageData ? e.imageData.data.byteLength : 0);
   const issues: string[] = [];
 
   if (corruptCellCount > 0) issues.push(`Detected ${corruptCellCount} corrupted/NaN grid cells`);
@@ -43,7 +49,8 @@ export function getDiagnostics(e: PowderCtx) {
     totalCells,
     activeParticles,
     corruptCellCount,
-    loadPercentage: Math.round((activeParticles / totalCells) * 100),
+    // Guarded like avgTemp above. A zero-cell grid used to report NaN here.
+    loadPercentage: totalCells > 0 ? Math.round((activeParticles / totalCells) * 100) : 0,
     maxTemp: maxTemp === -273 ? 20 : Math.round(maxTemp),
     minTemp: minTemp === 3000 ? 20 : Math.round(minTemp),
     avgTemp,
@@ -64,7 +71,7 @@ export function flushStuckCells(e: PowderCtx): { success: boolean; cleared: numb
   e.gridVisited.fill(0);
   for (let i = 0; i < totalCells; i++) {
     const type = e.gridType[i];
-    if (type < 0 || type >= 500 || Number.isNaN(type)) {
+    if (type >= 500) {
       e.gridType[i] = EMPTY_ELEMENT_ID;
       e.gridTemp[i] = 20;
       cleared++;
@@ -92,19 +99,35 @@ export function reallocateBuffers(e: PowderCtx): { success: boolean } {
   return { success: true };
 }
 
+/**
+ * Clears the frame of the world so nothing is wedged against the boundary.
+ *
+ * Two fixes over the original: it walks all four edges rather than only the top and
+ * bottom rows (the left and right columns were never purged), and it counts only
+ * cells that actually held something. It used to increment for empty air too, so a
+ * perfectly healthy world reported hundreds of cells "purged".
+ */
 export function purgeOutOfBounds(e: PowderCtx): { success: boolean; purged: number } {
   let purged = 0;
+  const clearCell = (x: number, y: number) => {
+    if (!e.isValid(x, y)) return;
+    const idx = e.getIndex(x, y);
+    const type = e.gridType[idx];
+    if (type === EMPTY_ELEMENT_ID || type === 29) return;
+    e.gridType[idx] = EMPTY_ELEMENT_ID;
+    e.gridTemp[idx] = e.ambientTemp;
+    e.gridLife[idx] = 0;
+    e.gridVx[idx] = 0;
+    e.gridVy[idx] = 0;
+    purged++;
+  };
   for (let x = 0; x < e.width; x++) {
-    const idxTop = e.getIndex(x, 0);
-    const idxBot = e.getIndex(x, e.height - 1);
-    if (e.gridType[idxTop] !== 29) {
-      e.gridType[idxTop] = EMPTY_ELEMENT_ID;
-      purged++;
-    }
-    if (e.gridType[idxBot] !== 29) {
-      e.gridType[idxBot] = EMPTY_ELEMENT_ID;
-      purged++;
-    }
+    clearCell(x, 0);
+    clearCell(x, e.height - 1);
+  }
+  for (let y = 0; y < e.height; y++) {
+    clearCell(0, y);
+    clearCell(e.width - 1, y);
   }
   return { success: true, purged };
 }
@@ -114,14 +137,21 @@ export function extinguishFires(e: PowderCtx): { success: boolean; extinguished:
   const totalCells = e.width * e.height;
   for (let i = 0; i < totalCells; i++) {
     const t = e.gridType[i];
-    // 4 = Fire, 5 = Smoke, 23 = Spark
-    if (t === 4 || t === 5 || t === 23) {
+    // 4 = Fire, 5 = Smoke, 16 = Spark. This used to test for 23, which is Portal B —
+    // so the repair silently deleted every portal exit in the world and left all the
+    // sparks burning.
+    if (t === 4 || t === 5 || t === 16) {
       e.gridType[i] = EMPTY_ELEMENT_ID;
-      e.gridTemp[i] = 20;
+      e.gridTemp[i] = e.ambientTemp;
+      e.gridLife[i] = 0;
       extinguished++;
     } else if (t === 10 || t === 15) {
-      e.gridType[i] = 2; // Stone
-      e.gridTemp[i] = 250;
+      // Gunpowder and C4 are made inert. This used to write 2 (Water) while the
+      // comment said Stone, at 250°C — which is above boiling, so "making it safe"
+      // turned every explosive into a steam burst on the very next tick.
+      e.gridType[i] = 7; // Stone
+      e.gridTemp[i] = e.ambientTemp;
+      e.gridLife[i] = 0;
       extinguished++;
     }
   }
@@ -133,8 +163,11 @@ export function neutralizeAcids(e: PowderCtx): { success: boolean; neutralized: 
   const totalCells = e.width * e.height;
   for (let i = 0; i < totalCells; i++) {
     if (e.gridType[i] === 8) {
-      // Acid ID
-      e.gridType[i] = 3; // Water ID
+      // Acid becomes water. This used to write 3, which is Wood — so neutralising an
+      // acid pool produced a flammable solid instead of something harmless.
+      e.gridType[i] = 2; // Water
+      e.gridTemp[i] = e.ambientTemp;
+      e.gridLife[i] = 0;
       neutralized++;
     }
   }
@@ -182,11 +215,13 @@ export function injectThermalSpike(e: PowderCtx): { success: boolean } {
   const cy = Math.floor(e.height / 2);
   for (let dy = -10; dy <= 10; dy++) {
     for (let dx = -10; dx <= 10; dx++) {
+      // Validated as coordinates. A range check on the raw index lets a column near
+      // the edge wrap onto the next row, which is how the spike used to smear across
+      // rows on a narrow grid.
+      if (!e.isValid(cx + dx, cy + dy)) continue;
       const i = e.getIndex(cx + dx, cy + dy);
-      if (i >= 0 && i < e.gridTemp.length) {
-        e.gridTemp[i] = 2800;
-        e.gridType[i] = 4; // Fire
-      }
+      e.gridTemp[i] = 2800;
+      e.gridType[i] = 4; // Fire
     }
   }
   return { success: true };
@@ -207,6 +242,9 @@ export function injectCorruptCells(e: PowderCtx): { success: boolean } {
   const cx = Math.floor(e.width / 2);
   const cy = Math.floor(e.height / 2);
   for (let i = 0; i < 20; i++) {
+    // Bounds-checked. The original had no check at all, so on a grid narrower than
+    // 39 cells it wrote corruption onto the following row instead.
+    if (!e.isValid(cx + i, cy)) break;
     const idx = e.getIndex(cx + i, cy);
     e.gridType[idx] = 9999; // Invalid ID
     e.gridTemp[idx] = NaN; // Corrupt float
@@ -227,28 +265,39 @@ export function runAutoFix(e: PowderCtx): { logs: string[] } {
     return { logs };
   }
 
+  // Steps are numbered as they actually run. They used to be labelled "1/5" through
+  // "5/5" while each was conditional, so a real repair pass would print "3/5" and
+  // "4/5" and nothing else, as though steps had silently failed.
+  const steps: string[] = [];
+  const step = (message: string) => steps.push(message);
+
   if (diag.corruptCellCount > 0) {
     const res = flushStuckCells(e);
-    logs.push(`✓ Auto-Fix Step 1/5: Cleared ${res.cleared} corrupted/NaN element cells.`);
+    step(`Cleared ${res.cleared} corrupted/NaN element cells.`);
   }
 
   if (diag.maxTemp > 3000 || diag.minTemp < -273) {
     const res = zeroThermalExtremes(e);
-    logs.push(`✓ Auto-Fix Step 2/5: Normalized ${res.normalizedCount} thermal extremes to room temp (20°C).`);
+    step(`Normalized ${res.normalizedCount} thermal extremes to room temp (20°C).`);
   }
 
   const oob = purgeOutOfBounds(e);
   if (oob.purged > 0) {
-    logs.push(`✓ Auto-Fix Step 3/5: Sealed ${oob.purged} out-of-bounds frame cells.`);
+    step(`Cleared ${oob.purged} cells wedged against the world frame.`);
   }
 
+  // Only done while repairing a damaged world. Sealing the perimeter replaces it
+  // with bedrock, which would be destructive to run on a healthy world that
+  // deliberately has open edges — hence the early return above.
   const seal = sealBedrockBorders(e);
-  logs.push(`✓ Auto-Fix Step 4/5: Verified bedrock perimeter boundary enclosure (${seal.borderCellsSet} cells updated).`);
+  step(`Verified bedrock perimeter boundary enclosure (${seal.borderCellsSet} cells updated).`);
 
   const realloc = reallocateBuffers(e);
   if (realloc.success) {
-    logs.push("✓ Auto-Fix Step 5/5: Re-allocated canvas pixel buffers successfully.");
+    step("Re-allocated canvas pixel buffers successfully.");
   }
+
+  steps.forEach((message, i) => logs.push(`✓ Auto-Fix Step ${i + 1}/${steps.length}: ${message}`));
 
   const postDiag = getDiagnostics(e);
   logs.push(`Auto-Fix Sequence Completed. System health status: ${postDiag.isHealthy ? "100% OPERATIONAL" : "RECOVERY COMPLETED"}.`);

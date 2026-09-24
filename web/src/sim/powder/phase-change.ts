@@ -48,6 +48,18 @@ export function updatePhase(e: PowderCtx, x: number, y: number, idx: number, typ
     return true;
   }
 
+  // Fresh water freezes.
+  //
+  // The engine's own docstring listed "freeze" as a phase change but nothing
+  // implemented it: ice melted the instant it rose above 0°C while a pond chilled to
+  // -50°C stayed liquid forever. Salt water deliberately does not freeze here — salt
+  // lowers the freezing point, which is also why it is the one that stays liquid in
+  // the cold.
+  if (type === 2 && temp <= 0) {
+    e.setElementAt(x, y, 13, Math.min(-1, temp));
+    return true;
+  }
+
   // Ice melts
   if (type === 13 && temp > 0) {
     e.setElementAt(x, y, 2, Math.max(1, temp));
@@ -97,6 +109,19 @@ export function updatePhase(e: PowderCtx, x: number, y: number, idx: number, typ
   // Wax already handled near fire; heat can also melt it
   if (type === 25 && temp > 65) {
     e.setElementAt(x, y, 34, temp);
+    return true;
+  }
+
+  // Spontaneous ignition once a material passes its own ignition point.
+  //
+  // `ignitionTemp` is declared and documented on ElementDefinition but nothing read
+  // it, so nothing in the world could catch fire from heat alone — only by touching
+  // a flame. Sealing wood in a box and heating it to 1000°C did nothing. No built-in
+  // element currently sets the property, so this changes no existing behaviour; it
+  // makes the property mean something for elements that do set it.
+  const def = e.registry.getElement(type);
+  if (def.ignitionTemp !== undefined && temp >= def.ignitionTemp) {
+    e.setElementAt(x, y, 4, Math.max(400, temp));
     return true;
   }
 

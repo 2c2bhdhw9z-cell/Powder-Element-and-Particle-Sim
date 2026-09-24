@@ -413,10 +413,16 @@ public final class PowderEngine {
     /// Samples at most about four thousand cells and mixes them with the grid
     /// dimensions and gravity. All arithmetic wraps at 32 bits, matching the web
     /// implementation's `| 0` coercions.
+    ///
+    /// Vertical gravity is part of it. The original left it out, so two worlds
+    /// differing only in gravity direction — an utterly different simulation —
+    /// produced the same fingerprint, which is precisely the divergence this exists
+    /// to catch.
     public func hashLite() -> Int32 {
         var hash = Int32(truncatingIfNeeded: width) &* 131
             &+ Int32(truncatingIfNeeded: height)
-            &+ Int32(truncatingIfNeeded: Int(JS.trunc(gravityX * 10))) &* 17
+            &+ Int32(truncatingIfNeeded: Int(JS.round(gravityX * 10))) &* 17
+            &+ Int32(truncatingIfNeeded: Int(JS.round(gravityY * 10))) &* 29
         guard cellCount > 0 else { return hash }
         let stride = max(1, cellCount / 4000)
         var i = 0

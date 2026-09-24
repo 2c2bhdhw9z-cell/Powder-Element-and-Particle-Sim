@@ -47,6 +47,9 @@ struct PowderGoldenTests {
         var pressureEnabled: Bool
         var heatConductionEnabled: Bool
         var jostle: Double
+        /// Decoded through the web-compatible coding layer, so this also exercises
+        /// element interchange between the two versions.
+        var customElements: [ElementDefinition]
         var steps: Int
         var seed: UInt32
         var setup: [PaintedCell]
@@ -84,9 +87,14 @@ struct PowderGoldenTests {
     /// matching the order the fixture generator uses — the shake has to come last
     /// because it acts on cells that must already exist.
     private func play(_ scenario: Scenario) -> PowderEngine {
+        let registry = ElementRegistry()
+        for custom in scenario.customElements {
+            #expect(registry.register(custom), "scenario \(scenario.name): element \(custom.id) was refused")
+        }
         let engine = PowderEngine(
             width: scenario.width,
             height: scenario.height,
+            registry: registry,
             seed: scenario.seed
         )
         engine.gravityX = scenario.gravityX
@@ -155,12 +163,17 @@ struct PowderGoldenTests {
 
     @Test("The fixture loaded and covers every scenario")
     func fixtureLoads() {
-        #expect(Self.fixture.scenarios.count == 31)
+        #expect(Self.fixture.scenarios.count == 38)
         for scenario in Self.fixture.scenarios {
             #expect(scenario.typeRows.count == scenario.height)
+            #expect(scenario.temperatureRows.count == scenario.height)
             #expect(!scenario.setup.isEmpty, "\(scenario.name) paints nothing")
-            #expect(scenario.randomDraws > 0, "\(scenario.name) draws no random numbers")
         }
+        // Not every scenario needs randomness — a beam meeting a wall is entirely
+        // deterministic — but the set as a whole must exercise the random stream
+        // heavily, or the draw-count check below would be proving nothing.
+        let totalDraws = Self.fixture.scenarios.reduce(0) { $0 + $1.randomDraws }
+        #expect(totalDraws > 500_000, "the suite consumed only \(totalDraws) random draws")
     }
 
     @Test("Every cell matches the web engine", arguments: Self.fixture.scenarios)

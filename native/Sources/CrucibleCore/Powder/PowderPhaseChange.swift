@@ -76,6 +76,18 @@ extension PowderEngine {
             }
         }
 
+        // Fresh water freezes.
+        //
+        // The engine's own documentation listed freezing as a phase change but nothing
+        // implemented it: ice melted the instant it rose above zero, while a pond
+        // chilled to minus fifty stayed liquid forever. Salt water deliberately does
+        // not freeze here — salt lowers the freezing point, which is also why it is
+        // the one that stays liquid in the cold.
+        if cellType == Element.water && temp <= 0 {
+            setElement(x, y, Element.ice, temp: min(-1, temp))
+            return true
+        }
+
         // Ice and snow melt above freezing.
         if cellType == Element.ice && temp > 0 {
             setElement(x, y, Element.water, temp: max(1, temp))
@@ -124,6 +136,24 @@ extension PowderEngine {
 
         if cellType == Element.wax && temp > 65 {
             setElement(x, y, Element.honey, temp: temp)
+            return true
+        }
+
+        // Spontaneous ignition once a material passes its own ignition point.
+        //
+        // `ignitionTemp` is declared and documented on an element but the original
+        // never read it, so nothing in the world could catch fire from heat alone —
+        // only by touching a flame. Sealing wood in a box and heating it to 1000°C did
+        // nothing at all. No built-in element sets the property today, so this changes
+        // no existing behaviour; it makes the property mean something for any element
+        // that does set it.
+        //
+        // The comparison relies on the absent value being not-a-number, which is false
+        // against every comparison, so an element that never self-ignites needs no
+        // check of its own.
+        let definition = elements[cellType]
+        if temp >= definition.ignitionTemp {
+            setElement(x, y, Element.fire, temp: max(400, temp))
             return true
         }
 

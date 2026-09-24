@@ -14,13 +14,15 @@ export function updateReactions(
   y: number,
   idx: number,
   def: ElementDefinition,
-  portalsA: [number, number][],
   portalsB: [number, number][]
 ): boolean {
   const type = def.id;
 
   // 1. Fire / Plasma / Lava / Thermite / Laser thermal effects
-  if (type === 4 || type === 6 || type === 26 || type === 32 || type === 36 || def.state === "energy" || def.name.includes("Laser")) {
+  // Dispatched on ids and state, never on the element's name. The original also
+  // tested `def.name.includes("Laser")`, which let any custom element named after a
+  // laser inherit these thermal effects.
+  if (type === 4 || type === 6 || type === 26 || type === 32 || type === 36 || def.state === "energy") {
     if (type !== 6) {
       e.gridTemp[idx] = Math.min(3000, e.gridTemp[idx] + (type === 36 ? 80 : 20));
     }
@@ -43,7 +45,7 @@ export function updateReactions(
           quenchLava(e, idx, nIdx);
           if (e.gridType[idx] !== 6) return true;
           continue;
-        } else if (type === 36 || def.state === "energy") {
+        } else if (def.state === "energy") {
           e.setElementAt(nx, ny, 14, Math.max(120, e.gridTemp[nIdx]));
         } else if (type === 4) {
           e.setElementAt(x, y, 14, 120);
@@ -90,8 +92,12 @@ export function updateReactions(
       }
 
       if (nDef.flammability && Math.random() * 100 < nDef.flammability) {
-        if (nType === 10 || nType === 28 || nType === 35 || nType === 31 || nType === 9 || nType === 43) {
-          const rad = nType === 28 ? 26 : (nType === 43 ? 22 : (nType === 35 ? 24 : (nType === 31 ? 20 : 16)));
+        // Oxygen (31) and Helium (35) were listed here too, but neither carries a
+        // flammability value in the registry, so this branch could never be reached
+        // for them and their blast radii were dead constants. Removed rather than
+        // given invented flammability — helium is inert in any case.
+        if (nType === 10 || nType === 28 || nType === 9 || nType === 43) {
+          const rad = nType === 28 ? 26 : (nType === 43 ? 22 : 16);
           e.triggerExplosion(nx, ny, rad, 22, 3000);
         } else {
           e.setElementAt(nx, ny, 4, 400);
@@ -218,7 +224,11 @@ export function updateReactions(
     for (const [nx, ny] of neighbors) {
       if (!e.isValid(nx, ny)) continue;
       const nIdx = e.getIndex(nx, ny);
-      if (e.gridType[nIdx] === 2) {
+      // Gated like every other growth and spread rule (seed 0.25, virus 0.15,
+      // dirt 0.12, ant 0.08, ice 0.04). Ungated, a plant converted an adjacent water
+      // cell every single tick, so a pond beside a plant filled effectively
+      // instantly instead of creeping.
+      if (e.gridType[nIdx] === 2 && Math.random() < 0.25) {
         // Water: consume and grow plant onto that cell
         e.setElementAt(nx, ny, 11);
         break;
@@ -268,6 +278,12 @@ export function updateReactions(
         if (e.isValid(ax, ay) && e.gridType[e.getIndex(ax, ay)] === EMPTY_ELEMENT_ID && Math.random() < 0.45) {
           e.swapCells(nIdx, e.getIndex(ax, ay));
         }
+      } else {
+        // Too heavy to blow. The airflow stops at it, rather than carrying on and
+        // pressurising cells on the far side of a solid wall — the loop previously
+        // matched neither branch for stone, metal, concrete or glass and so just
+        // kept going.
+        break;
       }
     }
   }
@@ -358,16 +374,41 @@ export function updateReactions(
         if (!e.isValid(nx, ny)) continue;
         const nIdx = e.getIndex(nx, ny);
         if (e.gridType[nIdx] === rule.targetElementId) {
+          let acted = false;
           if (rule.resultSelfId !== undefined) {
             e.setElementAt(x, y, rule.resultSelfId);
+            acted = true;
           }
           if (rule.resultTargetId !== undefined) {
             e.setElementAt(nx, ny, rule.resultTargetId);
+            acted = true;
+          }
+          // Heat released or absorbed by the reaction. Declared on InteractionRule
+          // and documented, but nothing ever read it.
+          if (rule.tempChange) {
+            e.gridTemp[idx] += rule.tempChange;
+            e.gridTemp[nIdx] += rule.tempChange;
+            acted = true;
+          }
+          // A third element produced into nearby free space. Also declared,
+          // documented, and previously ignored.
+          if (rule.spawnElementId !== undefined) {
+            for (const [sx, sy] of neighbors) {
+              if (e.isValid(sx, sy) && e.gridType[e.getIndex(sx, sy)] === EMPTY_ELEMENT_ID) {
+                e.setElementAt(sx, sy, rule.spawnElementId);
+                acted = true;
+                break;
+              }
+            }
           }
           if (rule.explosionRadius && rule.explosionRadius > 0) {
             e.triggerExplosion(x, y, rule.explosionRadius);
+            acted = true;
           }
-          return true;
+          // Only counts as handled if something actually happened. A rule with no
+          // effects used to return true anyway, which skipped movement and left the
+          // particle hovering in mid-air.
+          if (acted) return true;
         }
       }
     }

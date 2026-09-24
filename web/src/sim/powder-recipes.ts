@@ -35,7 +35,9 @@ function basin(e: PowderEngine) {
 }
 
 export function seedVolcano(e: PowderEngine) {
-  e.resetGrid();
+  // clear() rather than resetGrid(): it takes an undo snapshot first, so loading a
+  // recipe can be undone. Every recipe used to discard the user's world outright.
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -63,7 +65,7 @@ export function seedVolcano(e: PowderEngine) {
 }
 
 export function seedAntFarm(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -97,7 +99,7 @@ export function seedAntFarm(e: PowderEngine) {
 }
 
 export function seedOilFire(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -112,7 +114,7 @@ export function seedOilFire(e: PowderEngine) {
 }
 
 export function seedIceDam(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -127,7 +129,7 @@ export function seedIceDam(e: PowderEngine) {
 }
 
 export function seedReactor(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -146,7 +148,7 @@ export function seedReactor(e: PowderEngine) {
 }
 
 export function seedStorm(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -160,7 +162,7 @@ export function seedStorm(e: PowderEngine) {
 }
 
 export function seedCircuit(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -172,7 +174,7 @@ export function seedCircuit(e: PowderEngine) {
 }
 
 export function seedVacuum(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -190,20 +192,24 @@ export function seedVacuum(e: PowderEngine) {
 }
 
 export function seedSnow(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
   fillRect(e, 2, Math.floor(h * 0.72), w - 3, h - 3, 13);
-  for (let i = 0; i < Math.floor(w * 0.8); i++) {
-    put(e, 3 + (i % (w - 6)), 4 + Math.floor(i / (w - 6)), 38);
+  // Three rows of falling snow. The original wrapped with `i % (w - 6)` over
+  // `i < floor(w * 0.8)` — and since 0.8w is always less than w - 6, the modulo was
+  // the identity and the division always zero, so it drew exactly one row.
+  const snowSpan = Math.max(1, w - 6);
+  for (let row = 0; row < 3; row++) {
+    for (let i = 0; i < snowSpan; i++) put(e, 3 + i, 4 + row * 2, 38);
   }
   fillRect(e, Math.floor(w * 0.4), Math.floor(h * 0.45), Math.floor(w * 0.6), Math.floor(h * 0.72), 7);
   fillRect(e, Math.floor(w * 0.18), Math.floor(h * 0.58), Math.floor(w * 0.32), Math.floor(h * 0.72), 2);
 }
 
 export function seedBeach(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -214,7 +220,7 @@ export function seedBeach(e: PowderEngine) {
 }
 
 export function seedForest(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);
@@ -222,13 +228,15 @@ export function seedForest(e: PowderEngine) {
   for (let i = 0; i < 7; i++) {
     const x = 8 + Math.floor((i / 6) * (w - 20));
     fillRect(e, x, Math.floor(h * 0.5), x + 1, Math.floor(h * 0.72), 3);
-    fillCircle(e, x, Math.floor(h * 0.48), 4, 19);
+    // 11 (Plant), not 19 (Ant). Ants eat wood, dirt and plants, so canopies made of
+    // ants devoured the trunks holding them up moments after the recipe loaded.
+    fillCircle(e, x, Math.floor(h * 0.48), 4, 11);
   }
   fillRect(e, Math.floor(w * 0.7), Math.floor(h * 0.58), w - 4, Math.floor(h * 0.72), 2);
 }
 
 export function seedKiln(e: PowderEngine) {
-  e.resetGrid();
+  e.clear();
   const w = e.width;
   const h = e.height;
   basin(e);

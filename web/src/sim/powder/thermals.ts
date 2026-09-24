@@ -5,10 +5,29 @@ import type { PowderCtx } from "./context";
 /**
  * Heat conduction diffusion between conductive neighbors — simple 4-neighbor
  * averaging with conductivity weighting, sampled sparsely for performance.
+ *
+ * Two corrections over the original:
+ *
+ * 1. The sampled lattice now shifts every pass. It used to start at (1, 1) and
+ *    stride by 2 forever, so only odd/odd cells ever acted as a diffusion centre —
+ *    and since all four neighbours of an odd/odd cell are at even coordinates, those
+ *    neighbours were never sampled themselves. Heat flowed one way out of a fixed
+ *    lattice and pooled where it could not be redistributed, leaving a permanent
+ *    checkerboard in the temperature field. Cycling the offset covers all four
+ *    sub-lattices.
+ * 2. Heat is now conserved. The centre cell gained `delta` while each of its four
+ *    neighbours gave up only `delta * 0.15` — six tenths of it — so every pass
+ *    quietly destroyed heat around hot cells and invented it around cold ones,
+ *    despite the comment claiming to conserve.
  */
 export function diffuseHeat(e: PowderCtx) {
-  for (let y = 1; y < e.height - 1; y += 2) {
-    for (let x = 1; x < e.width - 1; x += 2) {
+  // diffuseHeat runs on every second tick, so halving the frame count gives a
+  // pass counter; four passes visit all four sub-lattices.
+  const phase = Math.floor(e.frameCount / 2) % 4;
+  const offX = phase % 2;
+  const offY = (phase >> 1) % 2;
+  for (let y = 1 + offY; y < e.height - 1; y += 2) {
+    for (let x = 1 + offX; x < e.width - 1; x += 2) {
       const idx = e.getIndex(x, y);
       const type = e.gridType[idx];
       if (type === EMPTY_ELEMENT_ID) continue;
@@ -29,10 +48,15 @@ export function diffuseHeat(e: PowderCtx) {
       const avg = sum / cnt;
       const delta = (avg - t) * cond * 0.15;
       e.gridTemp[idx] = t + delta;
-      // also push a little to neighbors to conserve
-      for (const nIdx of neigh) {
-        if (nIdx >= 0 && nIdx < e.gridTemp.length) {
-          e.gridTemp[nIdx] -= delta * 0.15;
+      // Take back from the neighbours exactly what this cell gained, so heat moves
+      // rather than being created or destroyed.
+      const contributors = cnt - 1;
+      if (contributors > 0) {
+        const share = delta / contributors;
+        for (const nIdx of neigh) {
+          if (nIdx >= 0 && nIdx < e.gridTemp.length) {
+            e.gridTemp[nIdx] -= share;
+          }
         }
       }
     }
@@ -180,13 +204,22 @@ export function updatePressure(e: PowderCtx) {
       const x = i % w;
       const y = (i / w) | 0;
       let walls = 0;
-      const nbs = [i - 1, i + 1, i - w, i + w];
-      for (const ni of nbs) {
-        if (ni < 0 || ni >= n) {
+      // Checked as coordinates, not raw offsets. At x = 0, i - 1 is the last cell of
+      // the row above: not adjacent, yet it was counted toward "sealed", so pockets
+      // against the left and right walls detonated on the wrong evidence.
+      const nbs: [number, number][] = [
+        [x - 1, y],
+        [x + 1, y],
+        [x, y - 1],
+        [x, y + 1],
+      ];
+      for (const [nx, ny] of nbs) {
+        if (!e.isValid(nx, ny)) {
+          // The edge of the world contains pressure just as stone does.
           walls++;
           continue;
         }
-        const nt = type[ni];
+        const nt = type[e.getIndex(nx, ny)];
         if (nt === 7 || nt === 17 || nt === 42 || nt === 29 || nt === 12 || nt === 47) walls++;
       }
       if (walls >= 3) {

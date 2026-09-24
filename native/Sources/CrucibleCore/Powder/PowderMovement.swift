@@ -102,11 +102,15 @@ extension PowderEngine {
             break
         }
 
-        // Beams are checked separately rather than as another case, because the
-        // original tests the element's *name* as well as its state — so a
-        // user-authored element called "Laser" something propagates like one even
-        // if its state says otherwise.
-        if definition.state == .energy || definition.id == Element.laser || definition.nameMentionsLaser {
+        // Beams are checked separately rather than as another case, because an
+        // element can match a state rule above and this one too.
+        //
+        // Dispatched on state alone. The original also tested whether the element's
+        // *name* contained "Laser", which was redundant — the laser's state is already
+        // energy — and a hazard, since custom elements are loaded from storage without
+        // validation and anything a user named "Laser ..." silently inherited full beam
+        // physics. Behaviour belongs to state, not to spelling.
+        if definition.state == .energy {
             propagateBeam(x: x, y: y, idx: idx)
         }
     }
@@ -245,21 +249,13 @@ extension PowderEngine {
         // of liquid and mostly stays put. Without this, a pool continuously
         // churns and looks like it is boiling.
         //
-        // The neighbour offsets are computed without bounds checking and then
-        // filtered by range, exactly as the original does. At the left and right
-        // edges that means an index wraps onto the adjacent row, so a cell
-        // against a wall sees a slightly different neighbourhood. That is
-        // reproduced rather than corrected: it affects how liquids behave along
-        // the walls, which is visible behavior the test suite pins down.
+        // Checked as coordinates rather than as raw indices. The original computed
+        // the index first and only range-checked it, so at the left wall the "left"
+        // neighbour was the last cell of the row above — not adjacent at all — and
+        // liquids behaved differently against the walls than anywhere else.
         var sameNeighbours = 0
-        let neighbourIndices = [
-            index(x - 1, y),
-            index(x + 1, y),
-            index(x, y - 1),
-            index(x, y + 1),
-        ]
-        for neighbour in neighbourIndices {
-            if neighbour >= 0, neighbour < cellCount, type[neighbour] == definition.id {
+        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            if isValid(nx, ny), type[index(nx, ny)] == definition.id {
                 sameNeighbours += 1
             }
         }
@@ -271,9 +267,25 @@ extension PowderEngine {
         let pressureHere = pressureEnabled ? pressure[idx].asDouble : 0
         let extra = pressureHere > 3 ? 1 : 0
 
+        // Walk outward one cell at a time and stop a direction as soon as it is
+        // blocked. The original tried distance two without having confirmed distance
+        // one was passable, so liquid hopped straight through a one-cell-thick wall
+        // and drained sealed tanks.
+        func isClear(_ candidateX: Int) -> Bool {
+            isValid(candidateX, y) && type[index(candidateX, y)] == Element.empty
+        }
+        var firstBlocked = false
+        var secondBlocked = false
         for distance in 1 ... (spread + extra) {
-            if tryMoveEmpty(fromIdx: idx, toX: x + firstDX * distance, toY: y) { return true }
-            if tryMoveEmpty(fromIdx: idx, toX: x + secondDX * distance, toY: y) { return true }
+            if !firstBlocked {
+                if tryMoveEmpty(fromIdx: idx, toX: x + firstDX * distance, toY: y) { return true }
+                if !isClear(x + firstDX * distance) { firstBlocked = true }
+            }
+            if !secondBlocked {
+                if tryMoveEmpty(fromIdx: idx, toX: x + secondDX * distance, toY: y) { return true }
+                if !isClear(x + secondDX * distance) { secondBlocked = true }
+            }
+            if firstBlocked && secondBlocked { break }
         }
         return false
     }
@@ -352,8 +364,13 @@ extension PowderEngine {
                 return
             }
 
-            // Bedrock stops a beam, and beams pass through each other.
-            if targetType != Element.bedrock && targetType != Element.laser {
+            // Bedrock stops a beam dead. The original did not break here, so the loop
+            // carried on to the next distance and the beam reappeared on the far side
+            // of the wall.
+            if targetType == Element.bedrock { break }
+
+            // Beams pass through each other.
+            if targetType != Element.laser {
                 temperature[targetIdx] = JS.toFloat32(temperature[targetIdx].asDouble + 400)
 
                 if targetType == Element.water || targetType == Element.ice {

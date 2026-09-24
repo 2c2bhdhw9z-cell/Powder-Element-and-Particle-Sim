@@ -111,10 +111,10 @@ extension PowderEngine {
                     if dx * dx + dy * dy > radiusSquared || rng.next() > 0.25 { continue }
                 }
 
-                if shape == .replace {
-                    let current = type[index(x, y)]
-                    if let targetElementID, current != targetElementID { continue }
-                }
+                // A target element filters the stroke whatever the shape is. The
+                // original honoured it only for the replace shape, so passing one
+                // alongside a circle or square silently painted over everything.
+                if let targetElementID, type[index(x, y)] != targetElementID { continue }
 
                 // Painting a fan onto an existing fan turns it rather than replacing
                 // it, rate-limited so that one drag does not spin it repeatedly.
@@ -137,8 +137,12 @@ extension PowderEngine {
     /// Empty cells are preferred; once the attempts are used up the remainder is
     /// placed regardless of what is already there, so the requested amount always
     /// arrives.
-    public func spawnAmount(elementID: ElementID, amount: Int) {
-        guard cellCount > 0, amount > 0 else { return }
+    public func spawnAmount(elementID: ElementID, requested: Int) {
+        guard cellCount > 0, requested > 0 else { return }
+        // Clamped to the grid. An unclamped request burned three attempts per
+        // particle before giving up, so asking for far more than could fit stalled a
+        // frame achieving nothing.
+        let amount = min(requested, cellCount)
         var placed = 0
         let maxAttempts = amount * 3
 

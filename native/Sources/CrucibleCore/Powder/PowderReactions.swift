@@ -69,13 +69,15 @@ extension PowderEngine {
 
         // MARK: Heat sources — fire, lava, thermite, plasma, lasers
 
+        // Dispatched on identifiers and state, never on the element's name. The
+        // original also tested `name.contains("Laser")`, which let any custom element
+        // named after a laser inherit these thermal effects.
         let isHeatSource = cellType == Element.fire
             || cellType == Element.lava
             || cellType == Element.thermite
             || cellType == Element.plasma
             || cellType == Element.laser
             || definition.state == .energy
-            || definition.nameMentionsLaser
 
         if isHeatSource {
             // Everything but lava stokes itself. Lava is excluded because it is a
@@ -103,7 +105,7 @@ extension PowderEngine {
                         // cell is finished.
                         if type[idx] != Element.lava { return true }
                         continue
-                    } else if cellType == Element.laser || definition.state == .energy {
+                    } else if definition.state == .energy {
                         setElement(nx, ny, Element.steam, temp: max(120, temperature[neighbourIdx].asDouble))
                     } else if cellType == Element.fire {
                         // Fire loses: water puts it out and takes its place.
@@ -166,16 +168,19 @@ extension PowderEngine {
                 // all, and the more flammable it is the likelier it catches.
                 if neighbour.flammability > 0 && rng.percentChance(neighbour.flammability) {
                     switch neighbourType {
-                    case Element.gunpowder, Element.nitro, Element.helium,
-                         Element.oxygen, Element.oil, Element.hydrogen:
+                    case Element.gunpowder, Element.nitro, Element.oil, Element.hydrogen:
                         // Volatile things detonate instead of merely burning, each
                         // with its own yield.
+                        //
+                        // Oxygen and helium were listed here too, with their own blast
+                        // radii, but neither carries a flammability value in the
+                        // registry — so this branch could never be reached for them and
+                        // those radii were dead constants. Removed rather than given
+                        // invented flammability; helium is inert in any case.
                         let blastRadius: Int
                         switch neighbourType {
                         case Element.nitro: blastRadius = 26
                         case Element.hydrogen: blastRadius = 22
-                        case Element.helium: blastRadius = 24
-                        case Element.oxygen: blastRadius = 20
                         default: blastRadius = 16
                         }
                         triggerExplosion(
@@ -323,9 +328,14 @@ extension PowderEngine {
         // MARK: Plants drink
 
         if cellType == Element.plant {
+            // Gated like every other growth and spread rule in the engine (seed
+            // 0.25, virus 0.15, dirt 0.12, ant 0.08, ice 0.04). Ungated — as the
+            // original was — a plant converted an adjacent water cell every single
+            // tick, so a pond beside a plant filled effectively instantly instead of
+            // creeping across it.
             for (nx, ny) in edgeNeighboursUpFirst(x, y) {
                 guard isValid(nx, ny) else { continue }
-                if type[index(nx, ny)] == Element.water {
+                if type[index(nx, ny)] == Element.water, rng.chance(0.25) {
                     // The water is consumed and becomes new growth.
                     setElement(nx, ny, Element.plant)
                     break
@@ -391,6 +401,12 @@ extension PowderEngine {
                     {
                         swapCells(neighbourIdx, index(aheadX, aheadY))
                     }
+                } else {
+                    // Too heavy to blow. The airflow stops at it, rather than carrying
+                    // on and pressurising cells on the far side of a solid wall — the
+                    // original matched neither branch for stone, metal, concrete or
+                    // glass, so the loop simply continued straight through.
+                    break
                 }
             }
         }
@@ -486,10 +502,6 @@ extension PowderEngine {
         // The mechanism user-authored elements use. Only four of these exist among
         // the built-ins, on salt, snow and seed.
         //
-        // Note that `spawnElementID` and `tempChange` are defined on the rule type
-        // but are not acted on here. That is faithful to the original, which also
-        // ignores them. They are carried through serialization so that existing
-        // custom elements are not silently altered, but nothing reads them yet.
         if definition.hasInteractions {
             let neighbours = edgeNeighboursDownFirst(x, y)
             for rule in elements.interactions(for: cellType) {
@@ -501,16 +513,48 @@ extension PowderEngine {
                     guard isValid(nx, ny) else { continue }
                     let neighbourIdx = index(nx, ny)
                     if type[neighbourIdx] == rule.targetElementID {
+                        var acted = false
+
                         if let resultSelf = rule.resultSelfID {
                             setElement(x, y, resultSelf)
+                            acted = true
                         }
                         if let resultTarget = rule.resultTargetID {
                             setElement(nx, ny, resultTarget)
+                            acted = true
                         }
+
+                        // Heat released or absorbed by the reaction. Declared on the
+                        // rule type and documented, but the original never read it.
+                        if rule.tempChange != 0 {
+                            temperature[idx] = JS.toFloat32(temperature[idx].asDouble + rule.tempChange)
+                            temperature[neighbourIdx] = JS.toFloat32(
+                                temperature[neighbourIdx].asDouble + rule.tempChange
+                            )
+                            acted = true
+                        }
+
+                        // A third element produced into nearby free space. Also
+                        // declared, documented, and previously ignored.
+                        if let spawn = rule.spawnElementID {
+                            for (spawnX, spawnY) in neighbours {
+                                if isValid(spawnX, spawnY), type[index(spawnX, spawnY)] == Element.empty {
+                                    setElement(spawnX, spawnY, spawn)
+                                    acted = true
+                                    break
+                                }
+                            }
+                        }
+
                         if rule.explosionRadius > 0 {
                             triggerExplosion(centerX: x, centerY: y, radius: rule.explosionRadius)
+                            acted = true
                         }
-                        return true
+
+                        // Only counts as handled if something actually happened. A rule
+                        // with no effects used to report success anyway, which skipped
+                        // movement and left the particle hovering in mid-air.
+                        if acted { return true }
                     }
                 }
             }

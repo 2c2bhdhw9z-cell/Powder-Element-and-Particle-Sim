@@ -4,20 +4,22 @@
 
 /// Elements a spark treats as water and is drawn toward.
 ///
-/// Oil is in the list, which looks wrong for electricity and is deliberate: it
-/// gives a spark a reason to travel into fuel, which is far more interesting to
-/// play with than one that ignores it.
+/// Oil used to be in this list, which meant a spark treated the most flammable
+/// liquid in the game as if it were water and could never set it alight — the wet
+/// branch runs before the ignition branch and returns. Removed, so lightning now
+/// ignites oil as its description promises.
 @inlinable
 func isWet(_ elementID: ElementID) -> Bool {
     elementID == Element.water
         || elementID == Element.saltWater
         || elementID == Element.mercury
-        || elementID == Element.oil
 }
 
 extension PowderEngine {
-    /// How large the connected run of conductor is, counting from a starting cell
-    /// and giving up at eighty.
+    /// How large the connected run of conductor — wire, copper or mercury — is,
+    /// counting from a starting cell and giving up at eighty.
+    ///
+    /// Salt water conducts a strike but is deliberately not part of the load network.
     ///
     /// The size acts as electrical load: a long wire run gets hotter and is more
     /// likely to burn out than a short one.
@@ -82,7 +84,11 @@ extension PowderEngine {
         // Look for a target within five cells and score by kind and closeness.
         var bestX = x
         var bestY = y
-        var best = -1.0
+        // Starts at zero, not minus one. At minus one the first non-empty neighbour
+        // scoring zero — inert stone, say — became the "target", which aimed the step
+        // direction at a wall and left the spark unable to move while still believing
+        // it had found something worth travelling to.
+        var best = 0.0
         let searchRadius = 5
 
         for dy in -searchRadius ... searchRadius {
@@ -149,8 +155,11 @@ extension PowderEngine {
                     setElement(nx, ny, Element.steam, temp: 130, life: 70)
                     velocityY[neighbourIdx] = -2
                 }
-                // The remaining lifetime is read before the call that overwrites it.
-                setElement(x, y, Element.spark, temp: 1000, life: max(4, Int(life[idx])))
+                // Stays hot, but its lifetime is left alone. The original re-stamped
+                // the spark every tick, which made it immortal beside anything wet —
+                // and beside mercury, which is never converted to steam, it also
+                // seeded a brand-new spark every tick, forever.
+                temperature[idx] = JS.toFloat32(1000)
 
                 // Push a fresh spark one cell further along, so a strike forks
                 // through a body of water instead of stopping dead.

@@ -98,28 +98,89 @@ explosions and chain reactions (the heaviest users of randomness, with the most
 intricate draw order), lightning seeking water along a wire, and the two lava-and-
 water regression cases run for 400 and 700 ticks.
 
-### Quirks reproduced rather than corrected
+### Bugs found by comparing the two engines, and fixed in both
 
-Comparing the two engines this closely surfaced behaviour in the original that
-looks unintended. It is reproduced faithfully, because a one-sided "fix" would
-break the cell-for-cell agreement that makes the whole verification meaningful.
-Recorded here so each can be decided on deliberately:
+Comparing the two implementations this closely surfaced a long list of genuine
+faults in the original. Every one was fixed **on both sides at once**, and the
+golden comparison still passing is itself the proof that the two fixes are
+equivalent — that is what makes this safe to do at all.
 
-- **Explosion embers can overwrite bedrock.** The blast wave itself has an explicit
-  bedrock exemption and honours it completely, but the ember phase that follows
-  does not check what it lands on. Bedrock is documented as indestructible.
-- **The crater core places C4 explosive.** The code comment says plasma, but the
-  identifier used is C4. So a large blast seeds unexploded charge at its centre,
-  which is part of how explosions currently chain.
-- **Explosion debris is thermite.** Another case where the comment says sparks and
-  the identifier says something else. This one at least produces plausible
-  behaviour — hot incendiary debris.
-- **A liquid at the grid edge sees a wrapped neighbour.** The cohesion rule computes
-  neighbour indices without bounds checking and then filters by range, so at the
-  left and right walls one index lands on the adjacent row. This affects how
-  liquids behave against the walls.
-- **A target element is ignored unless the brush shape is "replace".** Passing one
-  with a circle or square shape silently paints over everything.
+**Containment failures.** A laser passed straight through bedrock, because the
+beam loop did not stop when it hit an obstacle and simply tested the next cell
+along — behind the wall. Liquids tunnelled through one-cell-thick walls, because
+sideways levelling reached two cells without checking the first, which drained
+sealed tanks. Explosion embers overwrote bedrock even though the blast wave that
+threw them explicitly could not. A fan blew through solid walls, because stone
+matched neither branch of its loop, so the airflow neither moved it nor stopped.
+
+**Wrong element identifiers.** The crater of an explosion was filled with C4
+explosive while the comment claimed plasma, so every large blast seeded live
+charge at its own centre and explosions chained off their own debris. The
+"extinguish fires" repair deleted every Portal B in the world, having tested for
+id 23 while its comment said Spark — which is 16 — so sparks were left burning
+and portals silently vanished. The same action turned explosives into water at
+250°C, above boiling, so making a bomb safe produced a steam burst. "Neutralise
+acids" turned acid into wood. Tree canopies in the forest recipe were built from
+ants, which eat wood and plants, so the forest devoured its own trunks seconds
+after loading.
+
+**Edge arithmetic.** Three separate places computed a neighbour as a raw index and
+then range-checked it, which at the left and right walls silently lands on the
+adjacent row: liquid cohesion, the sealed-pocket wall count that decides whether
+gas detonates, and the corrupt-cell test injector.
+
+**Heat.** Conduction did not conserve heat despite a comment saying it did — the
+centre cell gained an amount while its four neighbours gave up only six tenths of
+it, so every pass destroyed heat around hot cells and invented it around cold
+ones. It also always sampled the same fixed lattice, and since the neighbours of a
+sampled cell were never themselves sampled, heat flowed one way out of that
+lattice and pooled where nothing could redistribute it, leaving a permanent
+checkerboard. The lattice now shifts each pass.
+
+**Runaway state.** A spark re-stamped its own lifetime every tick on contact with
+anything liquid. Against mercury — which is never consumed — that made it
+immortal *and* made it seed a fresh spark every tick, forever.
+
+**Dead declarations.** `ignitionTemp`, `spawnElementId` and `tempChange` were all
+declared, documented, and read by nothing. Nothing in the world could catch fire
+from heat alone; a custom reaction could not release heat or produce a third
+element. All three now work. `burnRate` remains deliberately unimplemented — the
+registry's own values contradict the descriptions (coal is described as burning
+slowly but carries a higher rate than wood), so implementing it would mean
+inventing semantics rather than restoring them.
+
+**Missing phase change.** The engine documented freezing as one of its phase
+changes but never implemented it: ice melted the instant it rose above zero while
+a pond chilled to minus fifty stayed liquid forever. Fresh water now freezes. Salt
+water deliberately does not, because salt lowers the freezing point.
+
+**Name-based dispatch.** Beam physics was granted to any element whose *name*
+contained "Laser". Custom elements are loaded from storage without validation, so
+that was a way to inherit arbitrary physics by spelling. Behaviour now comes from
+state alone.
+
+**Silent corruption.** Resizing assigned the new dimensions and then allocated
+eight buffers one at a time, so a failure part-way through left the engine
+claiming a size it did not have — and because typed arrays ignore out-of-range
+writes, every later write vanished and the world was permanently broken with
+nothing reported. Untrusted dimensions reached it straight from scene files and
+multiplayer payloads. The compact multiplayer payload wrote element ids over the
+existing grid without clearing it, so every cell kept the *previous* world's
+temperature, lifetime and momentum under a new layout. Scene loading bypassed the
+wind clamp that every other caller must respect, and accepted raw values that
+could sit in the grid as permanent corruption.
+
+**Smaller things.** Undo cleared the redo stack last rather than first, so a failed
+snapshot left a redo entry describing a future that never happened. A brush target
+was ignored unless the shape was "replace". Bulk spawning was unclamped. A
+malformed colour rendered as black rather than the intended white marker. Oxygen
+and helium were listed as explosive but carry no flammability, so those branches
+were unreachable. Plant growth was the only spread rule with no probability gate,
+so a pond beside a plant filled instantly. The world fingerprint used for desync
+detection ignored vertical gravity entirely. The memory report was three times too
+low. The auto-repair pass printed step numbers that lied. The out-of-bounds purge
+skipped the left and right columns and counted empty air as work done. Loading a
+recipe was not undoable and silently discarded the user's world.
 
 ### Where the JavaScript and Swift genuinely differ
 

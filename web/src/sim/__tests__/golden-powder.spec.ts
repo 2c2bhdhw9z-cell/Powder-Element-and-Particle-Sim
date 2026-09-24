@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PowderEngine } from "@/sim/powder-engine";
+import type { ElementDefinition } from "@/sim/types";
 import { mulberry32 } from "./helpers";
 
 /**
@@ -47,6 +48,7 @@ const WOOD = 3;
 const FIRE = 4;
 const SMOKE = 5;
 const LAVA = 6;
+const LASER = 36;
 const STONE = 7;
 const ACID = 8;
 const OIL = 9;
@@ -84,6 +86,8 @@ interface Scenario {
   pressureEnabled?: boolean;
   heatConductionEnabled?: boolean;
   jostle?: number;
+  /** Custom elements registered before the world is built, for declarative rules. */
+  customElements?: ElementDefinition[];
   steps: number;
   build: (e: PowderEngine) => void;
 }
@@ -536,6 +540,146 @@ const SCENARIOS: Scenario[] = [
       }
     },
   },
+  // ---- Regression guards for the bugs fixed after the first port -----------
+
+  {
+    name: "laser-stops-at-bedrock",
+    why:
+      "A beam must not reappear on the far side of a bedrock wall. The loop used to " +
+      "continue past bedrock to the next distance instead of stopping.",
+    width: 32,
+    height: 32,
+    steps: 60,
+    build: (e) => {
+      for (let x = 8; x <= 23; x++) e.setElementAt(x, 16, BEDROCK);
+      for (let x = 8; x <= 23; x++) for (let y = 20; y <= 24; y++) e.setElementAt(x, y, WOOD);
+      for (let x = 12; x <= 19; x++) e.setElementAt(x, 8, LASER, 1500, 400);
+    },
+  },
+  {
+    name: "liquid-cannot-cross-a-thin-wall",
+    why:
+      "Two sealed tanks separated by a one-cell wall. Water used to reach two cells " +
+      "sideways without checking the first, so it hopped straight through and drained.",
+    width: 40,
+    height: 32,
+    steps: 300,
+    build: (e) => {
+      for (let x = 6; x <= 33; x++) e.setElementAt(x, 26, BEDROCK);
+      for (let y = 12; y <= 26; y++) {
+        e.setElementAt(6, y, BEDROCK);
+        e.setElementAt(20, y, BEDROCK);
+        e.setElementAt(33, y, BEDROCK);
+      }
+      for (let x = 7; x <= 19; x++) for (let y = 20; y <= 25; y++) e.setElementAt(x, y, WATER);
+    },
+  },
+  {
+    name: "lightning-ignites-oil",
+    why:
+      "Oil used to be classed as 'wet', so a spark treated the most flammable liquid " +
+      "in the game as water and could never set it alight.",
+    width: 32,
+    height: 28,
+    steps: 90,
+    build: (e) => {
+      for (let x = 0; x < e.width; x++) e.setElementAt(x, e.height - 1, BEDROCK);
+      for (let x = 14; x <= 27; x++) for (let y = 22; y <= 26; y++) e.setElementAt(x, y, OIL);
+      e.setElementAt(10, 22, SPARK, 1000, 30);
+    },
+  },
+  {
+    name: "spark-dies-beside-mercury",
+    why:
+      "Mercury counts as wet but is never converted, and the spark used to re-stamp its " +
+      "own lifetime every tick — an immortal spark that also seeded a new one forever.",
+    width: 32,
+    height: 28,
+    steps: 200,
+    build: (e) => {
+      for (let x = 8; x <= 23; x++) e.setElementAt(x, 24, BEDROCK);
+      for (let y = 18; y <= 24; y++) {
+        e.setElementAt(8, y, BEDROCK);
+        e.setElementAt(23, y, BEDROCK);
+      }
+      for (let x = 9; x <= 22; x++) for (let y = 22; y <= 23; y++) e.setElementAt(x, y, MERCURY);
+      e.setElementAt(15, 21, SPARK, 1000, 12);
+    },
+  },
+  {
+    name: "fan-stops-at-a-wall",
+    why:
+      "A fan blowing into stone used to match neither branch of its loop, so it carried " +
+      "on and pressurised cells on the far side of the wall.",
+    width: 40,
+    height: 28,
+    steps: 120,
+    build: (e) => {
+      for (let x = 0; x < e.width; x++) e.setElementAt(x, e.height - 1, BEDROCK);
+      e.setElementAt(6, 18, FAN);
+      for (let y = 14; y <= 22; y++) e.setElementAt(9, y, STONE);
+      for (let x = 11; x <= 16; x++) for (let y = 16; y <= 20; y++) e.setElementAt(x, y, SMOKE, 150, 600);
+    },
+  },
+  {
+    name: "explosion-plume-follows-inverted-gravity",
+    why: "The smoke plume used to be hardcoded upward, so under inverted gravity it fired into the ground.",
+    width: 40,
+    height: 40,
+    gravityY: -1,
+    steps: 60,
+    build: (e) => {
+      for (let x = 0; x < e.width; x++) e.setElementAt(x, 0, BEDROCK);
+      for (let x = 14; x <= 25; x++) for (let y = 6; y <= 10; y++) e.setElementAt(x, y, C4);
+      e.setElementAt(20, 11, FIRE, 900, 30);
+    },
+  },
+  {
+    name: "custom-rule-spawns-and-heats",
+    why:
+      "spawnElementId and tempChange are declared on an interaction rule but the original " +
+      "never read either, so custom elements could not produce a third element or release " +
+      "heat. Also guards that a rule doing nothing no longer freezes the particle.",
+    width: 32,
+    height: 32,
+    steps: 120,
+    customElements: [
+      {
+        id: 50,
+        name: "Reactant",
+        category: "Custom",
+        state: "solid_movable",
+        color: "#ff00ff",
+        density: 20,
+        interactions: [
+          {
+            targetElementId: WATER,
+            chance: 0.5,
+            resultSelfId: STEAM,
+            spawnElementId: FIRE,
+            tempChange: 40,
+          },
+        ],
+      },
+      {
+        id: 51,
+        name: "Inert Rule",
+        category: "Custom",
+        state: "solid_movable",
+        color: "#00ffff",
+        density: 20,
+        // A rule with no effects at all: must not stop the grain from falling.
+        interactions: [{ targetElementId: STONE, chance: 1 }],
+      },
+    ],
+    build: (e) => {
+      for (let x = 0; x < e.width; x++) e.setElementAt(x, e.height - 1, BEDROCK);
+      for (let x = 4; x <= 15; x++) e.setElementAt(x, 24, WATER);
+      for (let x = 6; x <= 13; x++) e.setElementAt(x, 10, 50);
+      for (let x = 20; x <= 27; x++) e.setElementAt(x, 28, STONE);
+      for (let x = 20; x <= 27; x++) e.setElementAt(x, 10, 51);
+    },
+  },
   {
     name: "everything-at-once",
     why:
@@ -589,6 +733,7 @@ interface Result {
   pressureEnabled: boolean;
   heatConductionEnabled: boolean;
   jostle: number;
+  customElements: ElementDefinition[];
   /** Cells that were painted before stepping. */
   setup: PaintedCell[];
   /**
@@ -650,6 +795,7 @@ function sparseVelocity(vx: Int8Array, vy: Int8Array): [number, number, number][
 function recordSetup(scenario: Scenario): PaintedCell[] {
   const painted: PaintedCell[] = [];
   const recorder = new PowderEngine(scenario.width, scenario.height);
+  for (const custom of scenario.customElements ?? []) recorder.registry.registerElement(custom);
   const original = recorder.setElementAt.bind(recorder);
   recorder.setElementAt = (x: number, y: number, id: number, temp?: number, life?: number) => {
     const cell: PaintedCell = { x, y, id };
@@ -679,6 +825,7 @@ function run(scenario: Scenario): Result {
 
   try {
     const e = new PowderEngine(scenario.width, scenario.height);
+    for (const custom of scenario.customElements ?? []) e.registry.registerElement(custom);
     if (scenario.gravityX !== undefined) e.gravityX = scenario.gravityX;
     if (scenario.gravityY !== undefined) e.gravityY = scenario.gravityY;
     if (scenario.windX !== undefined) e.windX = scenario.windX;
@@ -701,6 +848,7 @@ function run(scenario: Scenario): Result {
       pressureEnabled: e.pressureEnabled,
       heatConductionEnabled: e.heatConductionEnabled,
       jostle: scenario.jostle ?? 0,
+      customElements: scenario.customElements ?? [],
       steps: scenario.steps,
       seed: SEED,
       setup,
@@ -752,10 +900,15 @@ describe("golden powder scenarios", () => {
     }
   });
 
-  it("every scenario actually moved something", () => {
+  it("every scenario actually simulated something", () => {
     for (const result of results) {
       expect(result.activeCount).toBeGreaterThan(0);
-      expect(result.randomDraws).toBeGreaterThan(0);
+      expect(result.setup.length).toBeGreaterThan(0);
     }
+    // Not every scenario needs randomness — a beam meeting a wall is entirely
+    // deterministic — but the set as a whole must exercise the random stream
+    // heavily, or comparing draw counts would prove nothing.
+    const totalDraws = results.reduce((sum, r) => sum + r.randomDraws, 0);
+    expect(totalDraws).toBeGreaterThan(500_000);
   });
 });

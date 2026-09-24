@@ -44,17 +44,6 @@ public struct ElementPhysics: Sendable, Hashable {
     /// that have no rules, and pay for it only for the three that do.
     public var hasInteractions: Bool
 
-    /// Whether the element's name mentions "Laser".
-    ///
-    /// The web implementation tests `def.name.includes("Laser")` inside both the
-    /// movement and reaction hot paths, so that a user-authored element called
-    /// something like "Laser Mk II" behaves like a beam. Evaluating that per cell
-    /// per frame would mean string scanning in the inner loop, so the answer is
-    /// computed once here. Kept as the raw fact rather than folded into a
-    /// combined "is a beam" flag, because the two call sites pair it with
-    /// different additional conditions and both need to stay readable against the
-    /// original.
-    public var nameMentionsLaser: Bool
     /// Whether an element is actually registered at this identifier. Unregistered
     /// slots hold air's properties so the simulation stays well-behaved if a
     /// corrupt scene names an element that does not exist.
@@ -105,7 +94,6 @@ public struct ElementPhysics: Sendable, Hashable {
         self.state = definition.state
         self.isConductor = definition.isConductor
         self.hasInteractions = !definition.interactions.isEmpty
-        self.nameMentionsLaser = definition.name.contains("Laser")
         self.isDefined = isDefined
         self.decayIntoID = definition.decayIntoID
         self.decayTicks = Int32(clamping: definition.decayTicks)
