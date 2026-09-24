@@ -27,6 +27,95 @@ final class SimulationModel {
     /// How the grid is coloured.
     var overlay: PowderOverlayMode = .normal
 
+    /// Sideways wind, blowing gases and light powders along. Clamped by the engine to −5...5.
+    var wind: Double {
+        get { engine.windX }
+        set { engine.setWind(newValue) }
+    }
+
+    /// The temperature the world settles back to, and what things are placed at.
+    ///
+    /// The range the web version offers is enormous on purpose — a room at 400° sets wood alight
+    /// on contact, and one at −40° freezes a pond solid — because the ambient is the simplest way
+    /// to change what the whole world does at once.
+    var ambientTemp: Double {
+        get { engine.ambientTemp }
+        set { engine.ambientTemp = newValue }
+    }
+
+    /// Whether the pressure field is simulated.
+    ///
+    /// Worth a switch rather than being always on: it is the single most expensive part of a
+    /// tick — about six milliseconds of eleven at full resolution — and a world of dry powder
+    /// does not need it. Turning it off costs trapped gas its ability to find a way out.
+    var pressureEnabled: Bool {
+        get { engine.pressureEnabled }
+        set { engine.pressureEnabled = newValue }
+    }
+
+    /// Whether heat spreads between cells.
+    var heatConductionEnabled: Bool {
+        get { engine.heatConductionEnabled }
+        set { engine.heatConductionEnabled = newValue }
+    }
+
+    /// Which way gravity points, as one of five presets.
+    enum GravityDirection: String, CaseIterable, Identifiable {
+        case down, up, left, right, none
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .down: "Down"
+            case .up: "Up"
+            case .left: "Left"
+            case .right: "Right"
+            case .none: "None"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .down: "arrow.down"
+            case .up: "arrow.up"
+            case .left: "arrow.left"
+            case .right: "arrow.right"
+            case .none: "circle.slash"
+            }
+        }
+
+        /// The pair the engine wants. Sideways gravity is full strength rather than a fraction,
+        /// which is what makes "left" read as the world having been turned on its side.
+        var vector: (x: Double, y: Double) {
+            switch self {
+            case .down: (0, 1)
+            case .up: (0, -1)
+            case .left: (-1, 0)
+            case .right: (1, 0)
+            case .none: (0, 0)
+            }
+        }
+    }
+
+    /// Points gravity in one of the five preset directions.
+    func setGravity(_ direction: GravityDirection) {
+        let vector = direction.vector
+        // Through the properties rather than the engine, so the manual values are remembered and
+        // switching tilt off afterwards comes back to this rather than to whatever was set before.
+        gravityX = vector.x
+        gravityY = vector.y
+    }
+
+    /// Vertical gravity. One is down, minus one is up, nought is weightless.
+    var gravityY: Double {
+        get { engine.gravityY }
+        set {
+            engine.gravityY = newValue
+            manualGravityY = newValue
+        }
+    }
+
     /// How solid grains are speckled.
     var textureMode: PowderTextureMode {
         get { engine.textureMode }
@@ -156,6 +245,9 @@ final class SimulationModel {
         // stopped. Gravity is the state of the world rather than an event in it, and watching a
         // paused pile hang at an angle is how you see what is about to happen when you unpause.
         steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+        // Outside the pause check too: a shake left mid-decay when time stopped would hold the
+        // whole screen at an offset until it started again.
+        decayScreenShake()
 
         guard isRunning else { return }
 
@@ -256,6 +348,69 @@ final class SimulationModel {
     /// Shakes the world, as a jolt of the phone would.
     func jostle() {
         engine.jostle(6)
+    }
+
+    // MARK: - Set-piece events
+
+    /// How hard the screen is currently being shaken, in points. Decays every frame.
+    ///
+    /// The engine reports how hard an event *wants* to shake and does the shaking itself not at
+    /// all — it has no screen. This is the app's side of that.
+    private(set) var screenShake: Double = 0
+
+    /// Runs one of the four set-piece events: a meteor, a blast, a surge or a freeze.
+    ///
+    /// The world change, the shake and the timing of the delayed half all come from the engine,
+    /// where they are compared against the web version cell for cell. All this does is record an
+    /// undo point, start the shake, and wait to run the second half.
+    func run(_ event: PowderEventID) {
+        // One undo point for the whole event, taken before anything happens, so that a meteor and
+        // the explosion it causes are undone together rather than needing two taps.
+        history.push(engine)
+
+        let start = engine.start(event)
+        if start.shake > 0 { screenShake = start.shake }
+        activeCells = engine.activeParticleCount
+
+        guard let followUp = start.followUp else { return }
+        Task { @MainActor in
+            // A delay rather than a frame count, because the pause is measured in real time and
+            // should look the same whether the world is running fast, slow or is paused outright.
+            try? await Task.sleep(for: .seconds(followUp.delaySeconds))
+            engine.finish(followUp)
+            if followUp.shake > 0 { screenShake = followUp.shake }
+            activeCells = engine.activeParticleCount
+        }
+    }
+
+    /// Where the whole surface is currently offset to, in points.
+    private(set) var screenShakeOffset: CGSize = .zero
+
+    /// A generator used only for how things look.
+    ///
+    /// Deliberately **not** the engine's stream. The shake picks a random offset every frame, and
+    /// drawing that from the simulation's generator would let a purely decorative effect change
+    /// the physics — two worlds from the same seed would diverge depending on whether anything had
+    /// been blown up on screen, which would also break replay and desynchronise a shared room.
+    ///
+    /// The web version does draw both from one global source, but only because it has no separate
+    /// one; its determinism exists solely under test, where the view never runs.
+    private var presentationRandom = Mulberry32()
+
+    /// Eases the shake off, and picks the next offset. Called once per frame from the render loop.
+    ///
+    /// A point a frame, matching the web version, which decays it per animation frame rather than
+    /// over a fixed duration — so a shake lasts as many frames as its strength in points.
+    func decayScreenShake() {
+        guard screenShake > 0 else {
+            if screenShakeOffset != .zero { screenShakeOffset = .zero }
+            return
+        }
+        screenShakeOffset = CGSize(
+            width: (presentationRandom.next() - 0.5) * screenShake,
+            height: (presentationRandom.next() - 0.5) * screenShake
+        )
+        screenShake = max(0, screenShake - 1)
     }
 
     // MARK: - Scenes

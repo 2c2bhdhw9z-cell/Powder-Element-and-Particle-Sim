@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { CanvasTools } from "./canvas-tools";
 import { CanvasRecorder, captureCanvasScreenshot } from "@/sim/canvas-recorder";
 import { soundEngine } from "@/sim/audio-engine";
+import { finishPowderEvent, startPowderEvent, type PowderEventId } from "@/sim/powder-events";
 import { telemetry } from "@/sim/telemetry";
 import { POWDER_RECIPES } from "@/sim/powder-recipes";
 import { gyro } from "@/sim/gyro";
@@ -415,58 +416,27 @@ export function PowderView({
     }
   };
 
-  const meteor = () => {
-    soundEngine.playMeteor();
-    shakeRef.current = 16;
-    const cx = Math.floor(engine.width / 2);
-    for (let dy = -10; dy <= 10; dy++) {
-      for (let dx = -10; dx <= 10; dx++) {
-        if (dx * dx + dy * dy > 100) continue;
-        const x = cx + dx;
-        const y = 14 + dy;
-        if (!engine.isValid(x, y)) continue;
-        engine.setElementAt(x, y, Math.random() < 0.8 ? 6 : 4, 2800);
-        engine.gridVy[engine.getIndex(x, y)] = 18;
-      }
-    }
+  /**
+   * Runs one of the four set-piece events.
+   *
+   * The world changes, the shake, the sound and the timing of the delayed half all come from
+   * `sim/powder-events.ts`, so this is only the plumbing: shake the wrapper, make the noise,
+   * and set a timer for the second half. Those rules used to live here, where no test could
+   * reach them and nothing could compare them against the native port.
+   */
+  const runEvent = (id: PowderEventId) => {
+    const start = startPowderEvent(engine, id);
+    if (start.shake > 0) shakeRef.current = start.shake;
+    if (start.sound === "meteor") soundEngine.playMeteor();
+    else if (start.sound === "explosion") soundEngine.playExplosion(start.soundIntensity);
+
+    const followUp = start.followUp;
+    if (!followUp) return;
     window.setTimeout(() => {
-      engine.triggerExplosion(cx, Math.floor(engine.height * 0.65), 28, 18, 3000);
-      shakeRef.current = 22;
-      soundEngine.playExplosion(2);
-    }, 180);
-  };
-
-  const nuke = () => {
-    soundEngine.playExplosion(3);
-    shakeRef.current = 24;
-    const cx = Math.floor(engine.width / 2);
-    const cy = Math.floor(engine.height / 2);
-    engine.triggerExplosion(cx, cy, 36, 22, 3500);
-    window.setTimeout(() => {
-      engine.triggerExplosion(cx - 22, cy - 14, 22, 16, 2800);
-      engine.triggerExplosion(cx + 22, cy + 14, 22, 16, 2800);
-      shakeRef.current = 16;
-    }, 120);
-  };
-
-  const tsunami = () => {
-    const startY = Math.floor(engine.height * 0.28);
-    for (let y = startY; y < engine.height - 2; y++) {
-      for (let x = 2; x < Math.min(28, engine.width - 4); x++) {
-        engine.setElementAt(x, y, 2, 12);
-        engine.gridVx[engine.getIndex(x, y)] = 14;
-      }
-    }
-  };
-
-  const freezeAll = () => {
-    for (let i = 0; i < engine.gridType.length; i++) {
-      const t = engine.gridType[i];
-      if (t === 0 || t === 29) continue;
-      engine.gridTemp[i] = -200;
-      if (t === 2 || t === 8 || t === 9 || t === 27) engine.gridType[i] = 13;
-      if (t === 6) engine.gridType[i] = 7;
-    }
+      finishPowderEvent(engine, followUp);
+      if (followUp.shake > 0) shakeRef.current = followUp.shake;
+      if (followUp.sound === "explosion") soundEngine.playExplosion(followUp.soundIntensity);
+    }, followUp.delayMs);
   };
 
   useEffect(() => {
@@ -821,16 +791,16 @@ export function PowderView({
               </button>
             </div>
             <div className="col-span-2 flex gap-1">
-              <button type="button" onClick={meteor} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
+              <button type="button" onClick={() => runEvent("meteor")} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
                 Meteor
               </button>
-              <button type="button" onClick={nuke} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
+              <button type="button" onClick={() => runEvent("blast")} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
                 Blast
               </button>
-              <button type="button" onClick={tsunami} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
+              <button type="button" onClick={() => runEvent("surge")} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
                 Wave
               </button>
-              <button type="button" onClick={freezeAll} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
+              <button type="button" onClick={() => runEvent("freeze")} className="h-9 flex-1 rounded-sm bg-subtle text-muted hover:text-fg">
                 Freeze
               </button>
             </div>

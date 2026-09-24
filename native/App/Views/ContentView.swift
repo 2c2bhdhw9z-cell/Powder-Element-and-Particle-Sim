@@ -114,6 +114,10 @@ struct ContentView: View {
         case .powder:
             SimulationSurface(model: powder)
                 .ignoresSafeArea()
+                // The whole surface jolts when something goes off. Only the simulation moves —
+                // the dock and the tools stay put, because chrome that shakes reads as the app
+                // glitching rather than as the world being hit.
+                .offset(x: powder.screenShakeOffset.width, y: powder.screenShakeOffset.height)
                 .onAppear { powder.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
                     powder.resize(toViewSize: new, scale: UIScreen.main.scale)
