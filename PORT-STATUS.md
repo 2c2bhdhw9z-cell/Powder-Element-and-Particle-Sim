@@ -42,10 +42,13 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | All 13 built-in powder scenes | complete | 52 scene/size combinations, cell-for-cell |
 | Powder renderer | complete | 16 frames, pixel for pixel |
 | Particle renderer | complete | 6 colour modes, pixel for pixel |
+| The four set-piece events | complete | 4 events x 4 sizes, cells + heat + momentum + draws + the shake and sound they ask for |
+| Tilt to tip gravity | complete | 12 tests on the tuning; the attitude algebra verified over 258,000 orientations |
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
+| iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**234 engine tests. 127 reference tests. 93 script tests.** Green on Linux and macOS, in
+**267 engine tests. 128 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 ---
@@ -133,18 +136,29 @@ about eighty bugs. The choice to put to the user is between:
 
 ### 2. App features still missing
 
-- Tilt to tip gravity (`web/src/sim/gyro.ts`) — engine side already supports it via
-  `gravityX` and `jostle`.
-- Element editor and custom elements. The registry already supports ids 50–99 and
-  round-trips them; there is no interface.
-- Save, load and autosave in the app. Engine side complete (`PowderSerialization.swift`,
-  `ParticleSerialization.swift`); no file picker, no autosave timer.
-- Diagnostics panel. Engine side complete; nothing shows it.
-- Encyclopedia and periodic table (`web/src/sim/encyclopedia.ts`, `periodic.ts`).
-- Sound (`web/src/sim/audio-engine.ts`).
-- Screen recording (`web/src/sim/canvas-recorder.ts`).
-- Real fonts. Syne and IBM Plex are currently system stand-ins; see `Font.labDisplay`.
-- Particle trails and the touch-reach ring are not drawn yet.
+Roughly in order of how much they are missed.
+
+- **Particle trails and the touch-reach ring.** The trail *recording* is already ported and
+  tested — `TrailBuffer`, and all six places a trail has to be discarded so no line stretches
+  across the world. What is missing is drawing it. Note this cannot be verified pixel for
+  pixel: the web draws it with Canvas2D, whose antialiasing and line joins are not
+  reproducible, so the honest split is to verify the *decisions* (0.3 alpha, a width of
+  0.8x the body's radius, the 25%-alpha background wipe that makes the fade, the ring's
+  cyan and its unlimited-radius rule) as data, and draw them in Metal.
+- **Saving and loading in the app.** Engine side complete and byte-exact
+  (`PowderSerialization`, `ParticleSerialization`); there is no file picker and no autosave
+  timer. The web autosaves every 8 seconds and on page hide, into one browser storage key.
+- **The element editor.** The registry already supports ids 50-99 and round-trips them; the
+  three presets the web offers (Goo, Foam, Slag) are in `lab-modals.tsx`.
+- **Encyclopedia and the periodic drawer.** Pure data: 50 lore entries, one per built-in
+  element, in `web/src/sim/encyclopedia.ts`; 18 real elements and 6 compounds mapped onto lab
+  materials in `periodic.ts`. Worth extracting to a fixture rather than retyping.
+- **Sound.** `web/src/sim/audio-engine.ts` — six procedural sounds, each a few oscillators
+  and an envelope, with a per-sound throttle. The events already report which sound they
+  want and how loud; nothing consumes it yet.
+- **Screen recording and screenshots.** `web/src/sim/canvas-recorder.ts`.
+- **The remaining docks.** The particle chamber's Physics and Visuals panels, and the powder
+  dock's search box and category filter, are in the web version and not here.
 
 ### 3. Online
 

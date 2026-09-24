@@ -9,6 +9,9 @@ struct SettingsSheet: View {
     let model: SimulationModel
     @Binding var glass: GlassLevel
     @Binding var showDebugOverlay: Bool
+    /// Opens the health report. Handed in rather than presented from here, because a sheet cannot
+    /// sensibly present another sheet on top of itself.
+    let onShowDiagnostics: () -> Void
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot
     /// disagree about what was asked for.
@@ -22,6 +25,7 @@ struct SettingsSheet: View {
                 physics
                 world
                 events
+                health
                 development
             }
             .scrollContentBackground(.hidden)
@@ -97,6 +101,33 @@ struct SettingsSheet: View {
             Text(
                 "Pressure is the most expensive part of a tick. Turning it off buys speed, and "
                     + "costs trapped gas its way out."
+            )
+            .font(.labBody(11))
+        }
+    }
+
+    // MARK: - Health
+
+    private var health: some View {
+        Section {
+            Button(action: onShowDiagnostics) {
+                HStack {
+                    Image(systemName: "stethoscope")
+                        .frame(width: 22)
+                        .foregroundStyle(Palette.muted)
+                    Text("Check the world's health")
+                        .foregroundStyle(Palette.foreground)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.subtleForeground)
+                }
+            }
+        } footer: {
+            Text(
+                "A world can go quietly wrong in ways that do not look wrong — a cell holding an "
+                    + "element that does not exist, or a temperature that is not a number. This "
+                    + "finds those, and undoes them."
             )
             .font(.labBody(11))
         }

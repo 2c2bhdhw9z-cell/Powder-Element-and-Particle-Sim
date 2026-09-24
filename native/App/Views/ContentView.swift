@@ -43,6 +43,7 @@ struct ContentView: View {
     @State private var showingScenes = false
     @State private var showingPresets = false
     @State private var showingSettings = false
+    @State private var showingDiagnostics = false
 
     /// Remembered between launches. All three are preferences rather than state: coming back to
     /// the chamber you were in, the interface you chose, and the readout you left on.
@@ -101,8 +102,15 @@ struct ContentView: View {
             SettingsSheet(
                 model: powder,
                 glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
-                showDebugOverlay: $showDebugOverlay
+                showDebugOverlay: $showDebugOverlay,
+                onShowDiagnostics: {
+                    showingSettings = false
+                    showingDiagnostics = true
+                }
             )
+        }
+        .sheet(isPresented: $showingDiagnostics) {
+            DiagnosticsSheet(model: powder)
         }
     }
 

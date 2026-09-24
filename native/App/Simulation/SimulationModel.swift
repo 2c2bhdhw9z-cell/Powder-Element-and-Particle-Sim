@@ -350,6 +350,29 @@ final class SimulationModel {
         engine.jostle(6)
     }
 
+    // MARK: - Health
+
+    /// Examines the world and reports what is wrong with it.
+    ///
+    /// A full pass over the grid, so this is called when the report is asked for rather than kept
+    /// continuously up to date.
+    func inspect() -> PowderDiagnostics {
+        engine.inspect()
+    }
+
+    /// The repairs, each returning how much it changed so the interface can say so.
+    ///
+    /// Passed straight through rather than wrapped, because the engine is where they are
+    /// implemented and tested. Undo points are the caller's business — see `DiagnosticsSheet`.
+    func flushStuckCells() -> Int { engine.flushStuckCells() }
+    func normaliseTemperatures() -> Int { engine.normaliseTemperatures() }
+    func extinguishFires() -> Int { engine.extinguishFires() }
+    func neutraliseAcids() -> Int { engine.neutraliseAcids() }
+
+    func coolAllCells() {
+        engine.coolAllCells()
+    }
+
     // MARK: - Set-piece events
 
     /// How hard the screen is currently being shaken, in points. Decays every frame.
