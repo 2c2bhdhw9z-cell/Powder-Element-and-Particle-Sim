@@ -266,6 +266,12 @@ final class ParticleFieldModel {
     private(set) var millisecondsPerTick: Double = 0
     private(set) var bodyCount = 0
 
+    /// A couple of minutes of readings, for the graphs.
+    private(set) var rateHistory = SampleHistory()
+    private(set) var costHistory = SampleHistory()
+    private(set) var populationHistory = SampleHistory()
+    private(set) var speedHistory = SampleHistory()
+
     private var ticksSinceSample = 0
     private var simulationSeconds: Double = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
@@ -330,6 +336,12 @@ final class ParticleFieldModel {
                 ? simulationSeconds / Double(ticksSinceSample) * 1000
                 : 0
             bodyCount = engine.bodyCount
+
+            rateHistory.record(Double(ticksPerSecond))
+            costHistory.record(millisecondsPerTick)
+            populationHistory.record(Double(bodyCount))
+            speedHistory.record(fastestBody)
+
             ticksSinceSample = 0
             simulationSeconds = 0
             lastSampleTime = sampledAt
@@ -635,6 +647,19 @@ final class ParticleFieldModel {
     func redo() {
         _ = engine.redo()
         bodyCount = engine.bodyCount
+    }
+
+    /// How fast the quickest body is travelling.
+    ///
+    /// Worth watching: a field that has gone unstable shows up here long before it looks wrong, as one
+    /// body accelerating away while everything else carries on normally.
+    private var fastestBody: Double {
+        var fastest = 0.0
+        for body in engine.particles {
+            let speed = body.velocityX * body.velocityX + body.velocityY * body.velocityY
+            if speed.isFinite { fastest = max(fastest, speed) }
+        }
+        return fastest.squareRoot()
     }
 
     /// Brings the readout back in step after something outside the tick changed the field.

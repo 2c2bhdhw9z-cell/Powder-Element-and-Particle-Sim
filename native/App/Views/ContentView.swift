@@ -57,6 +57,7 @@ struct ContentView: View {
     @State private var showingEditor = false
     @State private var showingFieldSettings = false
     @State private var showingHelp = false
+    @State private var showingPerformance = false
     /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
     /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
     @State private var paletteVersion = 0
@@ -105,7 +106,8 @@ struct ContentView: View {
                 glass: glass,
                 onToggleRunning: toggleRunning,
                 onSelectChamber: select,
-                onShowMenu: { showingSettings = true }
+                onShowMenu: { showingSettings = true },
+                onShowPerformance: { showingPerformance = true }
             )
 
             GeometryReader { geometry in
@@ -229,6 +231,15 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingHelp) {
             HelpSheet(glass: glass)
+        }
+        .sheet(isPresented: $showingPerformance) {
+            PerformanceSheet(
+                powder: powder,
+                field: field,
+                chamber: chamber,
+                unit: temperatureUnit,
+                glass: glass
+            )
         }
         .sheet(isPresented: $showingPeriodic) {
             PeriodicSheet(model: powder, glass: glass) { id in

@@ -237,6 +237,16 @@ final class SimulationModel {
         engine.cellCount > 0 ? Double(activeCells) / Double(engine.cellCount) : 0
     }
 
+    /// A couple of minutes of readings at one a second, for the graphs.
+    ///
+    /// Sampled at the same rate as the counters rather than every frame: a graph of a hundred and twenty
+    /// readings covers two minutes this way, which is long enough to see a slowdown build, and it costs
+    /// nothing.
+    private(set) var rateHistory = SampleHistory()
+    private(set) var costHistory = SampleHistory()
+    private(set) var fillHistory = SampleHistory()
+    private(set) var heatHistory = SampleHistory()
+
     private var ticksSinceSample = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
     private var stepCredit: Double = 0
@@ -346,11 +356,31 @@ final class SimulationModel {
             // Counting occupied cells is a full pass over the grid, so it is sampled at the
             // same rate as the frame counter rather than every frame.
             activeCells = engine.activeParticleCount
+
+            rateHistory.record(Double(ticksPerSecond))
+            costHistory.record(millisecondsPerTick)
+            fillHistory.record(fillFraction * 100)
+            // The hottest cell, which is what tells you whether something is on fire somewhere off
+            // screen. Sampled here rather than measured separately, since it is another full pass.
+            heatHistory.record(hottestCell)
+
             ticksSinceSample = 0
             simulationSeconds = 0
             lastSampleTime = now
         }
 
+    }
+
+    /// The temperature of the hottest cell that holds anything.
+    ///
+    /// Empty cells are skipped: air sits at the room's temperature everywhere, so including it would
+    /// make the reading say "the room is 20 degrees" no matter what was burning.
+    private var hottestCell: Double {
+        var hottest = -Double.infinity
+        for i in 0 ..< engine.cellCount where engine.type[i] != Element.empty {
+            hottest = max(hottest, Double(engine.temperature[i]))
+        }
+        return hottest.isFinite ? hottest : engine.ambientTemp
     }
 
     // MARK: - What the renderer needs

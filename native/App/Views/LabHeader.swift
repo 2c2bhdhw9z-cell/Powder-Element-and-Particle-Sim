@@ -27,6 +27,7 @@ struct LabHeader: View {
     let onToggleRunning: () -> Void
     let onSelectChamber: (Chamber) -> Void
     let onShowMenu: () -> Void
+    let onShowPerformance: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -110,27 +111,32 @@ struct LabHeader: View {
         )
     }
 
-    /// The frame rate, tinted by whether it is keeping up.
+    /// The frame rate, tinted by whether it is keeping up, and the way into the graphs.
     ///
-    /// In the header rather than tucked away, because it is the one number that explains why
-    /// something feels heavy — and on a simulation people are going to push until it struggles, that
-    /// is worth being able to see at a glance.
+    /// In the header rather than tucked away, because it is the one number that explains why something
+    /// feels heavy — and on a simulation people are going to push until it struggles, that is worth
+    /// seeing at a glance. Tapping it opens the history, which is where the useful questions live:
+    /// whether it is creeping up, and whether that stutter was real.
     private var frameRateChip: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "waveform.path.ecg")
-                .font(.labBody(10, .medium))
-            Text("\(framesPerSecond) fps")
-                .font(.labNumeric(11))
+        Button(action: onShowPerformance) {
+            HStack(spacing: 4) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.labBody(10, .medium))
+                Text("\(framesPerSecond) fps")
+                    .font(.labNumeric(11))
+            }
+            .foregroundStyle(frameRateTint)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+            )
         }
-        .foregroundStyle(frameRateTint)
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(
-            Capsule()
-                .fill(Color.white.opacity(0.06))
-                .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
-        )
+        .buttonStyle(.plain)
         .accessibilityLabel("\(framesPerSecond) frames per second")
+        .accessibilityHint("Opens the performance history")
     }
 
     private var frameRateTint: Color {
