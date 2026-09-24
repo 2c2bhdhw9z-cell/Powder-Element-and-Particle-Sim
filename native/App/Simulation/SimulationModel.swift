@@ -37,10 +37,38 @@ final class SimulationModel {
     /// How the grid is coloured.
     var overlay: PowderOverlayMode = .normal
 
+    // MARK: - Making the engine's settings visible to the interface
+
+    /// Bumped whenever anything the engine holds is written through this model.
+    ///
+    /// The long version of why is on `ParticleFieldModel.engineRevision`. The short version: the engine
+    /// imports nothing, Observation included, so a property that merely forwards to it is invisible to
+    /// SwiftUI — reading it records no dependency and writing it notifies nobody. Every forwarding
+    /// property therefore reads this on the way in and bumps it on the way out.
+    ///
+    /// It showed up worst in the particle chamber, where a whole panel of sliders moved without their
+    /// numbers ever changing. Here it was subtler and arguably nastier: this panel also shows the cost of
+    /// a tick, which is refreshed once a second, so the readouts did catch up — about a second late,
+    /// intermittently, which reads as the app being slow rather than as anything being wrong.
+    ///
+    /// **The per-frame paths must not go through these properties.** `steer(with:)` and the chamber
+    /// bridges write `engine.…` directly, which keeps this out of the render loop.
+    private(set) var engineRevision = 0
+
+    /// Records a dependency on the engine's settings. Called by every forwarding getter.
+    private func observeEngine() {
+        _ = engineRevision
+    }
+
+    /// Records that one of the engine's settings has changed. Called by every forwarding setter.
+    private func engineDidChange() {
+        engineRevision &+= 1
+    }
+
     /// Sideways wind, blowing gases and light powders along. Clamped by the engine to −5...5.
     var wind: Double {
-        get { engine.windX }
-        set { engine.setWind(newValue) }
+        get { observeEngine(); return engine.windX }
+        set { engine.setWind(newValue); engineDidChange() }
     }
 
     /// The temperature the world settles back to, and what things are placed at.
@@ -49,8 +77,8 @@ final class SimulationModel {
     /// on contact, and one at −40° freezes a pond solid — because the ambient is the simplest way
     /// to change what the whole world does at once.
     var ambientTemp: Double {
-        get { engine.ambientTemp }
-        set { engine.ambientTemp = newValue }
+        get { observeEngine(); return engine.ambientTemp }
+        set { engine.ambientTemp = newValue; engineDidChange() }
     }
 
     /// Whether the pressure field is simulated.
@@ -59,14 +87,14 @@ final class SimulationModel {
     /// tick — about six milliseconds of eleven at full resolution — and a world of dry powder
     /// does not need it. Turning it off costs trapped gas its ability to find a way out.
     var pressureEnabled: Bool {
-        get { engine.pressureEnabled }
-        set { engine.pressureEnabled = newValue }
+        get { observeEngine(); return engine.pressureEnabled }
+        set { engine.pressureEnabled = newValue; engineDidChange() }
     }
 
     /// Whether heat spreads between cells.
     var heatConductionEnabled: Bool {
-        get { engine.heatConductionEnabled }
-        set { engine.heatConductionEnabled = newValue }
+        get { observeEngine(); return engine.heatConductionEnabled }
+        set { engine.heatConductionEnabled = newValue; engineDidChange() }
     }
 
     /// Which way gravity points, as one of five presets.
@@ -114,6 +142,7 @@ final class SimulationModel {
     /// unset. Anything that is not one of the five — a value dragged in by the tilt, or set by a
     /// loaded scene — reports as the nearest, which for gravity means whichever axis dominates.
     var gravityDirection: GravityDirection {
+        observeEngine()
         let x = engine.gravityX
         let y = engine.gravityY
         if x == 0 && y == 0 { return .none }
@@ -132,17 +161,18 @@ final class SimulationModel {
 
     /// Vertical gravity. One is down, minus one is up, nought is weightless.
     var gravityY: Double {
-        get { engine.gravityY }
+        get { observeEngine(); return engine.gravityY }
         set {
             engine.gravityY = newValue
             manualGravityY = newValue
+            engineDidChange()
         }
     }
 
     /// How solid grains are speckled.
     var textureMode: PowderTextureMode {
-        get { engine.textureMode }
-        set { engine.textureMode = newValue }
+        get { observeEngine(); return engine.textureMode }
+        set { engine.textureMode = newValue; engineDidChange() }
     }
 
     /// What a touch paints.
@@ -167,10 +197,11 @@ final class SimulationModel {
 
     /// Sideways gravity, as the world is tilted.
     var gravityX: Double {
-        get { engine.gravityX }
+        get { observeEngine(); return engine.gravityX }
         set {
             engine.gravityX = newValue
             manualGravityX = newValue
+            engineDidChange()
         }
     }
 
@@ -301,7 +332,10 @@ final class SimulationModel {
     /// second. The number that matters: it is what has to fit inside a frame.
     private(set) var millisecondsPerTick: Double = 0
     /// The world's size, for the debug panel.
-    var gridSize: (width: Int, height: Int) { (engine.width, engine.height) }
+    var gridSize: (width: Int, height: Int) {
+        observeEngine()
+        return (engine.width, engine.height)
+    }
     /// How full the world is, nought to one.
     var fillFraction: Double {
         engine.cellCount > 0 ? Double(activeCells) / Double(engine.cellCount) : 0
@@ -324,8 +358,20 @@ final class SimulationModel {
     /// separated from everything else a frame does.
     private var simulationSeconds: Double = 0
 
-    var canUndo: Bool { history.canUndo }
-    var canRedo: Bool { history.canRedo }
+    /// Whether there is anything to go back to.
+    ///
+    /// The record is a plain object like the engine, so the same rule applies: reading it registers
+    /// nothing on its own. Without this the two arrows stayed greyed out after the first stroke, until
+    /// something unrelated happened to refresh them.
+    var canUndo: Bool {
+        observeEngine()
+        return history.canUndo
+    }
+
+    var canRedo: Bool {
+        observeEngine()
+        return history.canRedo
+    }
 
     init() {
         // A starting size that a phone can run at the full refresh rate with room to spare.
@@ -575,6 +621,8 @@ final class SimulationModel {
     /// drag, which has a starting point and needs ``beginStroke(atFractionX:fractionY:)``.
     func recordUndoPoint() {
         history.push(engine)
+        // So the undo arrow lights up now rather than whenever something else happens to refresh it.
+        engineDidChange()
     }
 
     /// Records a point to come back to, and sets up anything the stroke needs.

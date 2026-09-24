@@ -26,43 +26,85 @@ final class ParticleFieldModel {
     /// How fast time runs. One is real time.
     var speed: Double = 1
 
+    // MARK: - Making the engine's settings visible to the interface
+
+    /// Bumped whenever anything the engine holds is written through this model.
+    ///
+    /// ## Why this has to exist
+    ///
+    /// Every setting below is a property that simply forwards to the engine — one place where a value
+    /// lives, which is the right arrangement and is the reason a slider can never show a number the
+    /// simulation is not using.
+    ///
+    /// But the engine is deliberately not observable. It imports nothing at all, Observation included,
+    /// so that the physics compiles and is tested on any machine. And SwiftUI's observation only watches
+    /// **stored** properties: a computed one that reads `engine.something` registers no dependency when
+    /// it is read, and notifies nobody when it is written.
+    ///
+    /// The result was a settings panel that did nothing. You dragged Bounciness from one end to the
+    /// other and the number beside it never moved — not because the value had not changed, but because
+    /// nothing told the screen to look again. The slider's knob stayed where your finger left it, since
+    /// nothing redrew it either, so it looked exactly like a control that had been ignored. Every slider
+    /// in the field's panel behaved that way, and so did the choice of what happens at the edges.
+    ///
+    /// So this is one stored property that every one of them reads on the way in and bumps on the way
+    /// out. Coarser than per-property tracking — a change to any of them refreshes anything reading any
+    /// of them — which costs nothing, because all of these change only when somebody moves a control.
+    ///
+    /// **The per-frame paths must not go through these properties.** Tilt steering and the chamber
+    /// bridges write `engine.…` directly, which is what keeps this out of the render loop.
+    private(set) var engineRevision = 0
+
+    /// Records a dependency on the engine's settings. Called by every forwarding getter.
+    private func observeEngine() {
+        // Reading it is the entire point: that is what registers the dependency.
+        _ = engineRevision
+    }
+
+    /// Records that one of the engine's settings has changed. Called by every forwarding setter.
+    private func engineDidChange() {
+        engineRevision &+= 1
+    }
+
     /// What decides each body's colour.
     var colorMode: ParticleColorMode {
-        get { engine.colorMode }
-        set { engine.colorMode = newValue }
+        get { observeEngine(); return engine.colorMode }
+        set { engine.colorMode = newValue; engineDidChange() }
     }
 
     /// What a touch does.
     var mouseMode: ParticleMouseMode {
-        get { engine.mouseMode }
-        set { engine.mouseMode = newValue }
+        get { observeEngine(); return engine.mouseMode }
+        set { engine.mouseMode = newValue; engineDidChange() }
     }
 
     /// How far a touch reaches.
     var mouseRadius: Double {
-        get { engine.mouseRadius }
-        set { engine.mouseRadius = newValue }
+        get { observeEngine(); return engine.mouseRadius }
+        set { engine.mouseRadius = newValue; engineDidChange() }
     }
 
     /// What happens at the edges of the world.
     var boundaryMode: ParticleBoundaryMode {
-        get { engine.boundaryMode }
-        set { engine.boundaryMode = newValue }
+        get { observeEngine(); return engine.boundaryMode }
+        set { engine.boundaryMode = newValue; engineDidChange() }
     }
 
     var gravityX: Double {
-        get { engine.gravityX }
+        get { observeEngine(); return engine.gravityX }
         set {
             engine.gravityX = newValue
             manualGravityX = newValue
+            engineDidChange()
         }
     }
 
     var gravityY: Double {
-        get { engine.gravityY }
+        get { observeEngine(); return engine.gravityY }
         set {
             engine.gravityY = newValue
             manualGravityY = newValue
+            engineDidChange()
         }
     }
 
@@ -133,51 +175,52 @@ final class ParticleFieldModel {
     /// How much speed survives each moment. One is frictionless; below about 0.97 the field
     /// visibly congeals.
     var damping: Double {
-        get { engine.damping }
-        set { engine.damping = newValue }
+        get { observeEngine(); return engine.damping }
+        set { engine.damping = newValue; engineDidChange() }
     }
 
     /// How much of its speed a body keeps when it bounces off a wall.
     var elasticity: Double {
-        get { engine.elasticity }
-        set { engine.elasticity = newValue }
+        get { observeEngine(); return engine.elasticity }
+        set { engine.elasticity = newValue; engineDidChange() }
     }
 
     /// How strongly charged bodies push and pull on one another.
     var electrostaticFactor: Double {
-        get { engine.electrostaticFactor }
-        set { engine.electrostaticFactor = newValue }
+        get { observeEngine(); return engine.electrostaticFactor }
+        set { engine.electrostaticFactor = newValue; engineDidChange() }
     }
 
     /// A whole-field swirl. Negative spins the other way.
     var vortexForce: Double {
-        get { engine.vortexForce }
-        set { engine.vortexForce = newValue }
+        get { observeEngine(); return engine.vortexForce }
+        set { engine.vortexForce = newValue; engineDidChange() }
     }
 
     /// The fastest anything may travel, which is what stops a close encounter flinging a body off
     /// the screen.
     var maxSpeed: Double {
-        get { engine.maxSpeed }
-        set { engine.maxSpeed = newValue }
+        get { observeEngine(); return engine.maxSpeed }
+        set { engine.maxSpeed = newValue; engineDidChange() }
     }
 
     /// How hard a finger pulls or pushes.
     var mouseForceMultiplier: Double {
-        get { engine.mouseForceMultiplier }
-        set { engine.mouseForceMultiplier = newValue }
+        get { observeEngine(); return engine.mouseForceMultiplier }
+        set { engine.mouseForceMultiplier = newValue; engineDidChange() }
     }
 
     /// How quickly bodies with a lifespan fade away. Zero means they never do.
     var decaySpeed: Double {
-        get { engine.decaySpeed }
-        set { engine.decaySpeed = newValue }
+        get { observeEngine(); return engine.decaySpeed }
+        set { engine.decaySpeed = newValue; engineDidChange() }
     }
 
     /// Whether the reach is effectively unlimited, so the interface can say so rather than showing a
     /// number that suggests a boundary.
     var hasUnlimitedReach: Bool {
-        ParticleOverlayStyle.isUnlimited(reach: engine.mouseRadius)
+        observeEngine()
+        return ParticleOverlayStyle.isUnlimited(reach: engine.mouseRadius)
     }
 
     /// Where a picture of the field comes from.
@@ -209,8 +252,8 @@ final class ParticleFieldModel {
     }
 
     var showTrails: Bool {
-        get { engine.showTrails }
-        set { engine.showTrails = newValue }
+        get { observeEngine(); return engine.showTrails }
+        set { engine.showTrails = newValue; engineDidChange() }
     }
 
     /// Whether bodies behave as a fluid, pressing on one another like water.
@@ -219,14 +262,14 @@ final class ParticleFieldModel {
     /// arrangement look like water instead of like falling beads. Expensive, and off by default, which
     /// is why the arrangements that want it switch it on themselves.
     var fluidEnabled: Bool {
-        get { engine.fluidEnabled }
-        set { engine.fluidEnabled = newValue }
+        get { observeEngine(); return engine.fluidEnabled }
+        set { engine.fluidEnabled = newValue; engineDidChange() }
     }
 
     /// Whether bodies steer by their neighbours, as a flock of birds does.
     var flockEnabled: Bool {
-        get { engine.flockEnabled }
-        set { engine.flockEnabled = newValue }
+        get { observeEngine(); return engine.flockEnabled }
+        set { engine.flockEnabled = newValue; engineDidChange() }
     }
 
     /// Whether every body pulls on every other, as masses do.
@@ -234,8 +277,8 @@ final class ParticleFieldModel {
     /// The most expensive thing here by a wide margin: the work grows with the square of the number of
     /// bodies, so it is meant for a few hundred rather than a few hundred thousand.
     var nbodyEnabled: Bool {
-        get { engine.nbodyEnabled }
-        set { engine.nbodyEnabled = newValue }
+        get { observeEngine(); return engine.nbodyEnabled }
+        set { engine.nbodyEnabled = newValue; engineDidChange() }
     }
 
     /// Drops a gravity well wherever the last touch was, or in the middle if there has not been one.
@@ -252,14 +295,14 @@ final class ParticleFieldModel {
     }
 
     var collisionsEnabled: Bool {
-        get { engine.collisionsEnabled }
-        set { engine.collisionsEnabled = newValue }
+        get { observeEngine(); return engine.collisionsEnabled }
+        set { engine.collisionsEnabled = newValue; engineDidChange() }
     }
 
     /// How wide a body is drawn, in pixels.
     var particleSize: Double {
-        get { engine.particleSize }
-        set { engine.particleSize = newValue }
+        get { observeEngine(); return engine.particleSize }
+        set { engine.particleSize = newValue; engineDidChange() }
     }
 
     private(set) var ticksPerSecond = 0
@@ -282,9 +325,20 @@ final class ParticleFieldModel {
     private var touchY: Double = 0
     private var touchActive = false
 
-    var canUndo: Bool { engine.canUndo }
-    var canRedo: Bool { engine.canRedo }
-    var worldSize: (width: Double, height: Double) { (engine.width, engine.height) }
+    var canUndo: Bool {
+        observeEngine()
+        return engine.canUndo
+    }
+
+    var canRedo: Bool {
+        observeEngine()
+        return engine.canRedo
+    }
+
+    var worldSize: (width: Double, height: Double) {
+        observeEngine()
+        return (engine.width, engine.height)
+    }
 
     init() {
         engine = ParticleEngine(width: 400, height: 700)
@@ -573,10 +627,11 @@ final class ParticleFieldModel {
     /// Read-only through the engine, because lowering it has to trim what is already there — and the
     /// swarm as well as the objects, which the reference forgot.
     var maxBodies: Int {
-        get { engine.maxParticles }
+        get { observeEngine(); return engine.maxParticles }
         set {
             engine.setMaxParticles(newValue)
             bodyCount = engine.bodyCount
+            engineDidChange()
         }
     }
 
@@ -599,7 +654,8 @@ final class ParticleFieldModel {
 
     /// How much room is left before the limit.
     var remainingRoom: Int {
-        max(0, engine.maxParticles - engine.bodyCount)
+        observeEngine()
+        return max(0, engine.maxParticles - engine.bodyCount)
     }
 
     func loadPreset(_ id: String) {
