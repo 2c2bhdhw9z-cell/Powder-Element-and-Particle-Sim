@@ -48,12 +48,16 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | Sound — all six | complete | 18 tests, checked as signals rather than as settings |
 | Trails and the touch ring | decisions complete | 9 tests; see the note below on why not pixels |
 | Saving, loading, autosave, sharing, invented materials | complete | builds in CI |
+| The day's shared world | complete | 10 dates compared against the web's choice, hash and all |
+| The two chambers affecting each other | complete | 16 behavioural tests |
+| Screenshots and screen recording | complete | pixel export tested in the engine; recording is ReplayKit |
+| Brush shapes, search, detail setting, help | complete | builds in CI |
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
 | iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
 | iOS app: appearance matched to the reference | complete | header, sheet chrome and trays measured from the stylesheet; colours and radii checked value by value; a CI step fails the build if a typeface name matches no bundled file |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**303 engine tests. 131 reference tests. 93 script tests.** Green on Linux and macOS, in
+**344 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 ---
@@ -141,56 +145,49 @@ about eighty bugs. The choice to put to the user is between:
 
 ### 2. App features still missing
 
-Short now, and roughly in order of how much they are missed.
+The local port is essentially done. What remains:
 
-- **The fading backdrop behind trails.** The trails themselves are drawn. What is not is the
-  reference's trick of painting the background over the previous frame at a quarter opacity
-  instead of clearing it, which is what makes a trail longer than the six positions a body
-  remembers. Needs the field drawn into a texture that survives between frames, then blitted
-  to the screen — see `ParticleOverlayStyle.frameFadeOpacity`, which already records the figure.
-- **Screenshots and screen recording.** `web/src/sim/canvas-recorder.ts`. The screenshot is
-  the easy half: the Metal view can be read back into an image. Recording needs
-  `ReplayKit` or a frame-by-frame writer, and is the larger job.
-- **The powder dock's search box and category filter.** Fifty materials are grouped but not
-  searchable. Matters more now that invented ones sit alongside them.
-- **A few particle-chamber controls.** The body cap and batch-spawn sizes are fixed rather
-  than adjustable, and the 18 presets are in a list rather than as chips in the dock.
-- **Split view.** The web version can show both chambers at once, with a switch for whether
-  the hidden one keeps running. Deliberately left until last: on a phone-sized screen two
-  half-height chambers may simply be worse, and it is worth deciding that with the app in hand.
-
-#### Appearance
-
-Worth stating plainly, because it was the thing most wrong for longest and the thing the reference
-is hardest to read values out of.
-
-Every colour and radius in `Palette.swift` is the stylesheet's, value for value. The three pieces of
-chrome — the header, a sheet, a tray — are measured from the reference's classes rather than
-eyeballed: sizes, opacities, corner radii, the weight of each hairline, and the eighty-eight point
-pull that dismisses a sheet. Where the reference sets a value per component rather than through its
-theme, so does this, and the comment says which is which.
-
-Two mistakes worth not repeating. Panels were originally built from SwiftUI's `Form` inside a
-`NavigationStack`, which is the quickest thing that works and looks like the Settings app; replacing
-that with the lab's own sheet chrome was most of the difference. And there was no header at all — the
-app floated a pill over the canvas, which reads as a utility rather than as a place with a name.
-
-A missing typeface is the one failure in this project that reports nothing: `Font.custom` does not
-fail, warn or crash, it silently substitutes the system face. `scripts/check-fonts.py` runs in the app
-workflow and fails the build if any name asked for in code matches no bundled file, or if a file is
-not listed in `Info.plist`. Confirmed to bite by changing one letter.
+- **Split view.** The web version can show both chambers at once, with a switch for whether the
+  hidden one keeps running — that switch now exists on its own ("Keep both running"), so only the
+  side-by-side layout is missing. Deliberately last: on a phone-sized screen two half-height
+  chambers may simply be worse, and that is worth deciding with the app in hand rather than in
+  the abstract.
+- **The performance sheet's graphs.** The web version draws sparklines for a dozen measures. The
+  detail panel now shows the figures that actually decide anything — grid size, cost of a moment,
+  rate — live and tinted, which covers most of the need. The graphs are a nicety.
+- **Fahrenheit.** The reference offers a °C/°F switch. Nothing in the app shows a temperature to a
+  reader yet except the health report, so this is waiting on somewhere to matter.
+- **An inspect chip on the canvas.** The reference floats a chip showing the selected material and
+  its temperature, which doubles as the way into its encyclopedia card. Here that card is reached
+  by holding the material's chip in the tray instead.
 
 #### Verified differently, and why
 
-Two things in the app are *not* compared against the reference frame for frame, and both are
+Four things in the app are *not* compared against the reference frame for frame, and all four are
 recorded here so nobody assumes it was an oversight:
 
 - **Trails and the touch ring.** The reference draws them with the browser's 2D canvas, whose
-  antialiasing and line joins are specified nowhere. A recorded picture would prove only that
-  one rasteriser agrees with itself. Every decision feeding into them is tested instead.
+  antialiasing and line joins are specified nowhere. A recorded picture would prove only that one
+  rasteriser agrees with itself. Every decision feeding into them is tested instead.
 - **The six sounds.** The reference hands a description to the browser and lets it generate the
   samples. They are checked as signals — that the meteor falls and the freeze rises, that the
   explosion darkens, that nothing clips — rather than sample for sample.
+- **The chamber bridges.** The reference decides what a settling body becomes by searching for a
+  substring inside a CSS colour string. There is no CSS colour string here, so there is nothing to
+  compare; the behaviour is tested instead, including the ways it could quietly destroy something.
+- **Screen recording.** The reference records its canvas element. This records the screen through
+  ReplayKit, which also captures the sound and does not compete with the simulation for frame time.
+  A difference rather than a translation, and the code says so.
+
+#### Two bugs found in the reference along the way
+
+Worth recording, because both are cases where the reference documents behaviour it does not have:
+
+- Its help screen says a cloth tears when pulled. No spring is ever removed in either engine, so it
+  does not — here *or* there. The line was copied across before being checked, and checking is the
+  only reason it was caught.
+- Its stylesheet names IBM Plex Mono for every numeric readout and never requests it, so all of them
+  render in whatever monospace the browser defaults to. Fixed on the web side.
 
 ### 3. Online
 

@@ -213,6 +213,44 @@ final class ParticleFieldModel {
         set { engine.showTrails = newValue }
     }
 
+    /// Whether bodies behave as a fluid, pressing on one another like water.
+    ///
+    /// A genuinely different physics rather than a visual option — it is what makes the pouring
+    /// arrangement look like water instead of like falling beads. Expensive, and off by default, which
+    /// is why the arrangements that want it switch it on themselves.
+    var fluidEnabled: Bool {
+        get { engine.fluidEnabled }
+        set { engine.fluidEnabled = newValue }
+    }
+
+    /// Whether bodies steer by their neighbours, as a flock of birds does.
+    var flockEnabled: Bool {
+        get { engine.flockEnabled }
+        set { engine.flockEnabled = newValue }
+    }
+
+    /// Whether every body pulls on every other, as masses do.
+    ///
+    /// The most expensive thing here by a wide margin: the work grows with the square of the number of
+    /// bodies, so it is meant for a few hundred rather than a few hundred thousand.
+    var nbodyEnabled: Bool {
+        get { engine.nbodyEnabled }
+        set { engine.nbodyEnabled = newValue }
+    }
+
+    /// Drops a gravity well wherever the last touch was, or in the middle if there has not been one.
+    ///
+    /// A well is a body like any other as far as the field is concerned; it simply pulls hard enough to
+    /// organise everything around it, which is the quickest way to turn a scattered field into
+    /// something worth watching.
+    func dropWell() {
+        recordUndoPoint()
+        let x = engine.lastMouseActive || engine.lastMouseX != 0 ? engine.lastMouseX : engine.width / 2
+        let y = engine.lastMouseActive || engine.lastMouseY != 0 ? engine.lastMouseY : engine.height / 2
+        engine.placeWell(x: x, y: y)
+        bodyCount = engine.bodyCount
+    }
+
     var collisionsEnabled: Bool {
         get { engine.collisionsEnabled }
         set { engine.collisionsEnabled = newValue }

@@ -246,6 +246,7 @@ struct FieldDock: View {
             // Pours the field into the powder world. Worth a named button rather than an icon: it moves
             // everything to the other chamber, which is not a thing to discover by accident.
             destination("Settle into powder", "arrow.down.to.line", action: onSettleEverything)
+            destination("Drop a well", "circle.circle", action: { model.dropWell() })
             destination("Field", "slider.horizontal.3", action: onShowSettings)
         }
     }
@@ -308,6 +309,27 @@ struct FieldDock: View {
             }
             .font(.labBody(12))
             .foregroundStyle(Palette.foreground)
+            .tint(Palette.primary)
+
+            // Three kinds of physics that existed in the engine with no way to switch them on. Each
+            // changes what the field *is* rather than how it looks, which is why they sit apart from
+            // the sliders.
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle("Fluid — bodies press on one another like water", isOn: Binding(
+                    get: { model.fluidEnabled },
+                    set: { model.fluidEnabled = $0 }
+                ))
+                Toggle("Flock — bodies steer by their neighbours", isOn: Binding(
+                    get: { model.flockEnabled },
+                    set: { model.flockEnabled = $0 }
+                ))
+                Toggle("Gravity between bodies — heavy, for a few hundred", isOn: Binding(
+                    get: { model.nbodyEnabled },
+                    set: { model.nbodyEnabled = $0 }
+                ))
+            }
+            .font(.labBody(11))
+            .foregroundStyle(Palette.muted)
             .tint(Palette.primary)
         }
         .padding(.horizontal, 16)
