@@ -1,181 +1,281 @@
 # The online half
 
-The local port is finished — see [PORT-STATUS.md](PORT-STATUS.md). This is the plan for the rest:
-the shared room, cloud saves, the workshop, and signing in.
+The shared room, cloud saves, the workshop and signing in are **built**. This file is the record
+of how, why those particular choices, and — the part that still needs a person — what has to be
+set on the server before any of it works for real.
 
-Written down in this much detail because the findings below took a while to establish and would
-otherwise have to be rediscovered. **Read this before touching any of it.**
-
-The owner has confirmed all of it is wanted. On hosting, their answer was that they have not touched
-the project in a long time and have no preference — so the decisions below are mine to make, and the
-constraints they have to satisfy are recorded rather than assumed.
+The local port is described in [PORT-STATUS.md](PORT-STATUS.md). Read this before touching
+anything online: several findings below took a while to establish and would otherwise be
+rediscovered the hard way.
 
 ---
 
-## What is already done
+## What still needs a human
 
-**The room's vocabulary**, in `native/Sources/CrucibleCore/Room/RoomProtocol.swift`, with fourteen
-tests in `RoomProtocolTests.swift`. No transport — nothing in it can reach another device. It
-defines what a message can say, how it becomes bytes, and what applying one does to a world.
+**Everything below this line is code and is finished. This section is not.**
 
-The scheme is deliberately **not** the reference's. The reference broadcasts the whole grid every
-tenth of a second; at the sizes this app runs that is megabytes a second. Here:
+The app cannot know where its server is, and the server needs four things set before it can keep
+anything. Neither can be done from a sandbox.
 
-1. the full world goes once, when a peer joins;
-2. strokes go as they happen, as *instructions* rather than results;
-3. a cheap fingerprint goes out periodically;
-4. a follower whose fingerprint disagrees asks for the whole world — and only then.
+### 1. Tell the app where the server is
 
-`PowderEngine.hashLite()` is the fingerprint and was built for exactly this. It was once broken in a
-way that made this scheme fail completely: it mixed raw cell values while the compact format sent
-something narrower, so the two never agreed, the drift test was permanently true, and the whole grid
-was resent every tick. The tests cover that case now, including the one it originally missed
-(inverted gravity).
+There is no address compiled into the app, on purpose: this project is deployed by whoever
+deployed it, to whatever address they were given, and a baked-in guess would look configured and
+fail every request.
+
+So in the app: **Lab → Your worlds and the workshop → Server address**, then the web address
+Crucible opens at in a browser. It is checked immediately and reports what is wrong.
+
+### 2. Set the server up
+
+On Vercel, which is where this is deployed from (built out of `web/` by the root `vercel.json`).
+
+| Variable | Why |
+| --- | --- |
+| `DATABASE_URL` | A real Neon database. **Without it nothing is kept** — see below. |
+| `VITE_AUTH_ENABLED=true` | Otherwise there is nothing to sign in to. |
+| `AUTH_ISSUER`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | Federated sign-in. All three, or sign-in stays off. |
+| `BETTER_AUTH_SECRET` | Or sessions die on every deploy. |
+
+Then run the migrations — `web/migrations/0001_auth.sql` and `0002_lab.sql`, via
+`web/scripts/migrate.mjs`, which `npm run build` already does.
+
+**The database falls back silently, and this is the trap.** `web/src/lib/db.ts` uses Neon when
+`DATABASE_URL` is set and an embedded PGLite otherwise, *by design*, so the app works with nothing
+configured. The consequence:
+
+> With no `DATABASE_URL`, every serverless invocation gets its own throwaway database. A saved
+> world appears to save and is then simply gone.
+
+The app now checks for exactly this and says so before anybody saves anything — `/api/v1/status`
+reports whether storage is real, and the panel shows **"Temporary — nothing is kept"** in red. But
+it is a warning, not a fix.
+
+**And there is a third state, which fails closed on purpose.** With `DATABASE_URL` set and
+`VITE_AUTH_ENABLED=false`, `requireUserId` refuses every request rather than sharing one
+development user against a real database — which would let every visitor read everyone's rows. The
+app reports that as "this server is not set up for accounts yet" (503) rather than as a bug.
 
 ---
 
-## 1. The shared room — phone to phone
+## 1. The shared room
 
-### Why not WebRTC
+`native/Sources/CrucibleCore/Room/` for everything testable, `native/App/Simulation/RoomSession.swift`
+and `RoomBridge.swift` for the transport, `native/App/Views/RoomSheet.swift` for the panel.
+**68 tests.**
 
-The reference uses WebRTC with a signalling server (`web/src/lib/multiplayer/`, plus
-`web/src/routes/api/rtc.ts`). That is the right choice on the web and the wrong one here:
+### MultipeerConnectivity, not WebRTC
 
-- iOS has no built-in WebRTC. It would mean a third-party framework.
-- **A dynamic framework cannot be in this app.** The `.ipa` ships unsigned and is signed on the
-  device; every embedded framework is another thing that needs a matching provisioning profile and
-  another way for on-device signing to fail. That constraint is recorded in `native/project.yml` and
-  is not negotiable without changing how the app is delivered.
+The reference uses WebRTC with a signalling server (`web/src/lib/multiplayer/`, `web/src/routes/api/rtc.ts`).
+Right for a browser, wrong here: iOS has no WebRTC, so it would mean a third-party framework — and
+a framework is a dynamic library needing its own provisioning profile every time this app is signed
+on a device. The `.ipa` ships unsigned and is signed by whoever installs it. Every embedded
+framework is another way for that to fail. That constraint is recorded in `native/project.yml` and
+is not negotiable without changing how the app is delivered.
 
-### What to use instead
+MultipeerConnectivity is already in iOS, needs nothing added, and needs **no server at all**.
 
-**MultipeerConnectivity.** Built into iOS, no dependency, and — importantly — **no server at all**.
-It does exactly what the feature is for: two phones in the same place sharing a world.
+Two consequences, which the panel states out loud rather than burying in help:
 
-Consequences to be honest about, in the app's own words:
+- It is phone to phone over local network or Bluetooth. Two people in different cities cannot use it.
+- A native room and a web room are **different rooms**. One is MultipeerConnectivity and the other
+  WebRTC; there is no arrangement under which they interoperate. Cross-network rooms would need a
+  relay on the server, which is separate work.
 
-- It is phone-to-phone over local network or Bluetooth. Two people in different cities cannot use it.
-- It will not interoperate with the web version's rooms. Those are WebRTC; these are not. A native
-  room and a web room are different rooms.
+### The scheme, and the one that was wrong
 
-If cross-device-cross-network rooms are ever wanted, that is a separate piece of work and the honest
-route is a small relay on the server, not WebRTC in the app.
+An earlier version of this file said: full world once, then strokes, with a fingerprint to catch
+drift. **That cannot work**, and the test named `scatteringBrushDrifts` is the proof — one spray of
+sand puts two worlds permanently out of agreement, and every tick of ordinary physics does the same
+thing, because two engines draw from their own random streams.
+
+So: **followers do not simulate.** The host sends the whole world, continuously, and the follower
+displays it. Strokes still travel, in both directions, so a follower's painting reaches the host
+and appears under its own finger immediately rather than a network round trip later.
+
+Making that affordable took three things:
+
+- **Run-length encoding**, because a powder world is mostly air in long runs. Measured at the app's
+  four detail settings: an empty 150,000-cell world packs to 1.2 KB (124×), a busy one to 18 KB, and
+  the largest world the app makes to 55 KB. With a plain-bytes fallback for a world that will not
+  compress, so the worst case is one byte of overhead rather than double the size.
+- **A binary frame, not base64 inside JSON.** Base64 adds a third to the traffic that dominates the
+  link, plus the processor time to encode and decode it on both phones for nothing. The frame
+  describes itself — width, height, gravity, a sequence number and the sender's fingerprint in the
+  header — so it is checked against its own claims rather than a size the receiver was told
+  separately. A body laid down at the wrong row length shears the whole world diagonally and reports
+  nothing.
+- **Acknowledgement pacing.** A timer sending thirty frames a second fails badly on a link that
+  cannot carry thirty: they queue, and the follower falls further behind every second while the host
+  thinks all is well. Nothing reports it. So a frame goes, the follower says it drew it, and only
+  then does the next one go — the rate becomes the link's to choose, with a ceiling so a fast link
+  does not starve the simulation, and a deadline so a peer that walked out of range does not stop the
+  room.
 
 ### Implementation notes
 
-- Service type `crucible-room` (13 characters; the limit is 15, lowercase letters, digits, hyphens).
-- **`Info.plist` must declare both or it silently fails on iOS 14+:**
-  - `NSLocalNetworkUsageDescription`
-  - `NSBonjourServices` containing `_crucible-room._tcp` **and** `_crucible-room._udp`
-- Room code travels in the advertiser's `discoveryInfo` so only matching codes connect.
-- **Host election without negotiation:** the peer whose identifier sorts lowest among itself and its
-  connected peers is the host. Stable, needs no handshake, and re-elects automatically when the host
-  leaves.
-- Strokes and worlds go `.reliable`; fingerprints go `.unreliable` (they are advisory and frequent).
-- A stroke is under 200 bytes, so broadcasting one per touch at 120 a second is about 24KB/s. Fine.
-  A world at the app's largest detail setting is a few hundred kilobytes, which is why it is sent
-  once rather than continuously.
+- Service type `crucible-room` — 13 characters; the limit is 15, lower case, digits, hyphens.
+- **`Info.plist` must declare both or it silently fails on iOS 14+**, and there is nothing to debug
+  because nothing errors: `NSLocalNetworkUsageDescription`, and `NSBonjourServices` listing
+  `_crucible-room._tcp` **and** `_crucible-room._udp`. Both, because MultipeerConnectivity uses
+  whichever suits the link.
+- The room code travels in the advertiser's `discoveryInfo`, and is checked again on the invitation.
+- **Host election with no handshake:** the lowest-sorting identifier, computed independently by every
+  peer. A negotiation to elect a host is one more thing to fail on the least reliable part of the
+  feature, and the peer that would run it is the one that just disappeared.
+- **Lower invites higher**, so exactly one of any two peers invites the other. Without a rule like
+  that, both browse, both invite, and the pair can end up with two half-built connections where
+  neither side agrees which is real.
+- Identifiers are `"<device name> <four random characters>"`. From iOS 16 `UIDevice.name` returns
+  the model, so without the suffix two iPhones would be called the same thing and sorting them
+  would be a coin toss each phone could flip differently.
+
+### The bug worth knowing about
+
+**When the host leaves and another phone takes over, the new host's frame numbering restarts at
+one.** Measured against the old host's five hundredth frame, one looks like something from the
+distant past — so every frame from the new host would be rejected as stale and the follower would
+sit in front of a frozen world for good, with the link working perfectly and nothing to indicate
+why.
+
+It is fixed (the follower notices the world is arriving from a different phone and starts again),
+and it is recorded here because it needs three phones and one of them to leave. It was found by
+reading, and that was the only way it could have been.
+
+### What cannot be tested here
+
+The transport, entirely — it needs two real phones. That is exactly why the decisions moved into
+the engine: who hosts, when a frame may go, whether an arriving frame is newer, what a typed code
+means. All of that has tests. The panel is written to make the state obvious — the code, who is
+connected, which phone is running the world, and whether frames are still arriving — because when
+it does go wrong, that display is the only diagnostic anyone will have.
 
 ---
 
 ## 2. Cloud saves and the workshop
 
-### The obstacle, precisely
+`native/Sources/CrucibleCore/Cloud/CloudProtocol.swift` (**45 tests**),
+`native/App/Simulation/CloudClient.swift` and `CloudAccount.swift`,
+`native/App/Views/CloudSheet.swift` and `WorkshopSheet.swift`.
+Server side: `web/src/lib/lab-store.ts`, `web/src/lib/api/` (**13 tests**),
+`web/src/routes/api/v1/$.ts`.
 
-The queries, tables and validation already exist in `web/src/lib/lab-api.ts` — `listSaves`,
-`loadSave`, `createSave`, `deleteSave`, `listMaps`, `loadMap`, `downloadMap`, `likeMap`,
-`publishMap`. They are **TanStack server functions**: an RPC arrangement where the client is
-generated from the server's types. There are no URLs a native app can call.
+### Why there are new routes at all
 
-So the work is to add ordinary HTTP routes that wrap the same queries. Alongside the existing
-`web/src/routes/api/auth/$.ts` and `web/src/routes/api/rtc.ts`.
+The queries already existed in `web/src/lib/lab-api.ts` as TanStack **server functions** — an
+arrangement where the client is generated from the server's types, so there are no URLs. Good for
+the website, unusable from an app.
 
-### Two findings that make this much easier than expected
+So `/api/v1/*` was added, and the server functions were **reduced to wrappers over the same
+queries** in `lab-store.ts`. Writing the routes out separately would mean every column rename made
+twice, with the second the one that gets missed — and, worse, so would every `where user_id =`. A
+route that forgets that returns somebody else's saves, and nothing about it looks wrong from the
+outside. The zod limits moved there too: the server function's validator is not in the HTTP path,
+so leaving them would have given one of two callers no limits at all.
 
-**Bearer-token authentication already works.** `web/src/lib/auth/middleware.ts` already accepts a
-bearer token and forwards it to `requireUserId`. It exists for the embedded preview, whose iframe has
-partitioned cookies — but it is exactly what a native app needs. No new auth mechanism required.
+### Two findings that made this easier than expected
 
-**The same-site guard already permits a native client.**
-`web/src/lib/auth/isolation.server.ts` rejects scripted cross-site requests, and I expected that to
-block the app. It does not, and the reason matters: it returns early when there is no
-`Sec-Fetch-Site` header, because that means a non-browser client. Its threat model is a malicious
-*sibling browser tab* riding a `SameSite=Lax` cookie. A native app carrying an explicit bearer token
-is not that threat and is not subject to it. **Do not "fix" this by tightening it** — read the
-comment in that file first.
+**Bearer-token authentication already worked.** `web/src/lib/auth/middleware.ts` already accepted
+one, built for the embedded preview whose iframe has partitioned cookies. Exactly what an app needs.
 
-### Shape of the routes
+**The same-site guard already permitted a native client, deliberately.**
+`web/src/lib/auth/isolation.server.ts` returns early when there is no `Sec-Fetch-Site` header,
+because that means a non-browser client. Its threat model is a malicious *sibling browser tab*
+riding a `SameSite=Lax` cookie. **Do not "fix" this by tightening it** — read the comment first.
 
-Keep them boring and separate from the server functions rather than trying to share a handler:
+### But the routes do not rely on that
+
+`/api/v1/*` reads a bearer token and **refuses to look at cookies**, via `requireUserIdForApi`. A
+route that accepts a cookie is a route another site can make a browser send a request to on
+somebody's behalf; a route that accepts only a token the caller has to know cannot be, whatever
+headers the browser adds. The app always holds a token, so it loses nothing, and the guarantee
+becomes structural rather than a header check that has to stay correct.
+
+### The shape
 
 ```
-GET    /api/v1/saves            list
-POST   /api/v1/saves            create
-GET    /api/v1/saves/:id        load
-DELETE /api/v1/saves/:id        delete
-GET    /api/v1/maps             list, with sort and tag filters
-GET    /api/v1/maps/:id         load
-POST   /api/v1/maps             publish
-POST   /api/v1/maps/:id/like    like
-POST   /api/v1/maps/:id/download  count a download and return the grid
+GET    /api/v1/status                  is this server usable, and does it keep anything
+GET    /api/v1/me                      is this token still good
+GET    /api/v1/auth/providers          which sign-in buttons to draw
+GET    /api/v1/auth/start/:provider    begin signing in
+GET    /api/v1/auth/done               finish signing in
+GET    /api/v1/saves                   list
+POST   /api/v1/saves                   keep
+GET    /api/v1/saves/:id               open
+DELETE /api/v1/saves/:id               remove
+GET    /api/v1/maps                    the workshop, with sort and tag
+POST   /api/v1/maps                    publish
+GET    /api/v1/maps/:id                read
+POST   /api/v1/maps/:id/like           like
+POST   /api/v1/maps/:id/download       count an opening and return the world
 ```
 
-Every one scoped by the authenticated user where the server function was. The existing zod
-validation and limits (name ≤80, data ≤8MB, thumbnail ≤400,000 characters) must be applied here too
-— the server function is not in the path any more, so its guarantees do not come for free.
+One splat route in the generated route tree; the dispatch is a table in `v1-routes.ts`, which has
+no server imports so it can be tested without starting a database.
+
+**`needsAccount` is the part to be careful with.** It is one exhaustive switch — adding an
+operation without deciding this fails to compile — and the test walks every operation there is and
+asserts the answer. A route that forgets to require an account has no symptom: it works perfectly,
+for everybody, including the people it should keep out. Verified by breaking it.
+
+### The one thing the interface is most careful about
+
+**Never an empty list for a request that failed.** "You have no saved worlds" and "nobody managed
+to ask" look identical and mean opposite things, and the second shown as the first is how somebody
+concludes their work is lost. So a list has three states rather than two, the failed one says what
+went wrong and whether trying again could go differently, and a failed refresh leaves the previous
+list alone instead of emptying it.
 
 ---
 
-## 3. Signing in on a phone
+## 3. Signing in
 
-`ASWebAuthenticationSession` — the system sign-in sheet. It is the only route that is both
-acceptable to Apple and acceptable to an OAuth provider, and it needs no embedded browser.
+`ASWebAuthenticationSession` — the system sign-in sheet. The only route both Apple and an identity
+provider accept, it shows a real address bar so somebody can see whose page they are typing a
+password into, and the app never sees the password.
 
-Flow: open the app's existing `/api/auth` sign-in URL with a callback scheme the app registers,
-better-auth completes the provider round trip, the callback returns a bearer token, the app stores it
-in the keychain and sends it on every request.
+### The bridge that was needed
 
-- Register a URL scheme in `Info.plist` (`crucible://`).
-- `AUTH_PROVIDERS` in `web/src/lib/auth/providers.ts` is the source of truth for which buttons exist:
-  currently Google and X.
-- Sign-in can be **off** in a deployment (`VITE_AUTH_ENABLED`), in which case a shared development
-  user is resolved and nothing throws. The app must handle that gracefully rather than showing a
-  sign-in button that does nothing.
+Better Auth hands out a **cookie**. The OAuth round trip happens inside the sheet, and that cookie
+belongs to the sheet and vanishes with it — the app never sees it. What the app can carry is a
+bearer token, which the `bearer()` plugin already accepts.
 
----
+So `web/src/lib/api/native-auth.server.ts` does what the preview's popup already does
+(`web/src/lib/auth/popup.server.ts`), with the last step changed:
 
-## 4. Hosting — the thing that actually needs attention
+1. `/api/v1/auth/start/<provider>` begins OAuth, asking for the callback to return to step 2 —
+   same origin, so the cookie lands inside the sheet where it is useful.
+2. `/api/v1/auth/done` reads that cookie server-side and redirects to `crucible://auth?token=…`.
 
-The owner does not know how this is deployed, so: it is on **Vercel**, built from `web/` by the root
-`vercel.json`.
+The sheet matches the scheme and **stops**. It never fetches that address, so nothing logs it, and
+no page is written, so it is in no history or cache. A page showing a code to copy would be worse
+in every way, including for security, because a code somebody types is a code they can be talked
+into typing somewhere else.
 
-**The database falls back silently.** `web/src/lib/db.ts` uses Neon Postgres when `DATABASE_URL` is
-set and an embedded PGLite otherwise, *by design*, so the app works with nothing configured. The
-consequence for this feature is severe and worth stating plainly:
+- `AUTH_PROVIDERS` in `web/src/lib/auth/providers.ts` remains the source of truth: Google and X.
+- The scheme `crucible` appears in three places that must agree — `CFBundleURLSchemes` in
+  `Info.plist`, `CloudSignIn.scheme` in the app, `nativeCallbackScheme` on the server. Getting it
+  wrong shows up as a sheet that opens, completes, and then just sits there.
 
-> If `DATABASE_URL` is not set in the deployment, cloud saves will appear to work and then vanish,
-> because each serverless invocation gets its own throwaway database.
+### Where the token is kept, and why not the keychain
 
-So before the workshop is announced to anybody:
+**A file with complete protection, not the keychain**, and this is deliberate.
 
-1. Set `DATABASE_URL` to a real Neon database.
-2. Run the migrations — `migrations/0001_auth.sql` and `0002_lab.sql`, via `scripts/migrate.mjs`.
-3. Set `VITE_AUTH_ENABLED=true` and the `AUTH_*` variables, or sign-in stays off.
-4. Confirm `dbSource` reports `neon` and not `pglite` once deployed.
+The app ships unsigned with no entitlements and is signed on the device by whoever installs it.
+Keychain access depends on the entitlements the signing tool happens to inject, and when they do not
+line up it fails with `-34018` — so signing in would appear to work and then be forgotten on every
+launch, on some phones and not others, for reasons nothing in the app could explain.
 
-The app should also **fail honestly**: if the server is unreachable or unconfigured, say so rather
-than showing an empty list that looks like "you have no saves".
+A protected file needs no entitlement, so it cannot fail that way, and is still encrypted with the
+device's passcode and unreadable while the phone is locked. One code path, and it is the one that
+was reasoned about.
 
----
+### The case that would have been silently broken
 
-## Order of work
-
-1. Room transport and its interface. No server, nothing to configure, works immediately. ✅ protocol done
-2. REST routes on the web, with the existing validation reapplied.
-3. Native API client, written to treat every response as untrusted — the same discipline the save
-   format already gets.
-4. Sign-in.
-5. Cloud saves interface, then the workshop.
+A session token is two base64 parts joined by a dot, so it contains `+`, `/` and `=`. Every one
+arrives percent-encoded, and a callback decoder that mishandled any would produce a token that looks
+perfectly reasonable and is refused by every request from then on — which reads as "signing in does
+not work" with nothing to point at. There is a test for exactly that.
 
 ---
 
@@ -184,12 +284,17 @@ than showing an empty list that looks like "you have no saves".
 Repeated from `PORT-STATUS.md` because they bite hardest here:
 
 - **The app layer cannot be compiled in this sandbox.** No Mac, no iOS SDK. CI is the only compiler
-  for anything under `native/App/`. Expect to iterate through pushes, and read new code carefully
-  before pushing rather than after.
-- **`/tmp` does not persist between shell calls.** Download, extract and read in one command.
-- **`node` is not on the PATH.** Prefix with
-  `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`.
-- **`gh run list` and anything under `gh pr` fail here.** Use `gh api` instead.
-- MultipeerConnectivity cannot be tested in this sandbox at all. The protocol is tested; the
-  transport will need two real phones, and the interface should therefore be written to make its
-  state obvious — connected peers, whether this device is the host, and when it last agreed.
+  for anything under `native/App/`. Read new code carefully before pushing rather than after — a
+  round trip is about four minutes.
+- **`/tmp` does not persist between shell calls.**
+- **`node` is not on the PATH.** `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`.
+- **`gh run list` and anything under `gh pr` fail here.** Use `gh api`. For a failed build:
+  `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` then
+  `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs`.
+- **The releases list is not in date order.** Sort by `created_at` yourself or you will look at a
+  build from hours ago and think nothing shipped.
+- **Migrations are in `web/migrations/`, not the repository root.** They moved with the web front
+  end and this file used to say otherwise.
+- **`#expect(condition, message)` needs a literal.** A plain `String` variable does not compile —
+  interpolate it: `"\(message)"`.
+- **`#require` cannot be nested inside another `#require`.** Compute into a `let` first.

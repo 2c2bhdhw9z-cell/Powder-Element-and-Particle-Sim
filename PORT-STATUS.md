@@ -56,14 +56,17 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
 | iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
 | iOS app: appearance matched to the reference | complete | header, sheet chrome and trays measured from the stylesheet; colours and radii checked value by value; a CI step fails the build if a typeface name matches no bundled file |
+| Shared room, phone to phone | complete | 68 tests on the protocol, the compression, the pacing and the code; the transport itself needs two real phones |
+| Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**361 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
+**474 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
-**The local port is complete.** Everything the web version does without a network, the app now
-does. What is left is the online half, and that needs a decision rather than more porting —
-see below.
+**The port is complete.** Everything the web version does, the app now does — including the online
+half. What is left is not code: the server has to be configured before anything can actually be
+kept on it, and only the owner can do that. The list is at the top of
+[ONLINE-PLAN.md](ONLINE-PLAN.md).
 
 ---
 
@@ -203,25 +206,29 @@ All three are cases where the reference describes behaviour it does not have:
   render in whatever monospace the browser defaults to. Fixed on the web side.
 - Lowering the body limit left the swarm untouched while the readout insisted it had obeyed.
 
-### 3. Online — in progress
+### 3. Online — built, and waiting on the server being set up
 
-All of it is wanted; the owner has confirmed that. The plan, the findings behind it and the hosting
-problem that has to be fixed before the workshop can be announced to anyone all live in
-**[ONLINE-PLAN.md](ONLINE-PLAN.md)**. Read that first — several of its findings took a while to
-establish and would otherwise be rediscovered the hard way.
+The shared room, cloud saves, the workshop and signing in are all done. How and why is in
+**[ONLINE-PLAN.md](ONLINE-PLAN.md)**, which is now a record rather than a plan. Read it before
+touching any of it — several of its findings took a while to establish and would otherwise be
+rediscovered the hard way.
 
 The short version:
 
-- **The shared room** uses iOS's own phone-to-phone networking, not WebRTC. WebRTC would mean an
-  embedded framework, and an embedded framework means another provisioning profile for on-device
-  signing to fail on. The protocol is done and tested; the transport is next.
-- **Cloud saves and the workshop** need ordinary HTTP routes on the web side, because the existing
-  ones are RPC with no URLs to call. Two things make it much easier than expected: bearer-token
-  authentication already works, and the same-site guard already permits a non-browser client
-  deliberately.
-- **Hosting needs attention.** The database falls back to an embedded throwaway one when
-  `DATABASE_URL` is unset, by design — so cloud saves would appear to work and then vanish. That has
-  to be set before anyone is invited in.
+- **The shared room** uses iOS's own phone-to-phone networking, not WebRTC, because WebRTC would
+  mean an embedded framework and every embedded framework is another provisioning profile for
+  on-device signing to fail on. Followers do not simulate — two engines come apart inside a frame —
+  so the host sends the whole world continuously, compressed, and paced by acknowledgements so a slow
+  link gets fewer current frames instead of a backlog.
+- **Cloud saves and the workshop** reach the same queries the website does, through new HTTP routes,
+  with the server functions reduced to wrappers. They read a bearer token and refuse to look at
+  cookies, which makes a cross-site request structurally unable to borrow somebody's session.
+- **Signing in** goes through the phone's own sign-in window. The token is kept in a protected file
+  rather than the keychain, because the keychain depends on entitlements a re-signed app cannot rely
+  on having.
+- **The server still needs setting up by hand.** Without `DATABASE_URL` nothing is kept, by design —
+  the app now detects that and says so before anybody saves anything, but it is a warning, not a fix.
+  The exact list is at the top of ONLINE-PLAN.md.
 
 ### 4. Deleting the web front end
 
@@ -244,14 +251,22 @@ native/
                              diagnostics, recipes, render
     Particle/                model, swarm, engine, step, spawners, serialization,
                              diagnostics, render
+    Room/                    what two phones say to each other, the compressed world
+                             frame, and every decision a room makes
+    Cloud/                   the server's replies, its paths, and what a refusal means
   Sources/CrucibleBench/     performance measurement; prints in CI on every run
   Tests/CrucibleCoreTests/   the comparisons, plus Fixtures/
   App/
-    Design/                  Palette, Glass
+    Design/                  Palette, Glass, LabSheet
     Metal/                   GridView + GridShaders (powder), FieldView + FieldShaders
-    Simulation/              SimulationModel (powder), ParticleFieldModel
-    Views/                   ContentView, surfaces, docks, settings, debug readouts
-web/                         the reference implementation and the fixture generators
+    Simulation/              SimulationModel (powder), ParticleFieldModel,
+                             RoomSession + RoomBridge, CloudClient + CloudAccount
+    Views/                   ContentView, surfaces, docks, settings, panels
+web/
+  src/sim/                   the reference implementation and the fixture generators
+  src/lib/lab-store.ts       every query, shared by the website and the app
+  src/lib/api/               the app's HTTP routes and native sign-in
+  migrations/                the schema — NOT at the repository root
 .github/workflows/           engine.yml (Linux + macOS), ipa.yml (unsigned .ipa)
 ```
 
@@ -298,6 +313,14 @@ implementation should be left exactly as it is.
   into a `let` first.
 - **A parameterised test prints its argument in the test name.** Conform the argument to
   `CustomTestStringConvertible` or one failure buries the log in hundreds of kilobytes.
+- **`#expect(condition, message)` needs a literal message.** A plain `String` variable does
+  not compile — interpolate it: `"\(message)"`.
+- **`#require` cannot be nested inside another `#require`.** Compute into a `let` first.
+- **The releases list from `gh api` is not in date order.** Sort by `created_at` yourself, or
+  you will look at a build from hours ago and conclude nothing shipped.
+- **For a failed CI build:** `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` to find the
+  failing job, then `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs`. `gh run view
+  --log-failed` cannot resolve the repository here.
 - **Fixtures are committed and regenerated occasionally**, so their size compounds in the
   history. Record sparsely — only what differs from the default.
 
