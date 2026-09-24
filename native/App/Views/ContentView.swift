@@ -1,57 +1,73 @@
 import CrucibleCore
 import SwiftUI
 
+/// Which half of the lab is on screen.
+enum Chamber: String, CaseIterable, Codable {
+    case powder
+    case field
+
+    var title: String {
+        switch self {
+        case .powder: "Powder"
+        case .field: "Field"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .powder: "square.grid.3x3.fill"
+        case .field: "circle.hexagongrid.fill"
+        }
+    }
+}
+
 /// The lab.
 ///
-/// The simulation fills the screen and everything else floats over it: tools at the top-left,
-/// a dock along the bottom. Same arrangement as the web version, so the two read as one
-/// product — and the same reasoning behind it, which is that the world is the thing and the
-/// controls should stay out of its way.
+/// Two chambers sharing one screen: a grid of falling material, and a field of bodies with forces
+/// between them. Whichever is on screen fills it, and everything else floats over the top —
+/// tools at the upper left, a dock along the bottom. Same arrangement as the web version, and for
+/// the same reason: the world is the thing, and the controls should stay out of its way.
+///
+/// The two chambers are kept as separate objects rather than behind one interface. They have
+/// almost nothing in common — one is stepped cell by cell from the bottom up, the other is a list
+/// of bodies pulling on one another — and an abstraction over both would have to be so thin as to
+/// only obscure which was which.
 struct ContentView: View {
-    @State private var model = SimulationModel()
+    @State private var powder = SimulationModel()
+    @State private var field = ParticleFieldModel()
+
     @State private var isDockOpen = false
     @State private var showingScenes = false
+    @State private var showingPresets = false
     @State private var showingSettings = false
 
-    /// Remembered between launches. Both of these are preferences, not state — coming back to
-    /// a flat interface you chose, or a readout you left on, is the point.
+    /// Remembered between launches. All three are preferences rather than state: coming back to
+    /// the chamber you were in, the interface you chose, and the readout you left on.
+    @AppStorage("chamber") private var chamberRaw = Chamber.powder.rawValue
     @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
 
-    private var glass: GlassLevel {
-        GlassLevel(rawValue: glassRaw) ?? .full
-    }
+    private var chamber: Chamber { Chamber(rawValue: chamberRaw) ?? .powder }
+    private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 Palette.background.ignoresSafeArea()
 
-                SimulationSurface(model: model)
-                    .ignoresSafeArea()
-                    .onAppear { matchWorld(to: geometry.size) }
-                    .onChange(of: geometry.size) { _, size in matchWorld(to: size) }
+                surface(for: geometry.size)
 
-                // Floating chrome. Laid out from the top-left and the bottom separately so
-                // neither has to know about the other.
                 VStack(alignment: .leading, spacing: 8) {
-                    ToolCluster(model: model, glass: glass)
-                    if showDebugOverlay {
-                        DebugOverlay(model: model, glass: glass)
-                    }
+                    chamberSwitch
+                    tools
+                    if showDebugOverlay { debugReadout }
                 }
                 .padding(.leading, 10)
                 .padding(.top, 8)
 
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    ElementDock(
-                        model: model,
-                        glass: glass,
-                        isOpen: $isDockOpen,
-                        onShowScenes: { showingScenes = true },
-                        onShowSettings: { showingSettings = true }
-                    )
+                    dock
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
@@ -61,29 +77,119 @@ struct ContentView: View {
         .tint(Palette.primary)
         .sheet(isPresented: $showingScenes) {
             ScenePicker { recipe in
-                model.loadScene(recipe)
+                powder.loadScene(recipe)
                 showingScenes = false
+            }
+        }
+        .sheet(isPresented: $showingPresets) {
+            FieldPresetPicker { preset in
+                field.loadPreset(preset)
+                showingPresets = false
             }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsSheet(
-                model: model,
+                model: powder,
                 glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
                 showDebugOverlay: $showDebugOverlay
             )
         }
     }
 
-    private func matchWorld(to size: CGSize) {
-        // `UIScreen.main` is deprecated and gives the wrong answer on an external display, but
-        // the scale of the screen the view is actually on is not available from a SwiftUI
-        // layout. The trait environment carries it; until that is wired through, this is the
-        // scale of the device's own screen, which is right for every case the app has today.
-        model.resize(toViewSize: size, scale: UIScreen.main.scale)
+    // MARK: - Pieces
+
+    @ViewBuilder
+    private func surface(for size: CGSize) -> some View {
+        switch chamber {
+        case .powder:
+            SimulationSurface(model: powder)
+                .ignoresSafeArea()
+                .onAppear { powder.resize(toViewSize: size, scale: UIScreen.main.scale) }
+                .onChange(of: size) { _, new in
+                    powder.resize(toViewSize: new, scale: UIScreen.main.scale)
+                }
+        case .field:
+            FieldSurface(model: field)
+                .ignoresSafeArea()
+                .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
+                .onChange(of: size) { _, new in
+                    field.resize(toViewSize: new, scale: UIScreen.main.scale)
+                }
+        }
+    }
+
+    /// Switching chambers. Two segments rather than a menu, because it is the one control that
+    /// changes what everything else means.
+    private var chamberSwitch: some View {
+        HStack(spacing: 0) {
+            ForEach(Chamber.allCases, id: \.rawValue) { option in
+                let selected = chamber == option
+                Button {
+                    chamberRaw = option.rawValue
+                    // Closed on the way across, since the two trays hold different things and
+                    // leaving one open would swap its contents out from under your hand.
+                    isDockOpen = false
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: option.symbol)
+                            .font(.system(size: 11))
+                        Text(option.title)
+                            .font(.system(size: 12, weight: selected ? .semibold : .regular))
+                    }
+                    .foregroundStyle(selected ? Palette.primaryForeground : Palette.muted)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(
+                        Capsule().fill(selected ? Palette.primary : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .glassPanel(glass)
+    }
+
+    @ViewBuilder
+    private var tools: some View {
+        switch chamber {
+        case .powder: ToolCluster(model: powder, glass: glass)
+        case .field: FieldToolCluster(model: field, glass: glass)
+        }
+    }
+
+    @ViewBuilder
+    private var debugReadout: some View {
+        switch chamber {
+        case .powder: DebugOverlay(model: powder, glass: glass)
+        case .field: FieldDebugOverlay(model: field, glass: glass)
+        }
+    }
+
+    @ViewBuilder
+    private var dock: some View {
+        switch chamber {
+        case .powder:
+            ElementDock(
+                model: powder,
+                glass: glass,
+                isOpen: $isDockOpen,
+                onShowScenes: { showingScenes = true },
+                onShowSettings: { showingSettings = true }
+            )
+        case .field:
+            FieldDock(
+                model: field,
+                glass: glass,
+                isOpen: $isDockOpen,
+                onShowPresets: { showingPresets = true },
+                onShowSettings: { showingSettings = true }
+            )
+        }
     }
 }
 
-/// Picks one of the built-in scenes.
+/// Picks one of the built-in powder scenes.
 struct ScenePicker: View {
     let onSelect: (PowderRecipe) -> Void
 
@@ -119,5 +225,89 @@ struct ScenePicker: View {
         .presentationDetents([.medium, .large])
         .presentationBackground(Palette.background)
         .preferredColorScheme(.dark)
+    }
+}
+
+/// The floating tools for the particle chamber.
+struct FieldToolCluster: View {
+    let model: ParticleFieldModel
+    let glass: GlassLevel
+
+    private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
+
+    var body: some View {
+        GlassGroup(level: glass) {
+            HStack(alignment: .top, spacing: 6) {
+                HStack(spacing: 0) {
+                    button("arrow.uturn.backward", "Undo", enabled: model.canUndo) { model.undo() }
+                    button("arrow.uturn.forward", "Redo", enabled: model.canRedo) { model.redo() }
+                }
+                .glassPanel(glass)
+
+                HStack(spacing: 0) {
+                    ForEach(Self.speeds, id: \.self) { value in
+                        Button {
+                            model.speed = value
+                        } label: {
+                            Text(ToolClusterLabels.speed(value))
+                                .font(.labNumeric(11))
+                                .foregroundStyle(
+                                    model.speed == value ? Palette.foreground : Palette.muted
+                                )
+                                .frame(minWidth: 34, minHeight: 40)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .glassPanel(glass)
+            }
+        }
+    }
+
+    private func button(
+        _ symbol: String,
+        _ label: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(enabled ? Palette.muted : Palette.subtleForeground)
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+        .accessibilityLabel(label)
+    }
+}
+
+/// The performance readout for the particle chamber.
+struct FieldDebugOverlay: View {
+    let model: ParticleFieldModel
+    let glass: GlassLevel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            row("fps", "\(model.ticksPerSecond)")
+            row("ms/tick", model.millisecondsPerTick.formatted(.number.precision(.fractionLength(2))))
+            row("bodies", model.bodyCount.formatted())
+            row("speed", ToolClusterLabels.speed(model.speed))
+        }
+        .font(.labNumeric(10))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .glassPanel(glass, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+        .fixedSize()
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(label).foregroundStyle(Palette.subtleForeground)
+            Spacer(minLength: 8)
+            Text(value).foregroundStyle(Palette.foreground)
+        }
+        .frame(minWidth: 120)
     }
 }
