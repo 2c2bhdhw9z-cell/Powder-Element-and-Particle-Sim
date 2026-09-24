@@ -50,6 +50,7 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | Saving, loading, autosave, sharing, invented materials | complete | builds in CI |
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
 | iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
+| iOS app: appearance matched to the reference | complete | header, sheet chrome and trays measured from the stylesheet; colours and radii checked value by value; a CI step fails the build if a typeface name matches no bundled file |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
 **303 engine tests. 131 reference tests. 93 script tests.** Green on Linux and macOS, in
@@ -157,6 +158,27 @@ Short now, and roughly in order of how much they are missed.
 - **Split view.** The web version can show both chambers at once, with a switch for whether
   the hidden one keeps running. Deliberately left until last: on a phone-sized screen two
   half-height chambers may simply be worse, and it is worth deciding that with the app in hand.
+
+#### Appearance
+
+Worth stating plainly, because it was the thing most wrong for longest and the thing the reference
+is hardest to read values out of.
+
+Every colour and radius in `Palette.swift` is the stylesheet's, value for value. The three pieces of
+chrome — the header, a sheet, a tray — are measured from the reference's classes rather than
+eyeballed: sizes, opacities, corner radii, the weight of each hairline, and the eighty-eight point
+pull that dismisses a sheet. Where the reference sets a value per component rather than through its
+theme, so does this, and the comment says which is which.
+
+Two mistakes worth not repeating. Panels were originally built from SwiftUI's `Form` inside a
+`NavigationStack`, which is the quickest thing that works and looks like the Settings app; replacing
+that with the lab's own sheet chrome was most of the difference. And there was no header at all — the
+app floated a pill over the canvas, which reads as a utility rather than as a place with a name.
+
+A missing typeface is the one failure in this project that reports nothing: `Font.custom` does not
+fail, warn or crash, it silently substitutes the system face. `scripts/check-fonts.py` runs in the app
+workflow and fails the build if any name asked for in code matches no bundled file, or if a file is
+not listed in `Info.plist`. Confirmed to bite by changing one letter.
 
 #### Verified differently, and why
 

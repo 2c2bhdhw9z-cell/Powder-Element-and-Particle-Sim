@@ -36,10 +36,19 @@ enum Palette {
     /// Something worth noticing but not wrong.
     static let warn = Color(hex: 0xB5986A)
 
-    /// Hairlines. The web version builds these by mixing the foreground into transparency;
-    /// the same effect, stated directly.
-    static let border = Color.white.opacity(0.15)
-    static let borderStrong = Color.white.opacity(0.22)
+    /// Hairlines.
+    ///
+    /// The stylesheet builds these by mixing the *foreground* into transparency rather than pure
+    /// white — twelve percent for the ordinary one and twenty-two for the stronger. Using white
+    /// instead is very nearly the same thing, since the foreground is already a near-white, but
+    /// there is no reason to be approximately right when the exact value is written down.
+    ///
+    /// These are the theme's values, used for dividers and panel outlines. Several individual
+    /// pieces of chrome specify their own instead — the header's underline is twelve percent white,
+    /// the trays' top edge fifteen, a sheet's outline sixteen — and those are set where they are
+    /// used, because in the reference they are per-component rather than part of the theme.
+    static let border = foreground.opacity(0.12)
+    static let borderStrong = foreground.opacity(0.22)
 }
 
 /// Corner radii, matching the web version's scale.
