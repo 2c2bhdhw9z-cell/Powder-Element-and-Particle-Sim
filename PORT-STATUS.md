@@ -52,13 +52,18 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | The two chambers affecting each other | complete | 16 behavioural tests |
 | Screenshots and screen recording | complete | pixel export tested in the engine; recording is ReplayKit |
 | Brush shapes, search, detail setting, help | complete | builds in CI |
+| Inspect chip, Fahrenheit, performance history, split view | complete | temperature conversion and the rolling history tested in the engine |
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
 | iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
 | iOS app: appearance matched to the reference | complete | header, sheet chrome and trays measured from the stylesheet; colours and radii checked value by value; a CI step fails the build if a typeface name matches no bundled file |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**344 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
+**361 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
+
+**The local port is complete.** Everything the web version does without a network, the app now
+does. What is left is the online half, and that needs a decision rather than more porting —
+see below.
 
 ---
 
@@ -143,28 +148,20 @@ about eighty bugs. The choice to put to the user is between:
 3. full resolution at 120 fps, by processing cells in a different order — faster, and no
    longer quite their simulation.
 
-### 2. App features still missing
+### 2. App features — done
 
-The local port is essentially done. What remains:
+Nothing local is outstanding. For the record, the last few were: the inspect chip on the canvas,
+Fahrenheit, the performance history behind the frame-rate chip, and split view.
 
-- **Split view.** The web version can show both chambers at once, with a switch for whether the
-  hidden one keeps running — that switch now exists on its own ("Keep both running"), so only the
-  side-by-side layout is missing. Deliberately last: on a phone-sized screen two half-height
-  chambers may simply be worse, and that is worth deciding with the app in hand rather than in
-  the abstract.
-- **The performance sheet's graphs.** The web version draws sparklines for a dozen measures. The
-  detail panel now shows the figures that actually decide anything — grid size, cost of a moment,
-  rate — live and tinted, which covers most of the need. The graphs are a nicety.
-- **Fahrenheit.** The reference offers a °C/°F switch. Nothing in the app shows a temperature to a
-  reader yet except the health report, so this is waiting on somewhere to matter.
-- **An inspect chip on the canvas.** The reference floats a chip showing the selected material and
-  its temperature, which doubles as the way into its encyclopedia card. Here that card is reached
-  by holding the material's chip in the tray instead.
+Split view is worth a note. It looked like the least important thing on the list and turned out to
+be the opposite: the two chambers affect one another — explosions throw sparks across, resting
+bodies silt down into sand — and none of that is visible unless both are on screen. The bridges had
+been built two commits earlier and were, in practice, invisible.
 
 #### Verified differently, and why
 
-Four things in the app are *not* compared against the reference frame for frame, and all four are
-recorded here so nobody assumes it was an oversight:
+Five things in the app are *not* compared against the reference frame for frame. All five are
+recorded here so nobody later assumes it was an oversight:
 
 - **Trails and the touch ring.** The reference draws them with the browser's 2D canvas, whose
   antialiasing and line joins are specified nowhere. A recorded picture would prove only that one
@@ -177,24 +174,62 @@ recorded here so nobody assumes it was an oversight:
   compare; the behaviour is tested instead, including the ways it could quietly destroy something.
 - **Screen recording.** The reference records its canvas element. This records the screen through
   ReplayKit, which also captures the sound and does not compete with the simulation for frame time.
-  A difference rather than a translation, and the code says so.
+- **Split view's layout.** Stacked rather than side by side, because on a phone held upright two
+  tall thin chambers are worse than two short wide ones — and the reference's side-by-side layout
+  only applies from tablet widths up anyway.
 
-#### Two bugs found in the reference along the way
+#### Small deliberate departures
 
-Worth recording, because both are cases where the reference documents behaviour it does not have:
+Each is an improvement rather than a translation, and each is commented where it happens:
+
+- The inspect chip updates on every touch, not only at the start of a stroke, so dragging across a
+  world reveals how hot the middle of a lava flow is.
+- The screen-shake offset uses its own random numbers, so a decorative wobble cannot change the
+  physics.
+- Sparks from an explosion draw from the field's random numbers, not the grid's, so switching the
+  bridge on does not alter how the powder world unfolds.
+- A meteor and the explosion it causes are one undo, not two.
+- Kept scenes have visible share and delete buttons rather than hidden swipes.
+- The eyedropper is a one-shot rather than a mode.
+
+#### Three bugs found in the reference along the way
+
+All three are cases where the reference describes behaviour it does not have:
 
 - Its help screen says a cloth tears when pulled. No spring is ever removed in either engine, so it
   does not — here *or* there. The line was copied across before being checked, and checking is the
   only reason it was caught.
 - Its stylesheet names IBM Plex Mono for every numeric readout and never requests it, so all of them
   render in whatever monospace the browser defaults to. Fixed on the web side.
+- Lowering the body limit left the swarm untouched while the readout insisted it had obeyed.
 
-### 3. Online
+### 3. Online — needs a decision, not more porting
 
-Accounts, cloud saves, the workshop, multiplayer. Needs a hosting decision from the user.
-Note that the deployed web app already *is* a server — TanStack Start, Postgres and
-authentication — so the sensible move is to keep it and point the app at it rather than
-build a second one.
+Accounts, cloud saves, the workshop and the live room. This is the whole of what remains, and it is
+blocked on a choice rather than on effort.
+
+The deployed web app already *is* a server: TanStack Start, Postgres and working authentication,
+with the tables and queries already written (`web/src/lib/lab-api.ts`). The sensible move is to
+point the app at it rather than build a second one.
+
+The obstacle is the shape of it. Those are TanStack **server functions** — an RPC arrangement where
+the client is generated from the server's own types. There are no URLs a native app can call. So
+pointing the app at it means first adding ordinary HTTP endpoints on the web side that wrap the same
+queries, plus a way for the app to hold a session.
+
+Worth deciding before any of that:
+
+1. **Is it wanted?** Everything local now works with no network at all. Cloud saves and a shared
+   workshop are a different kind of product, with moderation, storage cost and accounts attached.
+2. **Where does it live?** The current deployment is fine for the web front end. If the app depends
+   on it, it becomes something that has to stay up.
+3. **How does signing in work on a phone?** The web flow redirects through a provider. The native
+   equivalent wants a proper system sign-in sheet, which is its own piece of work.
+
+The live room is the odd one out and the most interesting: it is peer-to-peer, not server-backed,
+and the engine already has everything it needs — a byte-identical wire format verified across 38
+scenarios, and a cheap fingerprint for spotting when two peers have drifted apart. That one is
+mostly transport.
 
 ### 4. Deleting the web front end
 
