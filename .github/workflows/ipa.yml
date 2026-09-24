@@ -113,14 +113,6 @@ jobs:
           unzip -l build/Crucible.ipa | head -20
           test -f "build/Payload/Crucible.app/Crucible"
 
-      - name: Upload as a build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Crucible-ipa
-          path: native/build/Crucible.ipa
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Publish a release
         # Skipped when the run was started by hand with publishing turned off.
         if: github.event_name == 'push' || inputs.publish
@@ -149,3 +141,20 @@ jobs:
 
           echo "Release published:"
           gh release view "$TAG" --json assets --jq '.assets[].url'
+
+      # Last, and allowed to fail.
+      #
+      # This is a convenience copy; the release asset above is what the app is actually
+      # installed from. It used to run *before* the release and without this flag, and GitHub's
+      # artifact service timed out — so a successful build produced no release at all, because a
+      # duplicate of a file that was already safely published could not be uploaded. Ordering
+      # alone would have been enough, but there is no reason for this to be able to redden a
+      # build either.
+      - name: Also keep a build artifact
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: Crucible-ipa
+          path: native/build/Crucible.ipa
+          if-no-files-found: error
+          retention-days: 30
