@@ -281,7 +281,8 @@ struct ContentView: View {
                     showingSettings = false
                     showingCloud = true
                 },
-                cloudSummary: cloudSummary
+                cloudSummary: cloudSummary,
+                onRunEvent: runEvent
             )
         }
         .sheet(isPresented: $showingRoom) {
@@ -459,6 +460,25 @@ struct ContentView: View {
             return session.framesPerSecond
         }
         return chamber == .powder ? powder.ticksPerSecond : field.ticksPerSecond
+    }
+
+    /// Sets off one of the four set-piece events, having first made it possible to see.
+    ///
+    /// Two things have to be true before the event starts, and neither was. The panel that offers them
+    /// has to be out of the way, and the powder chamber has to be the one on screen — otherwise the
+    /// meteor lands somewhere nobody is looking. Both were happening *behind* something, which looks
+    /// exactly like an event that does nothing.
+    private func runEvent(_ event: PowderEventID) {
+        showingSettings = false
+        if chamber != .powder, !isSplit { select(.powder) }
+
+        Task { @MainActor in
+            // Long enough for the panel to finish sliding away. A meteor falls for a moment before it
+            // detonates, so the wait costs nothing — and starting underneath the panel costs the whole
+            // thing.
+            try? await Task.sleep(for: .milliseconds(380))
+            powder.run(event)
+        }
     }
 
     private func toggleRunning() {

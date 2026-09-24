@@ -24,6 +24,8 @@ struct SettingsSheet: View {
     let onShowCloud: () -> Void
     /// What the server row should say, so being signed in somewhere is visible from here.
     let cloudSummary: String
+    /// Runs one of the set-piece events. Not done here — see the note on `events`.
+    let onRunEvent: (PowderEventID) -> Void
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
@@ -207,12 +209,16 @@ struct SettingsSheet: View {
             ) { $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(0))) }
 
             LabDivider()
+            // Read in whichever scale was chosen two rows above this one. It was fixed at Celsius, so
+            // the panel showed "20°C" directly underneath its own switch set to Fahrenheit — and the
+            // readout on the canvas, which does obey the switch, said 68°F for the same world at the
+            // same moment. A setting the app contradicts on the very next line is worse than no setting.
             LabSlider(
                 label: "Room temperature",
                 value: Binding(get: { model.ambientTemp }, set: { model.ambientTemp = $0 }),
                 range: -40 ... 400,
                 step: 5
-            ) { "\($0.formatted(.number.precision(.fractionLength(0))))°C" }
+            ) { temperatureUnit.format(celsius: $0) }
 
             LabDivider()
             LabToggle(label: "Sound", isOn: $soundEnabled)
@@ -238,8 +244,18 @@ struct SettingsSheet: View {
 
     // MARK: Events
 
+    /// The four set-piece events.
+    ///
+    /// Handed upwards rather than run from here, and the reason is the whole point of these existing.
+    /// They are the four things in the app worth *watching* — a meteor falls before it detonates, a
+    /// blast goes off three times — and every one of them used to happen behind the panel that started
+    /// it. You tapped Meteor, closed the panel, and found the crater. The event worked perfectly and was
+    /// impossible to see, which is indistinguishable from it not working.
     private var events: some View {
-        LabGroup("Make something happen", footnote: "Each of these is one undo away.") {
+        LabGroup(
+            "Make something happen",
+            footnote: "The panel closes so you can watch. Each one is a single undo away."
+        ) {
             ForEach(Array(PowderEventID.allCases.enumerated()), id: \.element) { index, event in
                 if index > 0 { LabDivider() }
                 LabAction(
@@ -247,7 +263,7 @@ struct SettingsSheet: View {
                     detail: Self.explanation(for: event),
                     symbol: Self.symbol(for: event)
                 ) {
-                    model.run(event)
+                    onRunEvent(event)
                 }
             }
         }

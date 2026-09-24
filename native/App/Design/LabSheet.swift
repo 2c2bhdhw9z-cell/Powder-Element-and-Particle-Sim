@@ -344,21 +344,44 @@ struct LabChoice<Value: Hashable>: View {
 ///
 /// A plain `HStack` pushes chips off the edge and a `LazyVGrid` forces every chip to the same width,
 /// which looks wrong when the labels are "Up" and "Sideways".
+///
+/// ## The bug that was in here, because it will look tempting to undo
+///
+/// Measuring and placing have to agree about **one** width, and they did not.
+///
+/// `sizeThatFits` worked out its rows against the width it was offered, and then reported the width it
+/// had actually used — the width of its widest row, which is narrower. The parent, reasonably, then
+/// placed it in a box exactly that narrow. So `placeSubviews` decided where to wrap against a different,
+/// tighter width than the one the height was calculated from. A row that ended exactly at the edge —
+/// and a fraction of a point of text measurement is enough — wrapped one more time than the reported
+/// height had room for, and that extra row drew straight over whatever came next.
+///
+/// It was visible in the settings panel as "Heaviness" sitting on top of "Temperatures in", and "None"
+/// sitting on top of the wind slider. Not a clipped row, not a gap: two controls overlapping, which
+/// reads as the panel being broken rather than as arithmetic being a hair out.
+///
+/// So it now reports the width it was *offered*, so that placement happens in exactly the box the
+/// height was computed for — plus half a point of slack in both, so an exact fit stays an exact fit.
+/// Returning the tight width looks tidier and is what caused this.
 struct LabFlow: Layout {
     var spacing: CGFloat = 6
 
+    /// Half a point, so a row that fits precisely is not pushed onto the next one by a rounding
+    /// difference in how a piece of text was measured.
+    private static let slack: CGFloat = 0.5
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? .infinity
+        let limit = proposal.width ?? .infinity
         var rowWidth: CGFloat = 0
         var rowHeight: CGFloat = 0
         var totalHeight: CGFloat = 0
-        var maxWidth: CGFloat = 0
+        var widest: CGFloat = 0
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if rowWidth > 0, rowWidth + spacing + size.width > width {
+            if rowWidth > 0, rowWidth + spacing + size.width > limit + Self.slack {
                 totalHeight += rowHeight + spacing
-                maxWidth = max(maxWidth, rowWidth)
+                widest = max(widest, rowWidth)
                 rowWidth = size.width
                 rowHeight = size.height
             } else {
@@ -366,8 +389,12 @@ struct LabFlow: Layout {
                 rowHeight = max(rowHeight, size.height)
             }
         }
-        maxWidth = max(maxWidth, rowWidth)
-        return CGSize(width: min(maxWidth, width), height: totalHeight + rowHeight)
+        widest = max(widest, rowWidth)
+
+        // The offered width, not the used one. Every caller puts this in a leading-aligned stack, so
+        // filling the width changes nothing visible — and it is what makes the box these rows are placed
+        // in the same box their height was measured against.
+        return CGSize(width: limit.isFinite ? limit : widest, height: totalHeight + rowHeight)
     }
 
     func placeSubviews(
@@ -382,7 +409,8 @@ struct LabFlow: Layout {
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            if x > bounds.minX, x + size.width > bounds.maxX {
+            // The same comparison as above, against the same width, with the same slack.
+            if x > bounds.minX, x + size.width > bounds.maxX + Self.slack {
                 x = bounds.minX
                 y += rowHeight + spacing
                 rowHeight = 0
