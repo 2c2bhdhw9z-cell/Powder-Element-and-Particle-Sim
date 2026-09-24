@@ -182,6 +182,50 @@ low. The auto-repair pass printed step numbers that lied. The out-of-bounds purg
 skipped the left and right columns and counted empty air as work done. Loading a
 recipe was not undoable and silently discarded the user's world.
 
+### The particle field was audited and repaired before being ported
+
+The same audit was run over the particle half, and it was fixed **in the reference
+first** — so the port copies correct behaviour instead of faithfully reproducing
+faults and then having to undo them. Thirty-plus bugs, each with a regression test
+(`web/src/sim/__tests__/particle.test.ts`, now 71 tests).
+
+The worst was structural. **Springs store absolute positions in the particle list,
+and six separate code paths removed or shifted particles without updating them** —
+the two expiry filters, the corrupt-particle purge, the eviction when the cap is
+reached, the multiplayer rebuild, and lowering the particle limit. The spring code
+could only notice an index pointing off the end of the list, never one pointing at
+the *wrong* particle, so every spring below a removal silently re-attached to a
+different pair whose rest length no longer matched. Cloth sheared, and the mismatch
+fed energy in on every frame afterwards. All removals now go through one function
+that remaps the endpoints and drops springs whose ends are gone.
+
+The most far-reaching was a misfiring force. A restoring spring meant for one
+preset was applied to anything that "has an origin, ignores gravity and carries a
+charge" — and because an unspecified charge defaults to a random plus or minus one,
+that description also fitted seven orbital presets. The galaxy, black hole, double
+vortex, repulsor, solar flare, synchrotron and DNA helix were all being pulled
+toward the centre about ten times harder than the orbital physics they were built
+around, quietly crushing them inward.
+
+Others worth naming: the speed limit only ever applied to orbital particles, so
+every ordinary particle was uncapped despite one global slider — which is also what
+let particles outrun the wrapping boundary and escape the world permanently.
+Recycled particles could freeze in place forever, still drawn and still counted.
+Pinned objects were shoved around by the boundary. Flocking separation got *weaker*
+the closer two particles came, which is backwards. Springs ignored mass, and a
+spring with no rest length was disabled entirely. Undo captured only the particles,
+so undoing a clear returned loose beads with no structure and an empty swarm. The
+million-particle swarm ignored the world's speed limit and boundary mode, and every
+mouse mode except one was mapped onto "push away". And the repair action for
+excessive velocity turned an infinite velocity into a not-a-number one — it
+manufactured the corruption it exists to remove, then reported success, because
+every stage of the pass read a single snapshot taken before any repair ran.
+
+Two of the existing tests turned out to be wrong rather than the code. One placed
+its probe exactly on the right-hand wall, so it measured a wall bounce flipping the
+sign of the force it claimed to test, and passed only when a random draw happened
+to exceed the pull — about one time in twenty.
+
 ### Where the JavaScript and Swift genuinely differ
 
 Three things do not translate directly, and each one is a silent behavior change
