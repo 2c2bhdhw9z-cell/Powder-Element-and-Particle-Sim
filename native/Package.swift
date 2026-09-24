@@ -32,6 +32,13 @@ let package = Package(
         .testTarget(
             name: "CrucibleCoreTests",
             dependencies: ["CrucibleCore"],
+            // Fixtures/ holds data extracted verbatim from the web reference
+            // implementation, used to verify the port against its source rather
+            // than against hand-written expectations. See
+            // Fixtures/README.md for how to regenerate it.
+            resources: [
+                .copy("Fixtures"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

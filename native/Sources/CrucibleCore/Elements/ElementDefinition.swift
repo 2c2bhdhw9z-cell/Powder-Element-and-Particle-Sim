@@ -61,7 +61,7 @@ public enum ElementCategory: String, Sendable, Hashable, CaseIterable, Codable {
 /// the real chemistry is hand-written control flow instead. The type is carried
 /// over because it is the mechanism user-authored custom elements use to define
 /// reactions without writing code.
-public struct InteractionRule: Sendable, Hashable, Codable {
+public struct InteractionRule: Sendable, Hashable {
     /// The element this rule fires against.
     public var targetElementID: ElementID
     /// Probability per tick, from zero to one.
