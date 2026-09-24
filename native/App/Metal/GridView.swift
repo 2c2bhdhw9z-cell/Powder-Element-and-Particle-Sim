@@ -32,10 +32,14 @@ final class GridView: MTKView {
 
     /// Where the engine writes its pixels before they are uploaded.
     ///
-    /// Held rather than allocated per frame: at one cell per pixel this is megabytes, and
-    /// allocating it sixty times a second would cost more than the simulation does.
-    private var pixels: UnsafeMutablePointer<UInt32>?
-    private var pixelCapacity = 0
+    /// Held across frames rather than allocated per frame: at one cell per pixel this is
+    /// megabytes, and allocating it sixty times a second would cost more than the simulation
+    /// does. Grown only when the world gets bigger, so steady state allocates nothing.
+    ///
+    /// An array rather than a hand-allocated buffer. The engine writes through a raw pointer
+    /// for speed, and an array lends one out for the duration of a call without anyone having
+    /// to remember to give the memory back.
+    private var pixels: [UInt32] = []
 
     /// Fails only when the device has no usable Metal support, which the app declares it
     /// requires — so in practice this succeeds or the app was never installable.
@@ -81,10 +85,6 @@ final class GridView: MTKView {
     @available(*, unavailable)
     required init(coder: NSCoder) {
         fatalError("Crucible's grid view is created in code, never from a storyboard.")
-    }
-
-    deinit {
-        pixels?.deallocate()
     }
 
     override func draw(_ rect: CGRect) {
@@ -134,20 +134,20 @@ final class GridView: MTKView {
         }
 
         let needed = width * height
-        if pixelCapacity < needed {
-            pixels?.deallocate()
-            pixels = UnsafeMutablePointer<UInt32>.allocate(capacity: needed)
-            pixelCapacity = needed
+        if pixels.count < needed {
+            pixels = [UInt32](repeating: 0, count: needed)
         }
-        guard let pixels, let gridTexture else { return }
+        guard let gridTexture else { return }
 
-        model.renderGrid(into: pixels, overlay: geometry.overlay)
-
-        gridTexture.replace(
-            region: MTLRegionMake2D(0, 0, width, height),
-            mipmapLevel: 0,
-            withBytes: pixels,
-            bytesPerRow: width * 4
-        )
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            model.renderGrid(into: base, overlay: geometry.overlay)
+            gridTexture.replace(
+                region: MTLRegionMake2D(0, 0, width, height),
+                mipmapLevel: 0,
+                withBytes: base,
+                bytesPerRow: width * 4
+            )
+        }
     }
 }
