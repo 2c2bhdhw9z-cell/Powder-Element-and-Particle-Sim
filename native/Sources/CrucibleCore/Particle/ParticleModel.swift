@@ -14,7 +14,10 @@ public enum ParticleKind: String, Sendable, Hashable, CaseIterable, Codable {
 /// How a particle's colour is chosen when drawing.
 public enum ParticleColorMode: String, Sendable, Hashable, CaseIterable, Codable {
     /// The particle's own colour.
-    case native
+    ///
+    /// Spelled `element` on the wire, matching the web implementation, so a saved preference
+    /// means the same thing in both.
+    case native = "element"
     /// Hue from speed.
     case velocity
     /// Blue for positive, red for negative, white for neutral.

@@ -49,7 +49,15 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
           const hue = Math.max(0, Math.min(240, 240 - Math.floor(speed * 20)));
           c32 = parseColorToUint32(`hsl(${hue}, 100%, 65%)`);
         } else if (e.colorMode === "charge") {
-          c32 = p.charge > 0 ? 0xff3b82f6 : p.charge < 0 ? 0xffef4444 : 0xffffffff;
+          // Packed red-first, matching the layout the buffer actually uses.
+          //
+          // These were written as `0xff3b82f6` and `0xffef4444` — the hex colours #3b82f6 and
+          // #ef4444 dropped in whole, without swapping the bytes into the order the buffer
+          // stores them in. So positive charge drew orange and negative drew blue, while the
+          // shape-drawing path a hundred lines below used the same two colours as strings and
+          // drew them blue and red as intended. One mode, two different pictures, decided by
+          // how many particles happened to be on screen.
+          c32 = p.charge > 0 ? 0xfff6823b : p.charge < 0 ? 0xff4444ef : 0xffffffff;
         } else if (e.colorMode === "rainbow") {
           const hue = (p.x + p.y) % 360;
           c32 = parseColorToUint32(`hsl(${hue}, 90%, 65%)`);
@@ -57,7 +65,13 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
           // Genuinely local crowding. This used to compute speed and map it to a
           // slightly different hue range than "velocity" did, so two modes the
           // interface offers as distinct were measuring exactly the same thing.
-          const crowd = densityAt(density, w, h, px, py);
+          //
+          // Measured at the particle's own position, not at the pixel it rounded to. A
+          // particle just below a cell boundary rounds up into the next cell, and adjacent
+          // cells can hold very different numbers — so the same particle was given a
+          // different crowding here than in the shape-drawing path, which reads its actual
+          // position. Crowding is about where something is, not which pixel it landed on.
+          const crowd = densityAt(density, w, h, p.x, p.y);
           const hue = Math.max(0, Math.min(300, 280 - crowd * 26));
           c32 = parseColorToUint32(`hsl(${hue}, 100%, 60%)`);
         } else if (e.colorMode === "lifespan") {
