@@ -203,33 +203,25 @@ All three are cases where the reference describes behaviour it does not have:
   render in whatever monospace the browser defaults to. Fixed on the web side.
 - Lowering the body limit left the swarm untouched while the readout insisted it had obeyed.
 
-### 3. Online — needs a decision, not more porting
+### 3. Online — in progress
 
-Accounts, cloud saves, the workshop and the live room. This is the whole of what remains, and it is
-blocked on a choice rather than on effort.
+All of it is wanted; the owner has confirmed that. The plan, the findings behind it and the hosting
+problem that has to be fixed before the workshop can be announced to anyone all live in
+**[ONLINE-PLAN.md](ONLINE-PLAN.md)**. Read that first — several of its findings took a while to
+establish and would otherwise be rediscovered the hard way.
 
-The deployed web app already *is* a server: TanStack Start, Postgres and working authentication,
-with the tables and queries already written (`web/src/lib/lab-api.ts`). The sensible move is to
-point the app at it rather than build a second one.
+The short version:
 
-The obstacle is the shape of it. Those are TanStack **server functions** — an RPC arrangement where
-the client is generated from the server's own types. There are no URLs a native app can call. So
-pointing the app at it means first adding ordinary HTTP endpoints on the web side that wrap the same
-queries, plus a way for the app to hold a session.
-
-Worth deciding before any of that:
-
-1. **Is it wanted?** Everything local now works with no network at all. Cloud saves and a shared
-   workshop are a different kind of product, with moderation, storage cost and accounts attached.
-2. **Where does it live?** The current deployment is fine for the web front end. If the app depends
-   on it, it becomes something that has to stay up.
-3. **How does signing in work on a phone?** The web flow redirects through a provider. The native
-   equivalent wants a proper system sign-in sheet, which is its own piece of work.
-
-The live room is the odd one out and the most interesting: it is peer-to-peer, not server-backed,
-and the engine already has everything it needs — a byte-identical wire format verified across 38
-scenarios, and a cheap fingerprint for spotting when two peers have drifted apart. That one is
-mostly transport.
+- **The shared room** uses iOS's own phone-to-phone networking, not WebRTC. WebRTC would mean an
+  embedded framework, and an embedded framework means another provisioning profile for on-device
+  signing to fail on. The protocol is done and tested; the transport is next.
+- **Cloud saves and the workshop** need ordinary HTTP routes on the web side, because the existing
+  ones are RPC with no URLs to call. Two things make it much easier than expected: bearer-token
+  authentication already works, and the same-site guard already permits a non-browser client
+  deliberately.
+- **Hosting needs attention.** The database falls back to an embedded throwaway one when
+  `DATABASE_URL` is unset, by design — so cloud saves would appear to work and then vanish. That has
+  to be set before anyone is invited in.
 
 ### 4. Deleting the web front end
 
