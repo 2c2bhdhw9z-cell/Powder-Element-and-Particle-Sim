@@ -1,0 +1,81 @@
+# The Xcode project is generated from this file, not committed.
+#
+# An .xcodeproj is a large generated artefact that conflicts on almost every edit and
+# records absolute paths. Describing it here instead means the repository holds the
+# intent, and `xcodegen generate` produces the project on whichever machine needs one —
+# which for this project is a cloud runner, since there is no Mac involved in development.
+#
+#   brew install xcodegen
+#   cd native && xcodegen generate
+
+name: Crucible
+
+options:
+  bundleIdPrefix: com.crucible
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  # Generated fresh every time, so a stale scheme cannot linger.
+  schemePathPrefix: ""
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    # Signed on the device it is installed on, not here. See the release workflow: the
+    # archive is deliberately produced unsigned and packaged by hand.
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGN_ENTITLEMENTS: ""
+    # No entitlements at all, no app extensions and no dynamic frameworks. Every one of
+    # those needs a provisioning profile that matches, which is exactly what makes an app
+    # awkward to re-sign on the device.
+    ENABLE_BITCODE: "NO"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
+    GCC_TREAT_WARNINGS_AS_ERRORS: "YES"
+
+packages:
+  CrucibleCore:
+    path: .
+
+targets:
+  Crucible:
+    type: application
+    platform: iOS
+    # The simulation is one target and the app another, on purpose. The engine cannot
+    # import UIKit or Metal, so it cannot quietly grow a dependency on being displayed —
+    # which is what keeps it testable on any machine.
+    sources:
+      - path: App
+    dependencies:
+      - package: CrucibleCore
+        product: CrucibleCore
+    settings:
+      base:
+        PRODUCT_NAME: Crucible
+        PRODUCT_BUNDLE_IDENTIFIER: com.crucible.lab
+        INFOPLIST_FILE: App/Info.plist
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Metal shaders are compiled at build time rather than from source at launch.
+        MTL_FAST_MATH: "NO"
+      configs:
+        debug:
+          MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        release:
+          MTL_ENABLE_DEBUG_INFO: "NO"
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+schemes:
+  Crucible:
+    build:
+      targets:
+        Crucible: all
+    run:
+      config: Debug
+    archive:
+      config: Release

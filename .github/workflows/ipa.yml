@@ -1,0 +1,151 @@
+name: iOS app
+
+# Builds an unsigned .ipa and publishes it as a release asset.
+#
+# ## Why unsigned
+#
+# Signing here would need an Apple developer certificate and a matching provisioning profile
+# uploaded as secrets, and the result would only install on the devices listed in that
+# profile. Instead the app is built unsigned and signed on the device it is installed on,
+# which is why the project has no entitlements, no app extensions and no dynamic frameworks —
+# each of those needs a profile that matches, and each is a way for on-device signing to fail.
+#
+# ## Why the .ipa is assembled by hand
+#
+# `xcodebuild -exportArchive` refuses to run without a signing identity, so the usual export
+# step is not available. An .ipa is a zip with the app bundle inside a folder called Payload,
+# and that is all this does.
+#
+# ## Why a release asset rather than a build artifact
+#
+# A workflow artifact is a zip behind a login, which is awkward to fetch on a phone. A release
+# asset is a permanent direct link that a sideloading app can be pointed straight at.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - ".github/workflows/ipa.yml"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a release as well as an artifact"
+        type: boolean
+        default: true
+
+concurrency:
+  group: ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # Needed to create the release and attach the .ipa to it.
+
+jobs:
+  build:
+    name: Build
+    # Pinned, not `macos-latest`. That label lags behind by a release or more, and an older
+    # image means an older SDK — which would quietly rule out anything added in the current
+    # iOS version. Pinning also means a green build stays green.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          # Recorded in the log because an SDK change is the first thing worth checking when a
+          # build that has worked for months suddenly stops.
+          xcodebuild -showsdks | grep -i iphoneos || true
+
+      - name: Install XcodeGen
+        # The Xcode project is generated rather than committed; see native/project.yml.
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: native
+        run: xcodegen generate --spec project.yml
+
+      - name: Build an archive
+        working-directory: native
+        # Not piped through a log prettifier. The raw output is long, but when a build fails
+        # on a machine nobody can log into, the full log is the only thing to go on.
+        #
+        # `generic/platform=iOS` builds for a device rather than a simulator, which is what an
+        # .ipa has to contain. ONLY_ACTIVE_ARCH=NO so the result runs on any iPhone, not just
+        # one matching the runner.
+        run: |
+          xcodebuild archive \
+            -project Crucible.xcodeproj \
+            -scheme Crucible \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Crucible.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Package the .ipa
+        working-directory: native
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Crucible.xcarchive/Products/Applications/Crucible.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "No app bundle at $APP_PATH — the archive did not produce one."
+            find build/Crucible.xcarchive -maxdepth 4 -name "*.app" || true
+            exit 1
+          fi
+
+          # An .ipa is a zip containing Payload/<name>.app and nothing else that matters.
+          rm -rf build/Payload build/Crucible.ipa
+          mkdir -p build/Payload
+          cp -R "$APP_PATH" build/Payload/
+          # Stored from inside build/ so the archive has no leading directories, which some
+          # signing tools object to.
+          (cd build && zip -qry Crucible.ipa Payload)
+
+          ls -lh build/Crucible.ipa
+          # A sanity check on the contents: an .ipa whose Payload is empty installs and then
+          # immediately fails to launch, which is a confusing way to find out.
+          unzip -l build/Crucible.ipa | head -20
+          test -f "build/Payload/Crucible.app/Crucible"
+
+      - name: Upload as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Crucible-ipa
+          path: native/build/Crucible.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish a release
+        # Skipped when the run was started by hand with publishing turned off.
+        if: github.event_name == 'push' || inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Tagged by run number and commit, so every build has its own permanent link and
+          # nothing is ever overwritten. A sideloading app pointed at an old link keeps
+          # working.
+          TAG="build-${{ github.run_number }}"
+          NOTES="Automatic build of ${GITHUB_SHA:0:8}.
+
+          Unsigned, for sideloading. Download \`Crucible.ipa\` below and sign it on the
+          device with your own certificate.
+
+          Built on \`${{ runner.os }}\` with the image's default Xcode. The simulation engine
+          is verified against the reference implementation on both Linux and macOS before this
+          runs — see the Engine workflow."
+
+          gh release create "$TAG" \
+            --title "Crucible $TAG" \
+            --notes "$NOTES" \
+            --target "$GITHUB_SHA" \
+            native/build/Crucible.ipa
+
+          echo "Release published:"
+          gh release view "$TAG" --json assets --jq '.assets[].url'

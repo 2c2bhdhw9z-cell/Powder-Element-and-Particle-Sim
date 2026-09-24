@@ -1,0 +1,77 @@
+name: Engine
+
+# The simulation engine, checked on two different operating systems.
+#
+# Running the same suite on Linux and on macOS is not redundancy. The engine carries its own
+# sine, cosine and powers precisely so that every platform computes identical results (see
+# native/Sources/CrucibleCore/Support/FDLibm.swift), and this is the check that the claim is
+# true rather than merely intended. If Apple's toolchain ever produced a different answer,
+# the golden comparisons would fail here — on the platform the app actually ships to.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - ".github/workflows/engine.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - ".github/workflows/engine.yml"
+  workflow_dispatch:
+
+concurrency:
+  # A newer push supersedes an older one on the same branch.
+  group: engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Build
+        working-directory: native
+        run: swift build --build-tests
+
+      - name: Test
+        working-directory: native
+        run: swift test
+
+      # Release as well as debug. The optimiser is entitled to reassociate floating-point
+      # expressions in ways that change the last bit, and the golden comparisons are exact —
+      # so "it passes in debug" is not evidence that the shipping build is correct.
+      - name: Test (optimised)
+        working-directory: native
+        run: swift test -c release
+
+  apple:
+    name: macOS
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        working-directory: native
+        run: swift test
+
+      - name: Test (optimised)
+        working-directory: native
+        run: swift test -c release
+
+      # Numbers from real Apple hardware rather than from a Linux container. Performance
+      # claims about this port should come from here.
+      - name: Benchmark
+        working-directory: native
+        run: swift run -c release crucible-bench
