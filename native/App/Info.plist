@@ -57,5 +57,13 @@
 	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<!-- Lets the app actually draw at the display's full rate.
+	     Without this, iOS silently caps everything at 60 frames a second on a ProMotion
+	     iPhone no matter what the app asks for — so a 120Hz screen runs at half speed and
+	     the only clue is a frame interval of 16.7ms when the work took under one. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!-- Nothing here switches the Metal performance overlay off. It is driven by iOS's own
+	     developer settings and is left entirely under your control. -->
 </dict>
 </plist>

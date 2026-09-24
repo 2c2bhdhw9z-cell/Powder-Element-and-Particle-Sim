@@ -46,15 +46,36 @@ final class SimulationModel {
         set { engine.gravityX = newValue }
     }
 
+    /// How fast time runs. One is real time.
+    ///
+    /// Above one the world is stepped several times per frame; below one, some frames step it
+    /// not at all. Both change how much simulation happens per second, which is the point —
+    /// unlike a late frame, which must never be compensated for.
+    var speed: Double = 1
+
     /// Ticks per second actually achieved, averaged over the last second.
     private(set) var ticksPerSecond: Int = 0
     /// How many cells are occupied. Updated once a second rather than every frame.
     private(set) var activeCells: Int = 0
+    /// How long one step of the simulation took, in milliseconds, averaged over the last
+    /// second. The number that matters: it is what has to fit inside a frame.
+    private(set) var millisecondsPerTick: Double = 0
+    /// The world's size, for the debug panel.
+    var gridSize: (width: Int, height: Int) { (engine.width, engine.height) }
+    /// How full the world is, nought to one.
+    var fillFraction: Double {
+        engine.cellCount > 0 ? Double(activeCells) / Double(engine.cellCount) : 0
+    }
 
     private var ticksSinceSample = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
+    private var stepCredit: Double = 0
+    /// Time spent inside the simulation since the last sample, so the cost of a step can be
+    /// separated from everything else a frame does.
+    private var simulationSeconds: Double = 0
 
     var canUndo: Bool { history.canUndo }
+    var canRedo: Bool { history.canRedo }
 
     init() {
         // A starting size that a phone can run at the full refresh rate with room to spare.
@@ -75,22 +96,56 @@ final class SimulationModel {
     /// than a quick one, which changes the physics rather than the smoothness.
     func tick() {
         guard isRunning else { return }
-        engine.step()
 
-        ticksSinceSample += 1
+        // Whole steps this frame, plus a running remainder so a fractional speed averages out
+        // rather than rounding to nothing. At a quarter speed this steps once every fourth
+        // frame instead of never.
+        stepCredit += max(0, speed)
+        var steps = Int(stepCredit)
+        stepCredit -= Double(steps)
+        // Capped, so a high speed on a heavy world cannot spend an unbounded amount of time
+        // inside one frame and freeze the interface.
+        steps = min(steps, 8)
+        guard steps > 0 else { return }
+
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        for _ in 0 ..< steps { engine.step() }
+        simulationSeconds += CFAbsoluteTimeGetCurrent() - startedAt
+
+        ticksSinceSample += steps
         let now = CFAbsoluteTimeGetCurrent()
         let elapsed = now - lastSampleTime
         if elapsed >= 1 {
             ticksPerSecond = Int((Double(ticksSinceSample) / elapsed).rounded())
+            millisecondsPerTick = ticksSinceSample > 0
+                ? simulationSeconds / Double(ticksSinceSample) * 1000
+                : 0
             // Counting occupied cells is a full pass over the grid, so it is sampled at the
             // same rate as the frame counter rather than every frame.
             activeCells = engine.activeParticleCount
             ticksSinceSample = 0
+            simulationSeconds = 0
             lastSampleTime = now
         }
     }
 
     // MARK: - What the renderer needs
+
+    /// An element's own colour, for the picker.
+    ///
+    /// Read from the same table the renderer draws from, so a swatch in the tray can never
+    /// disagree with what appears on the canvas — including for an element someone has edited.
+    func color(of id: ElementID) -> Color {
+        if id == Element.empty { return Color.white.opacity(0.25) }
+        let packed = engine.elements[id].color
+        return Color(
+            .sRGB,
+            red: Double(packed.r) / 255,
+            green: Double(packed.g) / 255,
+            blue: Double(packed.b) / 255,
+            opacity: 1
+        )
+    }
 
     /// The world's dimensions and how it should be coloured, read once per frame.
     func gridGeometry() -> (width: Int, height: Int, overlay: PowderOverlayMode) {
@@ -128,6 +183,17 @@ final class SimulationModel {
 
     func undo() {
         _ = history.undo(engine)
+        activeCells = engine.activeParticleCount
+    }
+
+    func redo() {
+        _ = history.redo(engine)
+        activeCells = engine.activeParticleCount
+    }
+
+    /// Shakes the world, as a jolt of the phone would.
+    func jostle() {
+        engine.jostle(6)
     }
 
     // MARK: - Scenes

@@ -1,180 +1,86 @@
 import CrucibleCore
 import SwiftUI
 
-/// The lab: the simulation filling the screen, with controls floating over it.
+/// The lab.
 ///
-/// This is a first pass at the interface, not the finished one. The layout follows the web
-/// version — full-bleed canvas, a floating control strip — and the glass treatment described
-/// in the project README is still to come, along with its intensity setting. What is here is
-/// enough to hold the app in your hand and paint with it.
+/// The simulation fills the screen and everything else floats over it: tools at the top-left,
+/// a dock along the bottom. Same arrangement as the web version, so the two read as one
+/// product — and the same reasoning behind it, which is that the world is the thing and the
+/// controls should stay out of its way.
 struct ContentView: View {
     @State private var model = SimulationModel()
+    @State private var isDockOpen = false
     @State private var showingScenes = false
+    @State private var showingSettings = false
+
+    /// Remembered between launches. Both of these are preferences, not state — coming back to
+    /// a flat interface you chose, or a readout you left on, is the point.
+    @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
+    @AppStorage("showDebugOverlay") private var showDebugOverlay = false
+
+    private var glass: GlassLevel {
+        GlassLevel(rawValue: glassRaw) ?? .full
+    }
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .topLeading) {
+                Palette.background.ignoresSafeArea()
+
                 SimulationSurface(model: model)
                     .ignoresSafeArea()
-                    .onAppear {
-                        model.resize(
-                            toViewSize: geometry.size,
-                            scale: UIScreen.main.scale
-                        )
-                    }
-                    .onChange(of: geometry.size) { _, newSize in
-                        model.resize(toViewSize: newSize, scale: UIScreen.main.scale)
-                    }
+                    .onAppear { matchWorld(to: geometry.size) }
+                    .onChange(of: geometry.size) { _, size in matchWorld(to: size) }
 
-                controls
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-            }
-            .overlay(alignment: .topTrailing) {
-                readout
-                    .padding(.trailing, 14)
-                    .padding(.top, 6)
+                // Floating chrome. Laid out from the top-left and the bottom separately so
+                // neither has to know about the other.
+                VStack(alignment: .leading, spacing: 8) {
+                    ToolCluster(model: model, glass: glass)
+                    if showDebugOverlay {
+                        DebugOverlay(model: model, glass: glass)
+                    }
+                }
+                .padding(.leading, 10)
+                .padding(.top, 8)
+
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    ElementDock(
+                        model: model,
+                        glass: glass,
+                        isOpen: $isDockOpen,
+                        onShowScenes: { showingScenes = true },
+                        onShowSettings: { showingSettings = true }
+                    )
+                }
+                .ignoresSafeArea(edges: .bottom)
             }
         }
-        .background(Color.black)
+        .background(Palette.background)
         .preferredColorScheme(.dark)
+        .tint(Palette.primary)
         .sheet(isPresented: $showingScenes) {
             ScenePicker { recipe in
                 model.loadScene(recipe)
                 showingScenes = false
             }
         }
-    }
-
-    /// Frames per second and how full the world is.
-    ///
-    /// Shown permanently for now. A performance figure that is only visible in a debug menu
-    /// tends to be looked at only after someone complains.
-    private var readout: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            Text("\(model.ticksPerSecond) fps")
-                .monospacedDigit()
-            Text("\(model.activeCells) cells")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-        .font(.caption2)
-        .foregroundStyle(.white.opacity(0.7))
-    }
-
-    private var controls: some View {
-        VStack(spacing: 10) {
-            elementStrip
-
-            HStack(spacing: 14) {
-                Button {
-                    model.isRunning.toggle()
-                } label: {
-                    Image(systemName: model.isRunning ? "pause.fill" : "play.fill")
-                        .frame(width: 22)
-                }
-                .accessibilityLabel(model.isRunning ? "Pause" : "Play")
-
-                Button {
-                    model.undo()
-                } label: {
-                    Image(systemName: "arrow.uturn.backward")
-                }
-                .disabled(!model.canUndo)
-                .accessibilityLabel("Undo")
-
-                Button {
-                    showingScenes = true
-                } label: {
-                    Image(systemName: "square.grid.2x2")
-                }
-                .accessibilityLabel("Scenes")
-
-                Button {
-                    model.clear()
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .accessibilityLabel("Clear")
-
-                Divider().frame(height: 22)
-
-                // Brush size, as a slider rather than stepped buttons: it is the control
-                // reached for most often while drawing.
-                HStack(spacing: 6) {
-                    Image(systemName: "circle.dotted")
-                        .font(.caption)
-                    Slider(
-                        value: Binding(
-                            get: { Double(model.brushRadius) },
-                            set: { model.brushRadius = Int($0.rounded()) }
-                        ),
-                        in: 1 ... 24
-                    )
-                    .frame(minWidth: 80)
-                }
-                .accessibilityLabel("Brush size")
-            }
-            .font(.title3)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: Capsule())
+        .sheet(isPresented: $showingSettings) {
+            SettingsSheet(
+                model: model,
+                glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
+                showDebugOverlay: $showDebugOverlay
+            )
         }
     }
 
-    /// The elements most reached for, in a row.
-    ///
-    /// A shortlist, not all fifty. The full set needs a searchable picker with categories,
-    /// which is part of the interface work still to come.
-    private var elementStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(ContentView.quickElements, id: \.id) { entry in
-                    Button {
-                        model.brushElement = entry.id
-                    } label: {
-                        Text(entry.name)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(
-                                    model.brushElement == entry.id
-                                        ? Color.accentColor.opacity(0.85)
-                                        : Color.white.opacity(0.12)
-                                )
-                            )
-                            .foregroundStyle(.white)
-                    }
-                }
-            }
-            .padding(.horizontal, 2)
-        }
-        .frame(height: 34)
+    private func matchWorld(to size: CGSize) {
+        // `UIScreen.main` is deprecated and gives the wrong answer on an external display, but
+        // the scale of the screen the view is actually on is not available from a SwiftUI
+        // layout. The trait environment carries it; until that is wired through, this is the
+        // scale of the device's own screen, which is right for every case the app has today.
+        model.resize(toViewSize: size, scale: UIScreen.main.scale)
     }
-
-    private struct QuickElement {
-        let id: ElementID
-        let name: String
-    }
-
-    private static let quickElements: [QuickElement] = [
-        QuickElement(id: Element.sand, name: "Sand"),
-        QuickElement(id: Element.water, name: "Water"),
-        QuickElement(id: Element.lava, name: "Lava"),
-        QuickElement(id: Element.fire, name: "Fire"),
-        QuickElement(id: Element.stone, name: "Stone"),
-        QuickElement(id: Element.wood, name: "Wood"),
-        QuickElement(id: Element.oil, name: "Oil"),
-        QuickElement(id: Element.acid, name: "Acid"),
-        QuickElement(id: Element.ice, name: "Ice"),
-        QuickElement(id: Element.plant, name: "Plant"),
-        QuickElement(id: Element.c4, name: "C4"),
-        QuickElement(id: Element.spark, name: "Spark"),
-        QuickElement(id: Element.copper, name: "Copper"),
-        QuickElement(id: Element.bedrock, name: "Bedrock"),
-        QuickElement(id: Element.empty, name: "Erase"),
-    ]
 }
 
 /// Picks one of the built-in scenes.
@@ -183,11 +89,35 @@ struct ScenePicker: View {
 
     var body: some View {
         NavigationStack {
-            List(powderRecipes, id: \.id) { recipe in
-                Button(recipe.name) { onSelect(recipe) }
+            List {
+                Section {
+                    ForEach(powderRecipes, id: \.id) { recipe in
+                        Button {
+                            onSelect(recipe)
+                        } label: {
+                            HStack {
+                                Text(recipe.name)
+                                    .foregroundStyle(Palette.foreground)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(Palette.subtleForeground)
+                            }
+                        }
+                        .listRowBackground(Palette.elevated)
+                    }
+                } footer: {
+                    Text("Loading a scene replaces the world. Undo brings it back.")
+                        .font(.system(size: 11))
+                }
             }
+            .scrollContentBackground(.hidden)
+            .background(Palette.background)
             .navigationTitle("Scenes")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationBackground(Palette.background)
+        .preferredColorScheme(.dark)
     }
 }
