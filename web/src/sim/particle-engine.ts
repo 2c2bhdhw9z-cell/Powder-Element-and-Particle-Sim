@@ -333,6 +333,32 @@ export class ParticleEngine implements ParticleCtx {
     this.springs = [];
   }
 
+  /**
+   * Replace the whole spring set, dropping anything that does not name a real pair.
+   *
+   * Used when loading a scene, after every particle exists. A spring whose index is past
+   * the end of the list would otherwise sit there waiting to be dereferenced, and one
+   * that merely names the wrong pair cannot be detected at all later — hence the check
+   * here, where the information to make it still exists.
+   */
+  public setSprings(next: Array<{ a: number; b: number; rest: number; k: number }>) {
+    const count = this.particles.length;
+    this.springs = next
+      .filter(
+        (s) =>
+          Number.isInteger(s.a) &&
+          Number.isInteger(s.b) &&
+          s.a >= 0 &&
+          s.b >= 0 &&
+          s.a < count &&
+          s.b < count &&
+          s.a !== s.b &&
+          Number.isFinite(s.rest) &&
+          Number.isFinite(s.k),
+      )
+      .map((s) => ({ a: s.a, b: s.b, rest: s.rest, k: s.k }));
+  }
+
   public addParticle(particle: Partial<ParticleObject>) {
     if (this.particles.length >= this.maxParticles) {
       // Evict the oldest through removeParticles so spring endpoints follow the
