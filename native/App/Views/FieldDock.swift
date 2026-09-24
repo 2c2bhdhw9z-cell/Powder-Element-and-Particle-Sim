@@ -63,27 +63,68 @@ struct FieldDock: View {
         )
     }
 
+    /// Same arrangement as the powder tray: what is selected, and a chevron. The ways into other
+    /// panels live inside the tray rather than crowding the heading.
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(Self.tools.first { $0.mode == model.mouseMode }?.name ?? "Field")
-                    .font(.labDisplay(15))
+                    .font(.labDisplay(14))
+                    .tracking(-0.2)
                     .foregroundStyle(Palette.foreground)
-                Text("\(model.ticksPerSecond) fps · \(model.bodyCount.formatted()) bodies")
+                Text("\(model.bodyCount.formatted()) bodies")
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            iconButton("square.grid.2x2", "Presets", action: onShowPresets)
-            iconButton("slider.horizontal.3", "Settings", action: onShowSettings)
+            Button {
+                withAnimation(.easeOut(duration: 0.22)) { isOpen.toggle() }
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.labBody(13, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isOpen ? "Close the tray" : "Open the tray")
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
+    }
+
+    /// The ways into the other panels.
+    private var destinations: some View {
+        LabFlow(spacing: 6) {
+            destination("Presets", "square.grid.2x2", action: onShowPresets)
+            destination("Field", "slider.horizontal.3", action: onShowSettings)
+        }
+    }
+
+    private func destination(
+        _ title: String,
+        _ symbol: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.labBody(11, .medium))
+                Text(title)
+                    .font(.labBody(12, .medium))
+            }
+            .foregroundStyle(Palette.foreground)
+            .padding(.horizontal, 11)
+            .frame(height: 34)
+            .background(Capsule().fill(Color.white.opacity(0.10)))
+        }
+        .buttonStyle(.plain)
     }
 
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 14) {
+            destinations
             labelledSlider(
                 "Reach",
                 value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
