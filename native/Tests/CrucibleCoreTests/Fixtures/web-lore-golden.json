@@ -1,0 +1,577 @@
+{
+  "note": "Generated from the web engine. Do not hand-edit. Regenerate with: cd web && CRUCIBLE_WRITE_GOLDEN=1 npx vitest run golden-lore",
+  "lore": [
+    {
+      "id": 0,
+      "name": "Air",
+      "melt": null,
+      "boil": null,
+      "eats": "Nothing. Air. Pressure leaks into it.",
+      "note": "Empty cell."
+    },
+    {
+      "id": 1,
+      "name": "Sand",
+      "melt": "1710°C",
+      "boil": null,
+      "eats": "Nothing. Sinks in water, stacks, melts to glass beside lava.",
+      "note": "Silica grains. The default pile."
+    },
+    {
+      "id": 2,
+      "name": "Water",
+      "melt": "0°C",
+      "boil": "100°C",
+      "eats": "Puts out fire. Boils on lava. Freezes beside ice. Carves sand.",
+      "note": "Seeks downhill. Lightning prefers it. Erodes dirt/sand."
+    },
+    {
+      "id": 3,
+      "name": "Wood",
+      "melt": "—",
+      "boil": null,
+      "eats": "Burns. Feeds fire and plants’ opposite.",
+      "note": "Fuel. High flammability."
+    },
+    {
+      "id": 4,
+      "name": "Fire",
+      "melt": "—",
+      "boil": null,
+      "eats": "Wood, oil, plant, gunpowder, hydrogen, coal, wax.",
+      "note": "Dies to water and lack of fuel."
+    },
+    {
+      "id": 5,
+      "name": "Smoke",
+      "melt": "—",
+      "boil": null,
+      "eats": "Nothing. Rises. Follows fans.",
+      "note": "Combustion leftover."
+    },
+    {
+      "id": 6,
+      "name": "Lava",
+      "melt": "700°C solidify",
+      "boil": "—",
+      "eats": "Water → steam + obsidian. Melts sand/stone when hot.",
+      "note": "Wins or loses by temperature, not by volume."
+    },
+    {
+      "id": 7,
+      "name": "Stone",
+      "melt": "~1200°C",
+      "boil": null,
+      "eats": "Blocks most flow.",
+      "note": "Barrier rock."
+    },
+    {
+      "id": 8,
+      "name": "Acid",
+      "melt": "—",
+      "boil": null,
+      "eats": "Most solids except glass and bedrock.",
+      "note": "Eats on contact."
+    },
+    {
+      "id": 9,
+      "name": "Oil",
+      "melt": "—",
+      "boil": "burns",
+      "eats": "Floats on water. Burns hard.",
+      "note": "Fuel layer."
+    },
+    {
+      "id": 10,
+      "name": "Gunpowder",
+      "melt": "—",
+      "boil": null,
+      "eats": "Detonates from fire, spark, laser.",
+      "note": "Keep it away from the rod."
+    },
+    {
+      "id": 11,
+      "name": "Plant",
+      "melt": "—",
+      "boil": null,
+      "eats": "Drinks water, burns.",
+      "note": "Grows toward moisture."
+    },
+    {
+      "id": 12,
+      "name": "Glass",
+      "melt": "~1400°C",
+      "boil": null,
+      "eats": "Acid-proof. Brittle to laser/lava.",
+      "note": "Melted sand."
+    },
+    {
+      "id": 13,
+      "name": "Ice",
+      "melt": "0°C",
+      "boil": null,
+      "eats": "Freezes nearby water.",
+      "note": "Dam material."
+    },
+    {
+      "id": 14,
+      "name": "Steam",
+      "melt": "—",
+      "boil": "condenses < 90°C",
+      "eats": "Nothing. Rises, then rains. Sealed rooms rupture.",
+      "note": "Steam. Lightning will still chase the wet left behind."
+    },
+    {
+      "id": 15,
+      "name": "C4 Explosive",
+      "melt": "—",
+      "boil": null,
+      "eats": "Everything in a radius when sparked.",
+      "note": "Don’t wire this to copper."
+    },
+    {
+      "id": 16,
+      "name": "Spark / Electricity",
+      "melt": "—",
+      "boil": null,
+      "eats": "Seeks water and metal, then ignites fuel.",
+      "note": "Pathfinding arc. Not a decoration."
+    },
+    {
+      "id": 17,
+      "name": "Metal / Wire",
+      "melt": "~1500°C",
+      "boil": null,
+      "eats": "Carries spark and some heat.",
+      "note": "Wire. Use copper if you want a heat pipe."
+    },
+    {
+      "id": 18,
+      "name": "Virus",
+      "melt": "—",
+      "boil": null,
+      "eats": "Converts neighboring solids.",
+      "note": "Keep it off the ant farm."
+    },
+    {
+      "id": 19,
+      "name": "Ant",
+      "melt": "—",
+      "boil": null,
+      "eats": "Crawls dirt and sand, avoids water.",
+      "note": "Colony grain."
+    },
+    {
+      "id": 20,
+      "name": "Void",
+      "melt": "never",
+      "boil": null,
+      "eats": "Deletes anything that touches it. Sucks pressure.",
+      "note": "Vacuum well."
+    },
+    {
+      "id": 21,
+      "name": "Clone / Duplicator",
+      "melt": "—",
+      "boil": null,
+      "eats": "Copies the first neighbor it sees.",
+      "note": "Don’t clone C4 next to spark."
+    },
+    {
+      "id": 22,
+      "name": "Portal A",
+      "melt": "—",
+      "boil": null,
+      "eats": "Teleports matter to Portal B.",
+      "note": "Pair them."
+    },
+    {
+      "id": 23,
+      "name": "Portal B",
+      "melt": "—",
+      "boil": null,
+      "eats": "Exit for Portal A.",
+      "note": "Pair them."
+    },
+    {
+      "id": 24,
+      "name": "Anti-Gravity Powder",
+      "melt": "—",
+      "boil": null,
+      "eats": "Falls up.",
+      "note": "Negative gravity sand."
+    },
+    {
+      "id": 25,
+      "name": "Wax",
+      "melt": "~60°C",
+      "boil": null,
+      "eats": "Melts, then can burn.",
+      "note": "Candle logic."
+    },
+    {
+      "id": 26,
+      "name": "Thermite",
+      "melt": "—",
+      "boil": null,
+      "eats": "Burns through almost anything once lit.",
+      "note": "Thermite."
+    },
+    {
+      "id": 27,
+      "name": "Salt Water",
+      "melt": "—",
+      "boil": "100°C",
+      "eats": "Better conductor than fresh water.",
+      "note": "Lightning loves this."
+    },
+    {
+      "id": 28,
+      "name": "Nitro Liquid",
+      "melt": "—",
+      "boil": null,
+      "eats": "Detonates. Shock + fire.",
+      "note": "Liquid boom."
+    },
+    {
+      "id": 29,
+      "name": "Bedrock",
+      "melt": "never",
+      "boil": null,
+      "eats": "Nothing. Immune.",
+      "note": "World edge."
+    },
+    {
+      "id": 30,
+      "name": "Rubber",
+      "melt": "—",
+      "boil": null,
+      "eats": "Bounces kinetic hits.",
+      "note": "Soft wall."
+    },
+    {
+      "id": 31,
+      "name": "Oxygen Gas",
+      "melt": "—",
+      "boil": null,
+      "eats": "Feeds fire, boom with spark.",
+      "note": "Oxidizer."
+    },
+    {
+      "id": 32,
+      "name": "Plasma",
+      "melt": "—",
+      "boil": null,
+      "eats": "Ignites and melts.",
+      "note": "Superheated gas."
+    },
+    {
+      "id": 33,
+      "name": "Fuse Wire",
+      "melt": "—",
+      "boil": null,
+      "eats": "Burns along its length, then spark.",
+      "note": "Timer."
+    },
+    {
+      "id": 34,
+      "name": "Honey",
+      "melt": "—",
+      "boil": null,
+      "eats": "Slow pour. Burns if you try.",
+      "note": "Viscous."
+    },
+    {
+      "id": 35,
+      "name": "Helium Gas",
+      "melt": "—",
+      "boil": null,
+      "eats": "Rises. Can boom.",
+      "note": "Lighter than air."
+    },
+    {
+      "id": 36,
+      "name": "Laser Beam",
+      "melt": "—",
+      "boil": null,
+      "eats": "Boils water, ignites fuel, melts sand.",
+      "note": "Beam."
+    },
+    {
+      "id": 37,
+      "name": "Salt",
+      "melt": "801°C",
+      "boil": null,
+      "eats": "Turns water into salt water.",
+      "note": "NaCl."
+    },
+    {
+      "id": 38,
+      "name": "Snow",
+      "melt": "0°C",
+      "boil": null,
+      "eats": "Compacts toward ice.",
+      "note": "Light water."
+    },
+    {
+      "id": 39,
+      "name": "Dirt",
+      "melt": "—",
+      "boil": null,
+      "eats": "Drinks water → mud. Erodes.",
+      "note": "Soil."
+    },
+    {
+      "id": 40,
+      "name": "Seed",
+      "melt": "—",
+      "boil": null,
+      "eats": "Becomes plant with water.",
+      "note": "Start a farm."
+    },
+    {
+      "id": 41,
+      "name": "Coal",
+      "melt": "—",
+      "boil": null,
+      "eats": "Burns long.",
+      "note": "Carbon."
+    },
+    {
+      "id": 42,
+      "name": "Concrete",
+      "melt": "—",
+      "boil": null,
+      "eats": "Cured wet mix. Barrier.",
+      "note": "The set stone."
+    },
+    {
+      "id": 43,
+      "name": "Hydrogen",
+      "melt": "—",
+      "boil": null,
+      "eats": "Boom with spark or fire.",
+      "note": "Lightest fuel."
+    },
+    {
+      "id": 44,
+      "name": "Mercury",
+      "melt": "-39°C",
+      "boil": "357°C",
+      "eats": "Dense. Conducts. Sinks through water.",
+      "note": "Don’t drink it."
+    },
+    {
+      "id": 45,
+      "name": "Mud",
+      "melt": "—",
+      "boil": null,
+      "eats": "Dirt + water. Slow.",
+      "note": "Slurry."
+    },
+    {
+      "id": 46,
+      "name": "Obsidian",
+      "melt": "high",
+      "boil": null,
+      "eats": "Won’t remelt easily.",
+      "note": "Quenched lava."
+    },
+    {
+      "id": 47,
+      "name": "Copper",
+      "melt": "1085°C",
+      "boil": null,
+      "eats": "Moves heat, not mass. Conducts spark.",
+      "note": "Heat pipe. Line it from lava to ice."
+    },
+    {
+      "id": 48,
+      "name": "Fan",
+      "melt": "—",
+      "boil": null,
+      "eats": "Pushes gas and light powder along gravity-right.",
+      "note": "Pressure without a blast."
+    },
+    {
+      "id": 49,
+      "name": "Wet mix",
+      "melt": "—",
+      "boil": null,
+      "eats": "Pours, then becomes concrete.",
+      "note": "Wait. Don’t freeze it."
+    }
+  ],
+  "periodic": [
+    {
+      "z": 1,
+      "symbol": "H",
+      "name": "Hydrogen",
+      "mapsTo": 43,
+      "why": "Light fuel. Spark it."
+    },
+    {
+      "z": 2,
+      "symbol": "He",
+      "name": "Helium",
+      "mapsTo": 35,
+      "why": "Rises. Inert-ish boom."
+    },
+    {
+      "z": 6,
+      "symbol": "C",
+      "name": "Carbon",
+      "mapsTo": 41,
+      "why": "Coal. Slow burn."
+    },
+    {
+      "z": 8,
+      "symbol": "O",
+      "name": "Oxygen",
+      "mapsTo": 31,
+      "why": "Feeds fire."
+    },
+    {
+      "z": 11,
+      "symbol": "Na",
+      "name": "Sodium",
+      "mapsTo": 37,
+      "why": "Closest: salt."
+    },
+    {
+      "z": 13,
+      "symbol": "Al",
+      "name": "Aluminium",
+      "mapsTo": 17,
+      "why": "Metal / wire."
+    },
+    {
+      "z": 14,
+      "symbol": "Si",
+      "name": "Silicon",
+      "mapsTo": 1,
+      "why": "Sand, then glass."
+    },
+    {
+      "z": 16,
+      "symbol": "S",
+      "name": "Sulfur",
+      "mapsTo": 10,
+      "why": "Gunpowder stand-in."
+    },
+    {
+      "z": 20,
+      "symbol": "Ca",
+      "name": "Calcium",
+      "mapsTo": 7,
+      "why": "Stone."
+    },
+    {
+      "z": 26,
+      "symbol": "Fe",
+      "name": "Iron",
+      "mapsTo": 17,
+      "why": "Metal / wire."
+    },
+    {
+      "z": 29,
+      "symbol": "Cu",
+      "name": "Copper",
+      "mapsTo": 47,
+      "why": "Heat pipe."
+    },
+    {
+      "z": 47,
+      "symbol": "Ag",
+      "name": "Silver",
+      "mapsTo": 17,
+      "why": "Conductor."
+    },
+    {
+      "z": 50,
+      "symbol": "Sn",
+      "name": "Tin",
+      "mapsTo": 17,
+      "why": "Soft metal."
+    },
+    {
+      "z": 74,
+      "symbol": "W",
+      "name": "Tungsten",
+      "mapsTo": 17,
+      "why": "Hard metal."
+    },
+    {
+      "z": 78,
+      "symbol": "Pt",
+      "name": "Platinum",
+      "mapsTo": 17,
+      "why": "Inert metal."
+    },
+    {
+      "z": 79,
+      "symbol": "Au",
+      "name": "Gold",
+      "mapsTo": 17,
+      "why": "Dense metal."
+    },
+    {
+      "z": 80,
+      "symbol": "Hg",
+      "name": "Mercury",
+      "mapsTo": 44,
+      "why": "Liquid metal."
+    },
+    {
+      "z": 82,
+      "symbol": "Pb",
+      "name": "Lead",
+      "mapsTo": 44,
+      "why": "Heavy. Sinks."
+    }
+  ],
+  "compounds": [
+    {
+      "z": 0,
+      "symbol": "H₂O",
+      "name": "Water",
+      "mapsTo": 2,
+      "why": "The liquid."
+    },
+    {
+      "z": 0,
+      "symbol": "NaCl",
+      "name": "Salt",
+      "mapsTo": 37,
+      "why": "Makes water conductive."
+    },
+    {
+      "z": 0,
+      "symbol": "SiO₂",
+      "name": "Silica",
+      "mapsTo": 12,
+      "why": "Glass."
+    },
+    {
+      "z": 0,
+      "symbol": "H₂",
+      "name": "H gas",
+      "mapsTo": 43,
+      "why": "Same as hydrogen."
+    },
+    {
+      "z": 0,
+      "symbol": "O₂",
+      "name": "O gas",
+      "mapsTo": 31,
+      "why": "Same as oxygen."
+    },
+    {
+      "z": 0,
+      "symbol": "C₄",
+      "name": "C4",
+      "mapsTo": 15,
+      "why": "Don’t."
+    }
+  ]
+}

@@ -301,6 +301,14 @@ final class SimulationModel {
         )
     }
 
+    /// One element's full description, for the info card and the picker.
+    ///
+    /// From the registry rather than the packed physics table: this is the authoring model, with
+    /// the name and description on it, which the simulation itself deliberately never reads.
+    func definition(of id: ElementID) -> ElementDefinition {
+        engine.registry.element(id)
+    }
+
     /// The world's dimensions and how it should be coloured, read once per frame.
     func gridGeometry() -> (width: Int, height: Int, overlay: PowderOverlayMode) {
         (engine.width, engine.height, overlay)

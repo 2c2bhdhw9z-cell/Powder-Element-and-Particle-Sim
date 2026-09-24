@@ -44,6 +44,10 @@ struct ContentView: View {
     @State private var showingPresets = false
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
+    @State private var showingPeriodic = false
+    /// Which material's card is open, if any. Held as the element rather than a flag so the sheet
+    /// cannot be shown without knowing what it is describing.
+    @State private var infoElement: ElementInfoTarget?
 
     /// Remembered between launches. All three are preferences rather than state: coming back to
     /// the chamber you were in, the interface you chose, and the readout you left on.
@@ -111,6 +115,15 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingDiagnostics) {
             DiagnosticsSheet(model: powder)
+        }
+        .sheet(isPresented: $showingPeriodic) {
+            PeriodicSheet(model: powder) { id in
+                powder.brushElement = id
+                showingPeriodic = false
+            }
+        }
+        .sheet(item: $infoElement) { target in
+            ElementInfoSheet(model: powder, elementID: target.id)
         }
     }
 
@@ -197,7 +210,9 @@ struct ContentView: View {
                 glass: glass,
                 isOpen: $isDockOpen,
                 onShowScenes: { showingScenes = true },
-                onShowSettings: { showingSettings = true }
+                onShowSettings: { showingSettings = true },
+                onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
+                onShowPeriodic: { showingPeriodic = true }
             )
         case .field:
             FieldDock(

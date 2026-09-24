@@ -12,6 +12,10 @@ struct ElementDock: View {
     @Binding var isOpen: Bool
     let onShowScenes: () -> Void
     let onShowSettings: () -> Void
+    /// Opens the card describing one material. Handed in rather than presented here, because the
+    /// dock is not a sheet and the card has to sit above everything.
+    let onShowInfo: (ElementID) -> Void
+    let onShowPeriodic: () -> Void
 
     /// Elements grouped the way someone reaching for one would look for them, rather than by
     /// internal identifier.
@@ -111,6 +115,7 @@ struct ElementDock: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            iconButton("atom", "Periodic table", action: onShowPeriodic)
             iconButton("square.grid.2x2", "Scenes", action: onShowScenes)
             iconButton("slider.horizontal.3", "Settings", action: onShowSettings)
         }
@@ -226,6 +231,13 @@ struct ElementDock: View {
             )
         }
         .buttonStyle(.plain)
+        // Hold a swatch to read what the material is and what it does to the others. A long press
+        // rather than a second button, because there are fifty of these and the dock has no room
+        // for fifty more.
+        .onLongPressGesture(minimumDuration: 0.35) {
+            onShowInfo(id)
+        }
+        .accessibilityHint("Double tap to select. Touch and hold to read about it.")
     }
 
     private func iconButton(
