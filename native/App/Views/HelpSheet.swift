@@ -38,7 +38,11 @@ struct HelpSheet: View {
                     + "field of free bodies pulling on one another: orbits, swarms, cloth.\n\nSwitch "
                     + "between them at the top. Whichever you are not looking at pauses and picks up "
                     + "exactly where it left off — or, if you turn on **Keep both running** in the "
-                    + "Lab panel, carries on out of sight."
+                    + "Lab panel, carries on out of sight.\n\nThe split button beside the switch shows "
+                    + "both at once, one above the other. Worth trying: the two chambers affect each "
+                    + "other, and that is invisible unless you can see both. Explosions here throw "
+                    + "sparks into the field, and bodies that come to rest there silt down into sand "
+                    + "and water. Tap a half to give it the tray."
             )
         }
     }

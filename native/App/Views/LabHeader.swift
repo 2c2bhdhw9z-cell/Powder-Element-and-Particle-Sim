@@ -28,6 +28,8 @@ struct LabHeader: View {
     let onSelectChamber: (Chamber) -> Void
     let onShowMenu: () -> Void
     let onShowPerformance: () -> Void
+    let isSplit: Bool
+    let onToggleSplit: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,8 +73,9 @@ struct LabHeader: View {
     }
 
     private var chamberRow: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             chamberSwitch
+            splitButton
             Spacer(minLength: 0)
             frameRateChip
         }
@@ -109,6 +112,32 @@ struct LabHeader: View {
                 .fill(Color.white.opacity(0.06))
                 .overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
         )
+    }
+
+    /// Shows both chambers at once.
+    ///
+    /// Earns its place in the header rather than a panel because it is what makes the two chambers
+    /// affecting one another visible at all — sparks crossing from an explosion, bodies silting down
+    /// into sand. Buried in a settings list, nobody would find the connection.
+    private var splitButton: some View {
+        Button(action: onToggleSplit) {
+            Image(systemName: isSplit ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
+                .font(.labBody(12, .medium))
+                .foregroundStyle(isSplit ? Palette.primaryForeground : Palette.muted)
+                .frame(width: 36, height: 36)
+                .background(
+                    Capsule()
+                        .fill(isSplit ? Palette.primary : Color.white.opacity(0.06))
+                        .overlay(
+                            Capsule().stroke(
+                                isSplit ? Color.clear : Color.white.opacity(0.12),
+                                lineWidth: 1
+                            )
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isSplit ? "Show one chamber" : "Show both chambers")
     }
 
     /// The frame rate, tinted by whether it is keeping up, and the way into the graphs.

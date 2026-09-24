@@ -85,6 +85,12 @@ struct ContentView: View {
     /// Whether the chambers affect one another. On by default, matching the reference.
     @AppStorage("chambersAffectEachOther") private var chambersAffectEachOther = true
     @AppStorage("temperatureUnit") private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
+    /// Whether both chambers share the screen.
+    ///
+    /// Worth more than it first appears: the two chambers affect each other — explosions throw sparks
+    /// across, bodies silt down into sand — and none of that is visible unless both are on screen at
+    /// once.
+    @AppStorage("isSplit") private var isSplit = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -107,40 +113,33 @@ struct ContentView: View {
                 onToggleRunning: toggleRunning,
                 onSelectChamber: select,
                 onShowMenu: { showingSettings = true },
-                onShowPerformance: { showingPerformance = true }
+                onShowPerformance: { showingPerformance = true },
+                isSplit: isSplit,
+                onToggleSplit: {
+                    isSplit.toggle()
+                    // The tray is closed on the way in and out: half a screen with an open tray leaves
+                    // almost no world visible, which defeats the point of looking at both.
+                    isDockOpen = false
+                    updateCompanionStepping()
+                }
             )
 
-            GeometryReader { geometry in
-                ZStack(alignment: .topLeading) {
-                    surface(for: geometry.size)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        tools
-                        if showDebugOverlay { debugReadout }
-                    }
-                    .padding(.leading, 8)
-                    .padding(.top, 8)
-
-                    // Opposite the tools, so the two never collide however wide either gets. Only in
-                    // the powder chamber: the particle field has no cells to inspect.
-                    if chamber == .powder {
-                        HStack {
-                            Spacer(minLength: 0)
-                            InspectChip(
-                                model: powder,
-                                unit: temperatureUnit,
-                                glass: glass
-                            ) { id in
-                                infoElement = ElementInfoTarget(id: id)
-                            }
-                        }
-                        .padding(.trailing, 8)
-                        .padding(.top, 8)
-                    }
+            if isSplit {
+                // Stacked rather than side by side, because on a phone held upright two tall thin
+                // chambers are far worse than two short wide ones. The reference does the same — its
+                // side-by-side layout only applies from tablet widths up.
+                VStack(spacing: 0) {
+                    chamberPane(.powder)
+                    Rectangle()
+                        .fill(Palette.borderStrong)
+                        .frame(height: 1)
+                    chamberPane(.field)
                 }
+                .background(Palette.background)
+            } else {
+                chamberPane(chamber)
+                    .background(Palette.background)
             }
-            // The world keeps its own black even while a sheet is over it, so nothing shows through.
-            .background(Palette.background)
 
             dock
         }
@@ -298,6 +297,63 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - A chamber on screen
+
+    /// One chamber, with the controls that float over it.
+    ///
+    /// The same view whether it is filling the screen or sharing it, so the two layouts cannot drift
+    /// apart — and so that a chamber sharing the screen is a real chamber rather than a preview of one.
+    @ViewBuilder
+    private func chamberPane(_ which: Chamber) -> some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                surface(which, size: geometry.size)
+
+                // The floating controls belong to whichever chamber has focus. Showing them on both
+                // halves would be two sets of undo buttons doing different things.
+                if which == chamber {
+                    VStack(alignment: .leading, spacing: 8) {
+                        tools
+                        if showDebugOverlay { debugReadout }
+                    }
+                    .padding(.leading, 8)
+                    .padding(.top, 8)
+                }
+
+                // Opposite the tools, so the two never collide however wide either gets. Only the
+                // powder chamber has cells to inspect.
+                if which == .powder, which == chamber {
+                    HStack {
+                        Spacer(minLength: 0)
+                        InspectChip(
+                            model: powder,
+                            unit: temperatureUnit,
+                            glass: glass
+                        ) { id in
+                            infoElement = ElementInfoTarget(id: id)
+                        }
+                    }
+                    .padding(.trailing, 8)
+                    .padding(.top, 8)
+                }
+            }
+            // Tapping the other half moves focus to it, which is how the dock and the tools follow
+            // your attention. Only while split; otherwise this would swallow taps meant for the world.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if isSplit, which != chamber { select(which) }
+            }
+        }
+        .overlay {
+            // A hairline round whichever has focus, so it is obvious which chamber the dock belongs to.
+            if isSplit, which == chamber {
+                Rectangle()
+                    .strokeBorder(Palette.primary.opacity(0.35), lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
     // MARK: - What the header reads
 
     /// Whichever chamber is on screen decides what play, pause and the frame counter refer to.
@@ -348,7 +404,10 @@ struct ContentView: View {
     private func updateCompanionStepping() {
         powder.alsoStep = nil
         field.alsoStep = nil
-        guard bothChambersRun else { return }
+        // While split, both chambers are on screen and each has a view driving its own clock. Wiring a
+        // companion as well would step the hidden one twice per frame — it is not hidden — and it would
+        // run at double speed.
+        guard bothChambersRun, !isSplit else { return }
 
         switch chamber {
         case .powder:
@@ -391,14 +450,13 @@ struct ContentView: View {
     // MARK: - Pieces
 
     @ViewBuilder
-    private func surface(for size: CGSize) -> some View {
-        switch chamber {
+    private func surface(_ which: Chamber, size: CGSize) -> some View {
+        switch which {
         case .powder:
             SimulationSurface(model: powder)
-                .ignoresSafeArea()
-                // The whole surface jolts when something goes off. Only the simulation moves —
-                // the dock and the tools stay put, because chrome that shakes reads as the app
-                // glitching rather than as the world being hit.
+                // The whole surface jolts when something goes off. Only the simulation moves — the dock
+                // and the tools stay put, because chrome that shakes reads as the app glitching rather
+                // than as the world being hit.
                 .offset(x: powder.screenShakeOffset.width, y: powder.screenShakeOffset.height)
                 .onAppear { powder.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
@@ -406,7 +464,6 @@ struct ContentView: View {
                 }
         case .field:
             FieldSurface(model: field)
-                .ignoresSafeArea()
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
                     field.resize(toViewSize: new, scale: UIScreen.main.scale)
