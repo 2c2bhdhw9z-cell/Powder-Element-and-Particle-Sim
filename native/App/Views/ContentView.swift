@@ -83,11 +83,15 @@ struct ContentView: View {
     @AppStorage("detail") private var detailRaw = SimulationModel.Detail.balanced.rawValue
     /// Whether the chambers affect one another. On by default, matching the reference.
     @AppStorage("chambersAffectEachOther") private var chambersAffectEachOther = true
+    @AppStorage("temperatureUnit") private var temperatureUnitRaw = TemperatureUnit.celsius.rawValue
 
     @Environment(\.scenePhase) private var scenePhase
 
     private var chamber: Chamber { Chamber(rawValue: chamberRaw) ?? .powder }
     private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
+    private var temperatureUnit: TemperatureUnit {
+        TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
+    }
 
     var body: some View {
         // Header, world, dock — stacked, the way the reference arranges them. The world used to fill
@@ -114,6 +118,23 @@ struct ContentView: View {
                     }
                     .padding(.leading, 8)
                     .padding(.top, 8)
+
+                    // Opposite the tools, so the two never collide however wide either gets. Only in
+                    // the powder chamber: the particle field has no cells to inspect.
+                    if chamber == .powder {
+                        HStack {
+                            Spacer(minLength: 0)
+                            InspectChip(
+                                model: powder,
+                                unit: temperatureUnit,
+                                glass: glass
+                            ) { id in
+                                infoElement = ElementInfoTarget(id: id)
+                            }
+                        }
+                        .padding(.trailing, 8)
+                        .padding(.top, 8)
+                    }
                 }
             }
             // The world keeps its own black even while a sheet is over it, so nothing shows through.
@@ -188,6 +209,10 @@ struct ContentView: View {
                 soundEnabled: $soundEnabled,
                 bothChambersRun: $bothChambersRun,
                 chambersAffectEachOther: $chambersAffectEachOther,
+                temperatureUnit: Binding(
+                    get: { temperatureUnit },
+                    set: { temperatureUnitRaw = $0.rawValue }
+                ),
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true
@@ -200,7 +225,7 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $showingDiagnostics) {
-            DiagnosticsSheet(model: powder, glass: glass)
+            DiagnosticsSheet(model: powder, glass: glass, unit: temperatureUnit)
         }
         .sheet(isPresented: $showingHelp) {
             HelpSheet(glass: glass)

@@ -15,6 +15,7 @@ struct SettingsSheet: View {
     @Binding var soundEnabled: Bool
     @Binding var bothChambersRun: Bool
     @Binding var chambersAffectEachOther: Bool
+    @Binding var temperatureUnit: TemperatureUnit
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
 
@@ -122,6 +123,12 @@ struct SettingsSheet: View {
                     (.temperature, "Heat"),
                     (.density, "Heaviness"),
                 ]
+            )
+            LabDivider()
+            LabChoice(
+                label: "Temperatures in",
+                selection: $temperatureUnit,
+                options: TemperatureUnit.allCases.map { (value: $0, title: $0.title) }
             )
             LabDivider()
             LabChoice(

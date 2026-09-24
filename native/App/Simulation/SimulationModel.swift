@@ -407,6 +407,7 @@ final class SimulationModel {
             // want from tapping an empty space.
             brushElement = found
             isSampling = false
+            inspect(x: x, y: y)
             return
         }
 
@@ -419,6 +420,10 @@ final class SimulationModel {
             targetElementID: brushShape == .replace ? replaceTarget : nil,
             now: CFAbsoluteTimeGetCurrent()
         )
+
+        // After painting, so it reports what is now there rather than what was there a moment ago.
+        // That is what makes it a confirmation of what you placed as well as a readout.
+        inspect(x: x, y: y)
     }
 
     /// Brings the readouts back in step with the world after something outside the tick changed it.
@@ -472,6 +477,56 @@ final class SimulationModel {
     /// Shakes the world, as a jolt of the phone would.
     func jostle() {
         engine.jostle(6)
+    }
+
+    // MARK: - What is under your finger
+
+    /// What the last touch found.
+    struct Inspection: Equatable {
+        var elementID: ElementID
+        var name: String
+        /// In Celsius, as the grid stores it. The reader's preferred scale is applied when shown.
+        var celsius: Double
+        /// Which way a fan is pointing, as an arrow, or nothing for anything else.
+        var fanArrow: String?
+    }
+
+    /// The cell the last touch landed on, or nothing if there has not been one.
+    ///
+    /// Updated on every touch rather than only at the start of a stroke, which is a small departure
+    /// from the reference. Dragging across a world and watching the readout change is how you find out
+    /// how hot the middle of a lava flow is, and that seems worth more than the calmer alternative.
+    private(set) var inspected: Inspection?
+
+    /// The four directions a fan can point, in the order its counter runs through them.
+    private static let fanArrows = ["→", "↓", "←", "↑"]
+
+    /// Records what is at a cell, for the readout.
+    private func inspect(x: Int, y: Int) {
+        guard isValid(x, y) else { return }
+        let index = engine.index(x, y)
+        let id = engine.type[index]
+        let definition = engine.registry.element(id)
+
+        // A fan keeps its direction in the same slot everything else uses for a countdown, so this is
+        // the only way to know which way it is pointing — and without it a row of fans is four
+        // identical squares doing four different things.
+        var arrow: String?
+        if id == Element.fan {
+            arrow = Self.fanArrows[Int(engine.life[index]) % Self.fanArrows.count]
+        }
+
+        inspected = Inspection(
+            elementID: id,
+            name: id == Element.empty ? "Air" : definition.name,
+            celsius: Double(engine.temperature[index]),
+            fanArrow: arrow
+        )
+    }
+
+    /// Whether a coordinate is inside the world.
+    private func isValid(_ x: Int, _ y: Int) -> Bool {
+        engine.isValid(x, y)
     }
 
     // MARK: - The day's world

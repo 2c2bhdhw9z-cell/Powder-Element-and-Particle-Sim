@@ -30,6 +30,8 @@ struct DiagnosticsSheet: View {
     @State private var lastRepair: String?
 
     let glass: GlassLevel
+    /// The scale the reader prefers, so the health report agrees with the chip on the canvas.
+    let unit: TemperatureUnit
 
     var body: some View {
         LabSheet(title: "Health", subtitle: "What the world looks like from inside", glass: glass) {
@@ -103,11 +105,11 @@ struct DiagnosticsSheet: View {
 
     private func heat(_ report: PowderDiagnostics) -> some View {
         LabGroup("Heat") {
-            LabRow(label: "Coldest", value: "\(report.minTemp)°C")
+            LabRow(label: "Coldest", value: unit.format(celsius: Double(report.minTemp)))
             LabDivider()
-            LabRow(label: "Hottest", value: "\(report.maxTemp)°C")
+            LabRow(label: "Hottest", value: unit.format(celsius: Double(report.maxTemp)))
             LabDivider()
-            LabRow(label: "Average", value: "\(report.avgTemp)°C")
+            LabRow(label: "Average", value: unit.format(celsius: Double(report.avgTemp)))
         }
     }
 
