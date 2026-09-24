@@ -197,7 +197,8 @@ final class SimulationModel {
         // A starting size that a phone can run at the full refresh rate with room to spare.
         // The real size is set from the view's dimensions as soon as it is laid out, so that
         // one cell lands on one screen pixel wherever that is achievable.
-        engine = PowderEngine(width: 220, height: 380)
+        // The registry is given somewhere to keep invented materials, so they survive a relaunch.
+        engine = PowderEngine(width: 220, height: 380, registry: ElementRegistry(store: CustomElementFileStore()))
         history = PowderHistory(maximumSteps: 25)
         engine.textureMode = .naturalGrain
         loadScene(powderRecipes[0])
@@ -374,6 +375,60 @@ final class SimulationModel {
     /// Any materials the person invented, so a scene using them still works elsewhere.
     var customElements: [ElementDefinition] {
         engine.registry.customElements
+    }
+
+    /// The fifty materials everyone has, for pickers that offer a choice of them.
+    var builtInElements: [ElementDefinition] {
+        engine.registry.allElements.filter { $0.id < Element.customIDStart }
+    }
+
+    /// How many invented-material slots are still free.
+    var freeCustomSlots: Int {
+        Int(Element.customIDEnd) - Int(Element.customIDStart) + 1 - customElements.count
+    }
+
+    /// Invents a material and registers it.
+    ///
+    /// Only the six properties the editor offers are taken; everything else keeps the engine's
+    /// defaults. See `ElementEditorSheet` for why that is six and not twenty.
+    ///
+    /// - Returns: the slot it went into, or `nil` when all fifty are full.
+    func createCustomElement(
+        name: String,
+        color: PackedColor,
+        state: ElementState,
+        density: Double,
+        flammability: Double,
+        gravityFactor: Double,
+        interactions: [InteractionRule]
+    ) -> ElementID? {
+        guard let id = engine.registry.nextAvailableID else { return nil }
+        let definition = ElementDefinition(
+            id: id,
+            name: name,
+            category: .custom,
+            state: state,
+            color: color,
+            density: density,
+            flammability: flammability,
+            gravityFactor: gravityFactor,
+            interactions: interactions,
+            info: "A material you invented."
+        )
+        guard engine.registry.register(definition) else { return nil }
+        return id
+    }
+
+    /// Removes an invented material.
+    ///
+    /// Cells already holding it are left exactly where they are. They behave as air until something
+    /// moves them, which is the engine's existing answer for an element that is not registered —
+    /// quietly rewriting someone's world to tidy up after a deletion would be worse.
+    func deleteCustomElement(_ id: ElementID) {
+        guard engine.registry.deleteCustomElement(id) else { return }
+        // Moved off the deleted material, or the brush would keep painting something that no longer
+        // exists.
+        if brushElement == id { brushElement = Element.sand }
     }
 
     /// Puts a saved world back.

@@ -49,6 +49,10 @@ struct ContentView: View {
     @State private var showingDiagnostics = false
     @State private var showingPeriodic = false
     @State private var showingSaves = false
+    @State private var showingEditor = false
+    /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
+    /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
+    @State private var paletteVersion = 0
     /// Whether the autosave has been read. Once only, and before anything else touches a world.
     @State private var hasRestored = false
     /// Which material's card is open, if any. Held as the element rather than a flag so the sheet
@@ -156,6 +160,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingSaves) {
             SavesSheet(powder: powder, field: field, store: store)
+        }
+        .sheet(isPresented: $showingEditor) {
+            ElementEditorSheet(model: powder) { paletteVersion += 1 }
         }
     }
 
@@ -272,7 +279,9 @@ struct ContentView: View {
                 onShowSettings: { showingSettings = true },
                 onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
                 onShowPeriodic: { showingPeriodic = true },
-                onShowSaves: { showingSaves = true }
+                onShowSaves: { showingSaves = true },
+                onShowEditor: { showingEditor = true },
+                paletteVersion: paletteVersion
             )
         case .field:
             FieldDock(

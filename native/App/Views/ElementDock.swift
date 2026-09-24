@@ -17,6 +17,12 @@ struct ElementDock: View {
     let onShowInfo: (ElementID) -> Void
     let onShowPeriodic: () -> Void
     let onShowSaves: () -> Void
+    let onShowEditor: () -> Void
+    /// Changes whenever a material is invented or deleted.
+    ///
+    /// The palette's own rows come from the registry, which is a class, so SwiftUI has no way to
+    /// notice an edit inside it. This is the nudge that makes the list rebuild.
+    let paletteVersion: Int
 
     /// Elements grouped the way someone reaching for one would look for them, rather than by
     /// internal identifier.
@@ -107,7 +113,7 @@ struct ElementDock: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(Self.name(of: model.brushElement))
+                Text(name(of: model.brushElement))
                     .font(.labDisplay(15))
                     .foregroundStyle(Palette.foreground)
                 Text("\(model.ticksPerSecond) fps · \(model.activeCells.formatted()) cells")
@@ -118,6 +124,7 @@ struct ElementDock: View {
 
             iconButton("atom", "Periodic table", action: onShowPeriodic)
             iconButton("tray.full", "Scenes you kept", action: onShowSaves)
+            iconButton("wand.and.stars", "Invent a material", action: onShowEditor)
             iconButton("square.grid.2x2", "Scenes", action: onShowScenes)
             iconButton("slider.horizontal.3", "Settings", action: onShowSettings)
         }
@@ -129,27 +136,48 @@ struct ElementDock: View {
     private var expanded: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(Self.groups, id: \.name) { group in
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(group.name.uppercased())
-                            .font(.labBody(10, .semiBold))
-                            .tracking(0.8)
-                            .foregroundStyle(Palette.subtleForeground)
-                        LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 84), spacing: 6)],
-                            spacing: 6
-                        ) {
-                            ForEach(group.items, id: \.id) { item in
-                                chip(item.id, item.name, wide: true)
-                            }
-                        }
-                    }
+                // Invented materials first, because someone who has just made one is looking for
+                // it, and the fifty built-ins are always in the same place further down.
+                if !invented.isEmpty {
+                    group("Yours", invented)
+                }
+                ForEach(Self.groups, id: \.name) { built in
+                    group(built.name, built.items)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
         }
         .frame(maxHeight: 280)
+    }
+
+    /// The materials someone invented.
+    ///
+    /// Read through `paletteVersion` so that inventing or deleting one rebuilds this. The registry is
+    /// a class and SwiftUI cannot see an edit inside one.
+    private var invented: [(id: ElementID, name: String)] {
+        _ = paletteVersion
+        return model.customElements
+            .sorted { $0.id < $1.id }
+            .map { (id: $0.id, name: $0.name) }
+    }
+
+    /// One titled block of the palette.
+    private func group(_ title: String, _ items: [(id: ElementID, name: String)]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title.uppercased())
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 84), spacing: 6)],
+                spacing: 6
+            ) {
+                ForEach(items, id: \.id) { item in
+                    chip(item.id, item.name, wide: true)
+                }
+            }
+        }
     }
 
     /// The favourites row, always visible.
@@ -258,11 +286,13 @@ struct ElementDock: View {
         .accessibilityLabel(label)
     }
 
-    private static func name(of id: ElementID) -> String {
+    /// What to call the selected material in the dock's subtitle.
+    ///
+    /// Asks the registry rather than searching the fixed lists above, so an invented material shows
+    /// the name someone gave it instead of "Element 50". The lists are for grouping and ordering;
+    /// they are not the source of truth for a name.
+    private func name(of id: ElementID) -> String {
         if id == Element.empty { return "Erase" }
-        for group in groups {
-            if let match = group.items.first(where: { $0.id == id }) { return match.name }
-        }
-        return "Element \(id)"
+        return model.definition(of: id).name
     }
 }
