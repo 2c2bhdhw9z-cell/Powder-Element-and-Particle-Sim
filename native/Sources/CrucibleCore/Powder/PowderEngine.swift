@@ -106,6 +106,29 @@ public final class PowderEngine {
     /// Tick of the last fan rotation, used to debounce repeated taps.
     public var lastFanRotate: Double = 0
 
+    /// Whether an exit portal might be somewhere in the grid.
+    ///
+    /// The tick has to know where every exit portal is before anything moves, and
+    /// finding them meant reading all several million cells on every single tick for
+    /// something almost no world contains. This flag is what lets that pass be
+    /// skipped, and it is exact rather than a guess:
+    ///
+    /// - Only sixteen places in the engine ever write a cell's element, and only two
+    ///   of them can put an exit portal into the grid: deliberate placement through
+    ///   ``setElement(_:_:_:temp:life:)``, and loading a world. Both set this. Nothing
+    ///   decays into a portal and no reaction produces one, so a portal cannot appear
+    ///   by accident.
+    /// - Moving cells about cannot create one that was not already there, so the
+    ///   per-tick physics needs no hook.
+    /// - It is self-correcting downward: when the scan does run and finds nothing, the
+    ///   flag is cleared again, so painting a portal and then erasing it returns the
+    ///   world to the fast path instead of paying for the scan forever.
+    ///
+    /// A stale `true` costs one wasted pass and is harmless. A stale `false` would
+    /// break teleportation, which is why every path that could introduce a portal sets
+    /// it rather than trying to be clever.
+    public internal(set) var portalBMayExist: Bool = false
+
     /// Called when an explosion goes off, so the app can shake the screen or play
     /// a sound. The engine itself does neither.
     public var onBurst: ((Int, Int, Int) -> Void)?
@@ -225,6 +248,10 @@ public final class PowderEngine {
         velocityY.update(repeating: 0, count: cellCount)
         pressure.update(repeating: 0, count: cellCount)
         pressureNext.update(repeating: 0, count: cellCount)
+        // An empty world contains no portals by definition. Callers that clear the grid
+        // only to lay cells back down again — resizing, loading, undo — put the flag back
+        // themselves afterwards.
+        portalBMayExist = false
     }
 
     /// Changes the grid size, keeping whatever overlaps the new bounds.
@@ -250,6 +277,10 @@ public final class PowderEngine {
         let oldVelocityX = velocityX
         let oldVelocityY = velocityY
         let oldPressure = pressure
+        // Carried across the clear below, because the cells come with it. If the portal
+        // happened to fall outside the new bounds this is left needlessly true, which
+        // costs one scan and then corrects itself.
+        let hadPortal = portalBMayExist
 
         // Not carried over, so released immediately.
         Self.release(visited, oldCapacity)
@@ -287,6 +318,7 @@ public final class PowderEngine {
                 pressure[to] = oldPressure[from]
             }
         }
+        portalBMayExist = hadPortal
 
         Self.release(oldType, oldCapacity)
         Self.release(oldTemp, oldCapacity)
@@ -331,6 +363,9 @@ public final class PowderEngine {
         let previous = type[idx]
 
         type[idx] = elementID
+        // Deliberate placement is one of only two ways a portal can enter the grid, so
+        // this is where the tick learns it has to start looking for them again.
+        if elementID == Element.portalB { portalBMayExist = true }
 
         if let temp {
             temperature[idx] = JS.toFloat32(temp)
@@ -499,13 +534,22 @@ public final class PowderEngine {
         // Portals are located before anything moves, so a pair sees a consistent
         // snapshot of the world. Gathering them lazily would let a portal that has
         // already been stepped over teleport into a cell that no longer exists.
+        //
+        // Skipped entirely unless a portal might be present — see ``portalBMayExist``.
+        // At one cell per screen pixel this pass alone reads over three million cells a
+        // tick, for something a world almost never contains.
         var portalsB: [(Int, Int)] = []
-        for y in 0 ..< height {
-            for x in 0 ..< width {
-                if type[index(x, y)] == Element.portalB {
-                    portalsB.append((x, y))
+        if portalBMayExist {
+            for y in 0 ..< height {
+                for x in 0 ..< width {
+                    if type[index(x, y)] == Element.portalB {
+                        portalsB.append((x, y))
+                    }
                 }
             }
+            // Nothing found means nothing is there, and nothing can arrive without
+            // announcing itself, so the scan can stop happening again.
+            if portalsB.isEmpty { portalBMayExist = false }
         }
 
         // Bottom-up under normal gravity; top-down when it is inverted.

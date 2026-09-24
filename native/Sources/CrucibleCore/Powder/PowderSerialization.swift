@@ -238,7 +238,12 @@ extension PowderEngine {
         // had poisoned the whole world.
         for i in 0 ..< count {
             let id = state.gridType[i]
-            type[i] = id <= Element.customIDEnd ? id : Element.empty
+            let usable = id <= Element.customIDEnd ? id : Element.empty
+            type[i] = usable
+            // Loading is the second of the two ways a portal can enter the grid. Noticed
+            // here, inside a walk that was happening anyway, rather than by a separate
+            // pass afterwards.
+            if usable == Element.portalB { portalBMayExist = true }
         }
         let temperatureCount = min(count, state.gridTemp.count)
         for i in 0 ..< temperatureCount {
@@ -302,6 +307,7 @@ extension PowderEngine {
             let id = ElementID(bytes[i])
             let usable = id <= Element.customIDEnd ? id : Element.empty
             type[i] = usable
+            if usable == Element.portalB { portalBMayExist = true }
             let physics = elements[usable]
             temperature[i] = JS.toFloat32(physics.usesAmbientTemp ? ambientTemp : physics.defaultTemp)
             // Clamped into range rather than converted blindly: a lifetime is a 16-bit

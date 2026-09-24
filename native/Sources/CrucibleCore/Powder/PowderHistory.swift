@@ -85,9 +85,14 @@ public final class PowderHistory {
 
         let count = engine.cellCount
         for i in 0 ..< count {
-            engine.type[i] = snapshot.type[i]
+            let id = snapshot.type[i]
+            engine.type[i] = id
             engine.temperature[i] = snapshot.temperature[i]
             engine.life[i] = snapshot.life[i]
+            // Undoing back to a world that had a portal has to restore the engine's
+            // knowledge of it too, or teleportation would quietly stop working after an
+            // undo. Spotted in the copy that was happening anyway.
+            if id == Element.portalB { engine.portalBMayExist = true }
         }
         engine.gravityX = snapshot.gravityX
         engine.gravityY = snapshot.gravityY
