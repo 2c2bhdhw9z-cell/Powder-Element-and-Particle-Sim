@@ -14,7 +14,7 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottom) {
-                GridView(model: model)
+                SimulationSurface(model: model)
                     .ignoresSafeArea()
                     .onAppear {
                         model.resize(
