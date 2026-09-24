@@ -7,6 +7,7 @@ import SwiftUI
 /// undo pair stays where the thumb expects it.
 struct ToolCluster: View {
     let model: SimulationModel
+    let tilt: TiltSensor
     let glass: GlassLevel
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
@@ -16,6 +17,7 @@ struct ToolCluster: View {
             HStack(alignment: .top, spacing: 6) {
                 actions
                 speedDial
+                TiltButton(tilt: tilt, glass: glass)
             }
         }
     }

@@ -101,12 +101,21 @@ struct SettingsSheet: View {
                 // A tap on the label returns it to level, which is quicker than nudging a
                 // slider back to exactly nothing.
                 .onTapGesture(count: 2) { model.gravityX = 0 }
+                // Turned off while the phone is steering, rather than left live. The tilt
+                // rewrites gravity sixty times a second, so a slider here would snap back under
+                // your finger and read as broken.
+                .disabled(model.isSteeredByTilt)
+                .opacity(model.isSteeredByTilt ? 0.4 : 1)
             }
         } header: {
             Text("Physics")
         } footer: {
-            Text("Double-tap the slider to return to level.")
-                .font(.labBody(11))
+            Text(
+                model.isSteeredByTilt
+                    ? "The phone's tilt is setting gravity. Tap Tilt twice more to take it back."
+                    : "Double-tap the slider to return to level."
+            )
+            .font(.labBody(11))
         }
         .listRowBackground(Palette.elevated)
     }

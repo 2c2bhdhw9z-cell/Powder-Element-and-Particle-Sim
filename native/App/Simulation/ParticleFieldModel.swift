@@ -44,9 +44,57 @@ final class ParticleFieldModel {
         set { engine.boundaryMode = newValue }
     }
 
+    var gravityX: Double {
+        get { engine.gravityX }
+        set {
+            engine.gravityX = newValue
+            manualGravityX = newValue
+        }
+    }
+
     var gravityY: Double {
         get { engine.gravityY }
-        set { engine.gravityY = newValue }
+        set {
+            engine.gravityY = newValue
+            manualGravityY = newValue
+        }
+    }
+
+    /// Whether the phone's tilt is currently deciding which way is down.
+    private(set) var isSteeredByTilt = false
+
+    /// Where tilt readings come from. Shared with the powder chamber — one phone, one sensor.
+    var tilt: TiltSensor?
+
+    /// Gravity as last set by hand, restored when tilt is switched off.
+    ///
+    /// The resting value is the field's own gentle default rather than the powder world's full
+    /// strength: a field of free bodies under real gravity just falls to the floor and stops.
+    private var manualGravityX: Double = 0
+    private var manualGravityY: Double = 0.28
+
+    /// Hands gravity over to the phone's tilt, or takes it back.
+    ///
+    /// The field gets a fraction of the tilt the powder world does, for the same reason its
+    /// resting gravity is gentler. See ``TiltMapping``.
+    func steer(with tilt: TiltMapping?) {
+        guard let tilt else {
+            if isSteeredByTilt {
+                isSteeredByTilt = false
+                engine.gravityX = manualGravityX
+                engine.gravityY = manualGravityY
+            }
+            return
+        }
+
+        if !isSteeredByTilt {
+            isSteeredByTilt = true
+            manualGravityX = engine.gravityX
+            manualGravityY = engine.gravityY
+        }
+
+        engine.gravityX = tilt.particleGravityX
+        engine.gravityY = tilt.particleGravityY
     }
 
     var showTrails: Bool {
@@ -92,6 +140,10 @@ final class ParticleFieldModel {
     // MARK: - Time
 
     func tick(now: Double) {
+        // Before the pause check, so tipping the phone still turns the field while time is
+        // stopped. See the same note in SimulationModel.
+        steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+
         guard isRunning else { return }
         stepCredit += max(0, speed)
         var steps = Int(stepCredit)

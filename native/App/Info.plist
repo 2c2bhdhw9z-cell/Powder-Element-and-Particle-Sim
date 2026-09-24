@@ -72,6 +72,10 @@
 	     A name missing from this list does not fail the build and does not crash: the app
 	     just silently draws in the system face instead. LabFonts.missingFaces() checks for
 	     that at runtime and the debug readout reports it. -->
+	<!-- Required before iOS will hand over any motion reading. Without it the tilt control is
+	     refused rather than merely unavailable, and the refusal is silent. -->
+	<key>NSMotionUsageDescription</key>
+	<string>Tilt your phone to change which way things fall, and shake it to rattle a pile loose.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Syne-Medium.ttf</string>

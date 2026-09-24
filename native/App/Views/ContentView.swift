@@ -35,6 +35,9 @@ enum Chamber: String, CaseIterable, Codable {
 struct ContentView: View {
     @State private var powder = SimulationModel()
     @State private var field = ParticleFieldModel()
+    /// One sensor for both chambers. There is only one phone being tilted, and a second reader
+    /// would mean a second stream of readings for nothing.
+    @State private var tilt = TiltSensor()
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -75,6 +78,13 @@ struct ContentView: View {
         .background(Palette.background)
         .preferredColorScheme(.dark)
         .tint(Palette.primary)
+        .onAppear {
+            // Handed to both models rather than read by the views, so gravity is applied at the
+            // start of a tick — in step with the simulation instead of whenever SwiftUI happens
+            // to notice a change.
+            powder.tilt = tilt
+            field.tilt = tilt
+        }
         .sheet(isPresented: $showingScenes) {
             ScenePicker { recipe in
                 powder.loadScene(recipe)
@@ -153,8 +163,8 @@ struct ContentView: View {
     @ViewBuilder
     private var tools: some View {
         switch chamber {
-        case .powder: ToolCluster(model: powder, glass: glass)
-        case .field: FieldToolCluster(model: field, glass: glass)
+        case .powder: ToolCluster(model: powder, tilt: tilt, glass: glass)
+        case .field: FieldToolCluster(model: field, tilt: tilt, glass: glass)
         }
     }
 
@@ -231,6 +241,7 @@ struct ScenePicker: View {
 /// The floating tools for the particle chamber.
 struct FieldToolCluster: View {
     let model: ParticleFieldModel
+    let tilt: TiltSensor
     let glass: GlassLevel
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
@@ -260,6 +271,8 @@ struct FieldToolCluster: View {
                     }
                 }
                 .glassPanel(glass)
+
+                TiltButton(tilt: tilt, glass: glass)
             }
         }
     }

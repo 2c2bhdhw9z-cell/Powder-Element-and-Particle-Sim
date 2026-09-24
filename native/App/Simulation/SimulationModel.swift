@@ -43,8 +43,29 @@ final class SimulationModel {
     /// Sideways gravity, as the world is tilted.
     var gravityX: Double {
         get { engine.gravityX }
-        set { engine.gravityX = newValue }
+        set {
+            engine.gravityX = newValue
+            manualGravityX = newValue
+        }
     }
+
+    /// Whether the phone's tilt is currently deciding which way is down.
+    ///
+    /// The gravity control reads this so it can show that it is not in charge, rather than
+    /// letting someone drag a slider whose value is overwritten sixty times a second.
+    private(set) var isSteeredByTilt = false
+
+    /// Where tilt readings come from.
+    ///
+    /// Injected rather than created here, because both chambers read the same phone and a second
+    /// sensor would mean a second stream of readings for no benefit. Optional so the simulation
+    /// runs perfectly well with no sensor at all, which is what every test does.
+    var tilt: TiltSensor?
+
+    /// Gravity as last set by hand, kept so that switching tilt off restores what was there
+    /// before rather than leaving the world stuck at whatever angle the phone happened to be.
+    private var manualGravityX: Double = 0
+    private var manualGravityY: Double = 1
 
     /// How fast time runs. One is real time.
     ///
@@ -87,6 +108,42 @@ final class SimulationModel {
         loadScene(powderRecipes[0])
     }
 
+    // MARK: - Tilt
+
+    /// Hands gravity over to the phone's tilt, or takes it back.
+    ///
+    /// Called every frame with the current reading, or with nothing when tilt is off. Passing
+    /// nothing is what restores the gravity that was set by hand — it is not enough to simply
+    /// stop writing, because the world would stay frozen at whatever angle it was left at and
+    /// switching the feature off would look like it had not worked.
+    func steer(with tilt: TiltMapping?) {
+        guard let tilt else {
+            if isSteeredByTilt {
+                isSteeredByTilt = false
+                engine.gravityX = manualGravityX
+                engine.gravityY = manualGravityY
+            }
+            return
+        }
+
+        if !isSteeredByTilt {
+            isSteeredByTilt = true
+            manualGravityX = engine.gravityX
+            manualGravityY = engine.gravityY
+        }
+
+        engine.gravityX = tilt.gravityX
+        engine.gravityY = tilt.gravityY
+        // Only a real knock rattles the world. Below this the reading is the ordinary tremor of
+        // a hand holding a phone, and feeding that in makes everything permanently restless.
+        if tilt.shake > Self.shakeFloor {
+            engine.jostle(tilt.shake)
+        }
+    }
+
+    /// How hard the phone has to be moved before the world is shaken.
+    private static let shakeFloor = 0.45
+
     // MARK: - Driving time forward
 
     /// Advances the simulation by one frame's worth of time.
@@ -95,6 +152,11 @@ final class SimulationModel {
     /// for by running several ticks: catching up makes a slow device run the world *faster*
     /// than a quick one, which changes the physics rather than the smoothness.
     func tick() {
+        // Before the pause check, so that tipping the phone still turns the world while time is
+        // stopped. Gravity is the state of the world rather than an event in it, and watching a
+        // paused pile hang at an angle is how you see what is about to happen when you unpause.
+        steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+
         guard isRunning else { return }
 
         // Whole steps this frame, plus a running remainder so a fractional speed averages out
