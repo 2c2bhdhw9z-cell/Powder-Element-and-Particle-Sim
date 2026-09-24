@@ -58,6 +58,14 @@ describe("splitting a path", () => {
 describe("resolving a request", () => {
   it("maps every path and method to the right thing", () => {
     expect(operationFor("GET", "/api/v1/status")).toEqual({ kind: "status" });
+    expect(operationFor("GET", "/api/v1/me")).toEqual({ kind: "me" });
+
+    expect(operationFor("GET", "/api/v1/auth/providers")).toEqual({ kind: "providers" });
+    expect(operationFor("GET", "/api/v1/auth/done")).toEqual({ kind: "signInFinish" });
+    expect(operationFor("GET", "/api/v1/auth/start/google")).toEqual({
+      kind: "signInStart",
+      provider: "google",
+    });
 
     expect(operationFor("GET", "/api/v1/saves")).toEqual({ kind: "listSaves" });
     expect(operationFor("POST", "/api/v1/saves")).toEqual({ kind: "createSave" });
@@ -119,9 +127,47 @@ describe("resolving a request", () => {
       "/api/v1/maps/xyz/like/again",
       "/api/v1/status/extra",
       "/api/v1/SAVES",
+      "/api/v1/auth",
+      "/api/v1/auth/nonsense",
+      "/api/v1/auth/start",
+      "/api/v1/auth/start/google/extra",
+      "/api/v1/me/extra",
     ]) {
       expect(resolveApiV1Route("GET", path).kind, `for ${path}`).toBe("notFound");
     }
+  });
+
+  /**
+   * The sign-in routes are followed by a web view, which only ever issues GETs and
+   * cannot show the app an error. Accepting a POST would be dead code; refusing
+   * anything but GET keeps the surface exactly what the sheet can reach.
+   */
+  it("only allows GET on the sign-in routes", () => {
+    for (const path of ["/api/v1/auth/providers", "/api/v1/auth/done", "/api/v1/auth/start/google"]) {
+      expect(resolveApiV1Route("POST", path), `for ${path}`).toEqual({
+        kind: "wrongMethod",
+        allowed: ["GET"],
+      });
+    }
+  });
+
+  /**
+   * A provider name arrives in the path, so it is a caller-supplied string reaching
+   * the server. It is checked against the configured list before use — but it must
+   * at least arrive intact and as one segment, rather than smuggling a second one.
+   */
+  it("keeps a provider name to a single segment", () => {
+    expect(operationFor("GET", "/api/v1/auth/start/x")).toEqual({
+      kind: "signInStart",
+      provider: "x",
+    });
+    // Escaped, so it is one segment holding a slash rather than two segments.
+    expect(operationFor("GET", "/api/v1/auth/start/a%2Fb")).toEqual({
+      kind: "signInStart",
+      provider: "a/b",
+    });
+    // Unescaped, it is three segments and therefore nothing at all.
+    expect(resolveApiV1Route("GET", "/api/v1/auth/start/a/b").kind).toBe("notFound");
   });
 
   /**
@@ -148,6 +194,15 @@ describe("who has to be signed in", () => {
     expect(Object.fromEntries(answers)).toEqual({
       // Asking whether the server works needs nothing.
       status: false,
+      providers: false,
+      // These two exist to be reached by somebody who is not signed in yet.
+      // Requiring an account here would make signing in impossible.
+      signInStart: false,
+      signInFinish: false,
+      // And this one deliberately does require one, so asking "who am I?" with a
+      // stale token answers 401 rather than a cheerful nobody. That is how the app
+      // discovers a stored token has expired.
+      me: true,
       // Somebody's own worlds. Every query for these is scoped by user id, which is
       // meaningless without knowing whose.
       listSaves: true,

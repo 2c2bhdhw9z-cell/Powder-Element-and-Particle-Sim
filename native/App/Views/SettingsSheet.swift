@@ -21,6 +21,9 @@ struct SettingsSheet: View {
     let onShowRoom: () -> Void
     /// What the room row should say about itself, so somebody already in a room can see that from here.
     let roomSummary: String
+    let onShowCloud: () -> Void
+    /// What the server row should say, so being signed in somewhere is visible from here.
+    let cloudSummary: String
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
@@ -66,6 +69,13 @@ struct SettingsSheet: View {
                 detail: roomSummary,
                 symbol: "person.2",
                 action: onShowRoom
+            )
+            LabDivider()
+            LabAction(
+                label: "Your worlds and the workshop",
+                detail: cloudSummary,
+                symbol: "icloud",
+                action: onShowCloud
             )
         }
     }

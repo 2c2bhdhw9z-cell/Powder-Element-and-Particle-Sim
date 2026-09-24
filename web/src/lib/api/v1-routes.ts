@@ -16,6 +16,10 @@
 /** Everything the API can be asked to do. */
 export type ApiV1Operation =
   | { kind: "status" }
+  | { kind: "providers" }
+  | { kind: "signInStart"; provider: string }
+  | { kind: "signInFinish" }
+  | { kind: "me" }
   | { kind: "listSaves" }
   | { kind: "createSave" }
   | { kind: "loadSave"; id: string }
@@ -77,6 +81,26 @@ export function resolveApiV1Route(method: string, pathname: string): ApiV1Route 
     return verb === "GET" ? operation({ kind: "status" }) : wrongMethod("GET");
   }
 
+  if (segments.length === 1 && segments[0] === "me") {
+    return verb === "GET" ? operation({ kind: "me" }) : wrongMethod("GET");
+  }
+
+  if (segments[0] === "auth") {
+    // All GET, all reached by a web view following redirects — so they must work
+    // from an address bar, which rules out anything but GET.
+    if (verb !== "GET") return wrongMethod("GET");
+    if (segments.length === 2 && segments[1] === "providers") {
+      return operation({ kind: "providers" });
+    }
+    if (segments.length === 2 && segments[1] === "done") {
+      return operation({ kind: "signInFinish" });
+    }
+    if (segments.length === 3 && segments[1] === "start") {
+      return operation({ kind: "signInStart", provider: segments[2] });
+    }
+    return notFound;
+  }
+
   if (segments[0] === "saves") {
     if (segments.length === 1) {
       if (verb === "GET") return operation({ kind: "listSaves" });
@@ -129,7 +153,18 @@ export function resolveApiV1Route(method: string, pathname: string): ApiV1Route 
 export function needsAccount(operation: ApiV1Operation): boolean {
   switch (operation.kind) {
     case "status":
+    case "providers":
       return false;
+    case "signInStart":
+    case "signInFinish":
+      // The whole point of these is to be reachable by somebody who is not signed
+      // in yet. Requiring an account here would make signing in impossible.
+      return false;
+    case "me":
+      // Deliberately requires one, so that asking "who am I?" with a stale token
+      // answers 401 rather than a cheerful nobody. That is how the app finds out a
+      // stored token has expired.
+      return true;
     case "listSaves":
     case "createSave":
     case "loadSave":
@@ -151,6 +186,10 @@ export function needsAccount(operation: ApiV1Operation): boolean {
 /** Every operation there is, so a test can walk the whole set. */
 export const allApiV1Operations: readonly ApiV1Operation[] = [
   { kind: "status" },
+  { kind: "providers" },
+  { kind: "signInStart", provider: "google" },
+  { kind: "signInFinish" },
+  { kind: "me" },
   { kind: "listSaves" },
   { kind: "createSave" },
   { kind: "loadSave", id: "x" },

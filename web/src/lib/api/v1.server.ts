@@ -33,6 +33,11 @@ import { authConfigured } from "@/lib/auth/server";
 import { requireUserIdForApi, UnauthorizedError } from "@/lib/auth/verify.server";
 import { needsAccount, resolveApiV1Route } from "@/lib/api/v1-routes";
 import {
+  finishNativeSignIn,
+  providersResponse,
+  startNativeSignIn,
+} from "@/lib/api/native-auth.server";
+import {
   createSaveFor,
   deleteSaveFor,
   downloadMapById,
@@ -81,13 +86,33 @@ function describe(error: unknown): Response {
   if (message.includes("refusing to fall back to the shared dev user")) {
     return failure("This server is not set up for accounts yet.", 503);
   }
-  // A validation failure from zod. Reported as the caller's fault, which it is,
-  // with the detail included — an app being told only "400" cannot say which field
-  // was too long.
+  // A validation failure. Reported as the caller's fault, which it is, and with
+  // enough detail to act on — an app told only "400" cannot say which field was
+  // too long.
   if (error instanceof Error && error.name === "ZodError") {
-    return failure(`That request was not valid. ${message}`, 400);
+    return failure(readableValidationFailure(error), 400);
   }
   return failure("Something went wrong on the server.", 500);
+}
+
+/**
+ * Turns a validation failure into one sentence.
+ *
+ * `error.message` on a ZodError is the whole issue list as JSON. It is exactly
+ * what you want in a log and exactly what you do not want on a phone screen:
+ * several hundred characters of `{"code":"too_big","maximum":80,…}`, which the app
+ * would show verbatim because it has no way to know it is not a message.
+ *
+ * So the first issue is picked out and named. First rather than all of them
+ * because fixing one usually fixes the rest, and a list of five is not more
+ * helpful than the first.
+ */
+function readableValidationFailure(error: Error): string {
+  const issues = (error as { issues?: { path?: unknown[]; message?: string }[] }).issues;
+  const first = Array.isArray(issues) ? issues[0] : undefined;
+  if (!first?.message) return "That request was not valid.";
+  const field = Array.isArray(first.path) ? first.path.filter(Boolean).join(".") : "";
+  return field ? `${field}: ${first.message}` : first.message;
 }
 
 /** Reads a JSON body, or throws something `describe` turns into a 400. */
@@ -149,6 +174,21 @@ export async function handleApiV1(request: Request): Promise<Response> {
     switch (operation.kind) {
       case "status":
         return status();
+
+      case "providers":
+        return providersResponse();
+
+      case "signInStart":
+        return startNativeSignIn(request, operation.provider);
+
+      case "signInFinish":
+        return finishNativeSignIn(request);
+
+      case "me":
+        // Reaching here at all means the token was good — `needsAccount` is true for
+        // this one, so a stale token has already been turned into a 401 above. That
+        // is exactly what the app uses this for.
+        return json({ signedIn: true, id: userId });
 
       case "listSaves":
         return json({ saves: await listSavesFor(userId) });

@@ -85,6 +85,27 @@
 	     rooms and not others, which is a far worse problem to be handed than it never working at all.
 
 	     The name must match RoomTransport.serviceType exactly. -->
+	<!-- The address the sign-in sheet watches for. When OAuth finishes, the server's last redirect
+	     goes to crucible://auth?token=… — the system sheet matches this scheme, stops, and hands the
+	     address to the app rather than fetching it. That is what carries the session across from a
+	     web view whose cookies the app can never see.
+
+	     The word must match CloudSignIn.scheme in the app and nativeCallbackScheme on the server.
+	     Getting it wrong shows up as a sign-in sheet that opens, completes, and then just sits
+	     there — so check all three when that happens. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.crucible.lab.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>crucible</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Crucible looks for other phones nearby so you can share a world with somebody in the same room. Nothing is sent over the internet.</string>
 	<key>NSBonjourServices</key>

@@ -711,6 +711,41 @@ final class SimulationModel {
         return LabSnapshot.image(fromEngineColors: pixels, width: width, height: height, scale: factor)
     }
 
+    /// A small picture of the world, in the form the workshop stores.
+    ///
+    /// A data URL holding a JPEG, which is what the web version puts in the same column — so a world
+    /// published from the app shows a picture in a browser and the other way round.
+    ///
+    /// JPEG rather than PNG, and this is the one place in the app where that is the right choice. Every
+    /// other picture Crucible produces is kept lossless because a grain should stay a crisp square; a
+    /// thumbnail is looked at the size of a postage stamp, and a lossless one of the largest world would
+    /// be several times the limit the server accepts.
+    ///
+    /// - Returns: `nil` if there is nothing to draw, or if it came out larger than the server will take.
+    ///   A world without a picture still publishes perfectly well, and being refused outright over a
+    ///   thumbnail would be a poor trade.
+    func thumbnailDataURL() -> String? {
+        let width = engine.width
+        let height = engine.height
+        guard width > 0, height > 0 else { return nil }
+
+        var pixels = [UInt32](repeating: 0, count: width * height)
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            // Always the plain colours, whatever overlay happens to be on screen. A heat map is a reading
+            // of a world rather than a picture of it, and publishing one would show everybody else a
+            // world that does not look like the world.
+            engine.render(into: base, overlay: .normal)
+        }
+
+        guard let image = LabSnapshot.image(fromEngineColors: pixels, width: width, height: height),
+              let jpeg = image.jpegData(compressionQuality: 0.7)
+        else { return nil }
+
+        let encoded = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
+        return encoded.count <= CloudLimits.thumbnailLength ? encoded : nil
+    }
+
     // MARK: - Saving and loading
 
     /// The world as something that can be written to a file.

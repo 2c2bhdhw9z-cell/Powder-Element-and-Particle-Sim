@@ -64,6 +64,11 @@ struct ContentView: View {
     @State private var showingHelp = false
     @State private var showingPerformance = false
     @State private var showingRoom = false
+    @State private var showingCloud = false
+    @State private var showingWorkshop = false
+    /// The account and the server address. One for the whole app: two would disagree about who is signed
+    /// in, and the second one to be asked would look signed out.
+    @State private var account = CloudAccount()
     /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
     /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
     @State private var paletteVersion = 0
@@ -123,6 +128,15 @@ struct ContentView: View {
                 ? "\(session.code) — you are running the world, \(others)"
                 : "\(session.code) — watching, \(others)"
         }
+    }
+
+    /// One line describing the server and account, for the menu row.
+    private var cloudSummary: String {
+        guard account.hasServer else { return "Keep worlds on a server, and share them" }
+        if account.isSignedIn { return "Signed in at \(account.hostText)" }
+        if account.status == nil { return "\(account.hostText) — not checked yet" }
+        if account.canSignIn { return "\(account.hostText) — not signed in" }
+        return "\(account.hostText) — accounts are switched off"
     }
 
     var body: some View {
@@ -255,13 +269,35 @@ struct ContentView: View {
                     showingSettings = false
                     showingRoom = true
                 },
-                roomSummary: roomSummary
+                roomSummary: roomSummary,
+                onShowCloud: {
+                    showingSettings = false
+                    showingCloud = true
+                },
+                cloudSummary: cloudSummary
             )
         }
         .sheet(isPresented: $showingRoom) {
             if let room {
                 RoomSheet(bridge: room, glass: glass)
             }
+        }
+        .sheet(isPresented: $showingCloud) {
+            CloudSheet(
+                account: account,
+                powder: powder,
+                field: field,
+                chamber: chamber,
+                glass: glass,
+                onOpenWorkshop: {
+                    // Closed first: a sheet cannot sensibly present another on top of itself.
+                    showingCloud = false
+                    showingWorkshop = true
+                }
+            )
+        }
+        .sheet(isPresented: $showingWorkshop) {
+            WorkshopSheet(account: account, powder: powder, glass: glass)
         }
         .sheet(isPresented: $showingDiagnostics) {
             DiagnosticsSheet(model: powder, glass: glass, unit: temperatureUnit)
