@@ -86,3 +86,103 @@ fragment half4 springFragment() {
     // reads as part of the lab rather than as something drawn on top of it.
     return half4(0.784h, 0.800h, 0.831h, 0.45h);
 }
+
+
+// Trails.
+//
+// A short polyline behind each moving body, in that body's own colour at a flat three-tenths
+// opacity. Not a taper — the reference implementation strokes the whole length at one alpha, and
+// a taper would look better and would not be what it does.
+//
+// Separate from the spring pipeline because these carry a colour per vertex, where a spring is
+// one flat near-white for all of them.
+struct TrailOut {
+    float4 position [[position]];
+    half4 color;
+};
+
+vertex TrailOut trailVertex(uint index [[vertex_id]],
+                            const device float2 *positions [[buffer(0)]],
+                            const device uint *colors [[buffer(1)]],
+                            constant FieldUniforms &uniforms [[buffer(2)]]) {
+    TrailOut out;
+    out.position = worldToClip(positions[index], uniforms.worldSize);
+    out.color = unpackColor(colors[index]);
+    return out;
+}
+
+fragment half4 trailFragment(TrailOut in [[stage_in]]) {
+    return in.color;
+}
+
+// The ring round your finger.
+//
+// Drawn as a screen-filling pair of triangles with the circle worked out per pixel, rather than as
+// a point or a fan of triangles. Two reasons, and the first is the deciding one:
+//
+//   - At the top of its range the pull has no limit, and the ring is then drawn large enough to
+//     cover the whole world — which can be several thousand pixels across. A point sprite has a
+//     hardware size ceiling far below that, and a triangle fan would need enough segments to keep
+//     a circle that large from looking like a polygon.
+//   - The outline, the wash inside it and the centre dot are then one calculation each rather than
+//     three separate pieces of geometry.
+
+// The four-component colour comes first deliberately. It needs sixteen-byte alignment, so putting
+// it after the single floats would leave a hole that both sides have to agree about the size of --
+// and a disagreement there does not fail to compile, it silently reads the wrong fields and draws
+// a ring somewhere unexpected. In this order the fields simply follow one another.
+struct RingUniforms {
+    float4 color;
+    // Where the finger is, in world coordinates.
+    float2 centre;
+    float radius;
+    // Thickness of the outline, in world units so it stays put as the view scales.
+    float strokeWidth;
+    float centreDotRadius;
+    float strokeOpacity;
+    float fillOpacity;
+};
+
+struct RingOut {
+    float4 position [[position]];
+    float2 world;
+};
+
+vertex RingOut ringVertex(uint index [[vertex_id]],
+                          constant FieldUniforms &uniforms [[buffer(2)]]) {
+    // Four corners from the vertex number alone, drawn as a triangle strip. No vertex buffer
+    // needed for a shape that is always the whole screen.
+    float2 corner = float2((index & 1) ? 1.0 : 0.0, (index & 2) ? 1.0 : 0.0);
+    RingOut out;
+    out.world = corner * uniforms.worldSize;
+    out.position = worldToClip(out.world, uniforms.worldSize);
+    return out;
+}
+
+fragment half4 ringFragment(RingOut in [[stage_in]],
+                            constant RingUniforms &ring [[buffer(0)]]) {
+    float distance = length(in.world - ring.centre);
+
+    // The solid dot marking exactly where the finger is. Without it, a very large ring gives no
+    // clue where its centre actually is.
+    if (distance <= ring.centreDotRadius) {
+        return half4(half3(ring.color.rgb), 1.0h);
+    }
+
+    // The outline. Compared against half the width either side of the radius so the line straddles
+    // the true circle rather than sitting inside it.
+    float edge = abs(distance - ring.radius);
+    if (edge <= ring.strokeWidth * 0.5) {
+        return half4(half3(ring.color.rgb), half(ring.strokeOpacity));
+    }
+
+    // The wash inside.
+    if (distance < ring.radius) {
+        return half4(half3(ring.color.rgb), half(ring.fillOpacity));
+    }
+
+    // Outside the ring entirely. Discarded rather than returned transparent, which would still cost
+    // a blend for every pixel of the screen.
+    discard_fragment();
+    return half4(0.0h);
+}

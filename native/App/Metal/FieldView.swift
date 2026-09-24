@@ -20,10 +20,27 @@ final class FieldView: MTKView {
         var pointSize: Float
     }
 
+    /// Mirrors `RingUniforms` in the shader, field for field and in the same order.
+    ///
+    /// The colour is first because it needs sixteen-byte alignment: anywhere else and there is a
+    /// hole in the struct whose size both sides have to agree about. Getting that wrong does not
+    /// fail to compile — it reads the wrong fields and draws a ring somewhere unexpected.
+    private struct RingUniforms {
+        var color: SIMD4<Float>
+        var centre: SIMD2<Float>
+        var radius: Float
+        var strokeWidth: Float
+        var centreDotRadius: Float
+        var strokeOpacity: Float
+        var fillOpacity: Float
+    }
+
     private let model: ParticleFieldModel
     private let commandQueue: MTLCommandQueue
     private let pointPipeline: MTLRenderPipelineState
     private let springPipeline: MTLRenderPipelineState
+    private let trailPipeline: MTLRenderPipelineState
+    private let ringPipeline: MTLRenderPipelineState
 
     // Held across frames and grown only when the field outgrows them, so a steady field
     // allocates nothing. At a million bodies these are megabytes; rebuilding them sixty times a
@@ -33,6 +50,8 @@ final class FieldView: MTKView {
     private var springPositions: [Float] = []
     private var swarmPositions: [Float] = []
     private var swarmColors: [UInt32] = []
+    private var trailPositions: [Float] = []
+    private var trailColors: [UInt32] = []
 
     /// The GPU-side copies. Reallocated only when they are too small.
     private var positionBuffer: MTLBuffer?
@@ -40,6 +59,8 @@ final class FieldView: MTKView {
     private var springBuffer: MTLBuffer?
     private var swarmPositionBuffer: MTLBuffer?
     private var swarmColorBuffer: MTLBuffer?
+    private var trailPositionBuffer: MTLBuffer?
+    private var trailColorBuffer: MTLBuffer?
 
     init?(model: ParticleFieldModel) {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -48,7 +69,11 @@ final class FieldView: MTKView {
               let pointVertex = library.makeFunction(name: "particleVertex"),
               let pointFragment = library.makeFunction(name: "particleFragment"),
               let springVertex = library.makeFunction(name: "springVertex"),
-              let springFragment = library.makeFunction(name: "springFragment")
+              let springFragment = library.makeFunction(name: "springFragment"),
+              let trailVertex = library.makeFunction(name: "trailVertex"),
+              let trailFragment = library.makeFunction(name: "trailFragment"),
+              let ringVertex = library.makeFunction(name: "ringVertex"),
+              let ringFragment = library.makeFunction(name: "ringFragment")
         else { return nil }
 
         func pipeline(_ vertex: MTLFunction, _ fragment: MTLFunction) -> MTLRenderPipelineState? {
@@ -69,13 +94,17 @@ final class FieldView: MTKView {
         }
 
         guard let points = pipeline(pointVertex, pointFragment),
-              let springs = pipeline(springVertex, springFragment)
+              let springs = pipeline(springVertex, springFragment),
+              let trails = pipeline(trailVertex, trailFragment),
+              let ring = pipeline(ringVertex, ringFragment)
         else { return nil }
 
         self.model = model
         self.commandQueue = queue
         self.pointPipeline = points
         self.springPipeline = springs
+        self.trailPipeline = trails
+        self.ringPipeline = ring
         super.init(frame: .zero, device: device)
 
         colorPixelFormat = .bgra8Unorm
@@ -111,7 +140,9 @@ final class FieldView: MTKView {
             colors: &colors,
             springPositions: &springPositions,
             swarmPositions: &swarmPositions,
-            swarmColors: &swarmColors
+            swarmColors: &swarmColors,
+            trailPositions: &trailPositions,
+            trailColors: &trailColors
         )
 
         var uniforms = Uniforms(
@@ -124,6 +155,8 @@ final class FieldView: MTKView {
         upload(&springBuffer, from: springPositions, count: frame.springCount * 4, device: device)
         upload(&swarmPositionBuffer, from: swarmPositions, count: frame.swarmCount * 2, device: device)
         upload(&swarmColorBuffer, from: swarmColors, count: frame.swarmCount, device: device)
+        upload(&trailPositionBuffer, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
+        upload(&trailColorBuffer, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
 
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) else {
             buffer.present(drawable)
@@ -144,6 +177,21 @@ final class FieldView: MTKView {
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
         }
 
+        // Trails behind everything solid: they are where a body has been, and should never sit on
+        // top of where it is now.
+        if frame.trailSegmentCount > 0,
+           let trailPositionBuffer, let trailColorBuffer {
+            encoder.setRenderPipelineState(trailPipeline)
+            encoder.setVertexBuffer(trailPositionBuffer, offset: 0, index: 0)
+            encoder.setVertexBuffer(trailColorBuffer, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.drawPrimitives(
+                type: .line,
+                vertexStart: 0,
+                vertexCount: frame.trailSegmentCount * 2
+            )
+        }
+
         // Springs next, so a cloth's structure sits behind its nodes.
         if frame.springCount > 0, let springBuffer {
             encoder.setRenderPipelineState(springPipeline)
@@ -158,6 +206,35 @@ final class FieldView: MTKView {
             encoder.setVertexBuffer(colorBuffer, offset: 0, index: 1)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
+        }
+
+        // The ring last, over everything, because it is a statement about what your finger is doing
+        // rather than part of the field.
+        if let ring = frame.touchRing {
+            var ringUniforms = RingUniforms(
+                color: SIMD4<Float>(
+                    Float(ring.red),
+                    Float(ring.green),
+                    Float(ring.blue),
+                    1
+                ),
+                centre: SIMD2<Float>(Float(ring.x), Float(ring.y)),
+                radius: Float(ring.radius),
+                strokeWidth: Float(ring.strokeWidth),
+                centreDotRadius: Float(ring.centreDotRadius),
+                strokeOpacity: Float(ring.strokeOpacity),
+                fillOpacity: Float(ring.fillOpacity)
+            )
+            encoder.setRenderPipelineState(ringPipeline)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(
+                &ringUniforms,
+                length: MemoryLayout<RingUniforms>.stride,
+                index: 0
+            )
+            // Four corners from the vertex number alone, as a strip. No vertex buffer needed for a
+            // shape that is always the whole screen.
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         }
 
         encoder.endEncoding()

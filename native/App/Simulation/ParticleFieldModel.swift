@@ -206,6 +206,24 @@ final class ParticleFieldModel {
         var springCount: Int
         var pointSize: Double
         var swarmCount: Int
+        /// How many line segments of trail there are to draw. Two points and two colours each.
+        var trailSegmentCount: Int
+        /// Where the ring should be drawn, or nothing while no finger is down.
+        var touchRing: TouchRing?
+    }
+
+    /// The ring round a finger.
+    struct TouchRing {
+        var x: Double
+        var y: Double
+        var radius: Double
+        var strokeWidth: Double
+        var centreDotRadius: Double
+        var red: Double
+        var green: Double
+        var blue: Double
+        var strokeOpacity: Double
+        var fillOpacity: Double
     }
 
     /// Fills the caller's buffers and reports what it wrote.
@@ -217,7 +235,9 @@ final class ParticleFieldModel {
         colors: inout [UInt32],
         springPositions: inout [Float],
         swarmPositions: inout [Float],
-        swarmColors: inout [UInt32]
+        swarmColors: inout [UInt32],
+        trailPositions: inout [Float],
+        trailColors: inout [UInt32]
     ) -> Frame {
         let bodies = engine.particles
 
@@ -266,13 +286,103 @@ final class ParticleFieldModel {
         for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
         for i in 0 ..< swarmCount { swarmColors[i] = engine.swarm.colors[i] }
 
+        let trailSegments = fillTrails(
+            positions: &trailPositions,
+            colors: &trailColors,
+            bodies: bodies
+        )
+
         return Frame(
             worldWidth: engine.width,
             worldHeight: engine.height,
             bodyCount: bodies.count,
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
-            swarmCount: swarmCount
+            swarmCount: swarmCount,
+            trailSegmentCount: trailSegments,
+            touchRing: currentTouchRing()
+        )
+    }
+
+    /// Turns each body's remembered positions into line segments.
+    ///
+    /// A segment rather than a connected strip, because one draw call cannot hold several separate
+    /// polylines without either an index buffer or a restart marker — and a flat list of segments is
+    /// simpler than both for something at most six points long.
+    ///
+    /// Only below the drawing limit, matching the reference implementation: above a thousand bodies
+    /// it stops drawing shapes altogether, and a thousand trails would be thousands of lines for a
+    /// picture too dense to read anyway.
+    private func fillTrails(
+        positions: inout [Float],
+        colors: inout [UInt32],
+        bodies: [ParticleObject]
+    ) -> Int {
+        guard engine.showTrails, bodies.count <= ParticleEngine.trailDrawingLimit else { return 0 }
+
+        // The colour a trail is drawn in is the body's current colour under whichever colour mode is
+        // selected, so a trail agrees with the thing that left it.
+        let density = engine.densityGridIfNeeded()
+        let opacity = UInt32(
+            max(0, min(255, (ParticleOverlayStyle.trailOpacity * 255).rounded()))
+        )
+
+        var segments = 0
+        for body in bodies {
+            let trail = body.trail
+            guard trail.count > 1 else { continue }
+            // The alpha is baked into the colour rather than set as a pipeline constant, so a single
+            // draw call can carry every trail.
+            let packed = engine.renderColor(of: body, density: density)
+            let colour = UInt32(packed.r) | (UInt32(packed.g) << 8) | (UInt32(packed.b) << 16)
+                | (opacity << 24)
+
+            for i in 1 ..< trail.count {
+                guard let from = trail.point(at: i - 1), let to = trail.point(at: i) else { continue }
+                let needed = (segments + 1) * 4
+                if positions.count < needed {
+                    positions.append(contentsOf: repeatElement(0, count: needed - positions.count))
+                }
+                if colors.count < (segments + 1) * 2 {
+                    colors.append(
+                        contentsOf: repeatElement(0, count: (segments + 1) * 2 - colors.count)
+                    )
+                }
+                positions[segments * 4] = from.x
+                positions[segments * 4 + 1] = from.y
+                positions[segments * 4 + 2] = to.x
+                positions[segments * 4 + 3] = to.y
+                colors[segments * 2] = colour
+                colors[segments * 2 + 1] = colour
+                segments += 1
+            }
+        }
+        return segments
+    }
+
+    /// The ring, while a finger is down.
+    ///
+    /// Its size comes from the engine, which knows the rule that stops it lying about how far the
+    /// pull reaches — at the top of the range there is no limit, and a modest circle would suggest
+    /// there was.
+    private func currentTouchRing() -> TouchRing? {
+        guard engine.lastMouseActive else { return nil }
+        let colour = ParticleOverlayStyle.ringColor
+        return TouchRing(
+            x: engine.lastMouseX,
+            y: engine.lastMouseY,
+            radius: ParticleOverlayStyle.ringRadius(
+                reach: engine.mouseRadius,
+                worldWidth: engine.width,
+                worldHeight: engine.height
+            ),
+            strokeWidth: ParticleOverlayStyle.ringStrokeWidth,
+            centreDotRadius: ParticleOverlayStyle.ringCentreDotRadius,
+            red: Double(colour.r) / 255,
+            green: Double(colour.g) / 255,
+            blue: Double(colour.b) / 255,
+            strokeOpacity: ParticleOverlayStyle.ringStrokeOpacity,
+            fillOpacity: ParticleOverlayStyle.ringFillOpacity
         )
     }
 
