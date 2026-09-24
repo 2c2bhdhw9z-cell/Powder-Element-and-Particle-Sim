@@ -24,6 +24,7 @@ struct SettingsSheet: View {
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves", glass: glass) {
             help
+            detail
             appearance
             view
             world
@@ -46,6 +47,55 @@ struct SettingsSheet: View {
                 action: onShowHelp
             )
         }
+    }
+
+    // MARK: Detail
+
+    /// How fine the grid is, with the consequence shown rather than described.
+    ///
+    /// The figures underneath are live: the actual grid size and the actual cost of a moment, measured
+    /// on this phone with this world in it. That is worth far more than any adjective — somebody can
+    /// raise the setting, watch what it does to the number, and decide for themselves.
+    private var detail: some View {
+        LabGroup(
+            "Detail",
+            footnote: model.detail.explanation
+                + " Changing this re-fits the world to the new grid, so it will not look identical."
+        ) {
+            LabChoice(
+                label: nil,
+                selection: Binding(get: { model.detail }, set: { model.detail = $0 }),
+                options: SimulationModel.Detail.allCases.map { (value: $0, title: $0.title) }
+            )
+            LabDivider()
+            LabRow(
+                label: "Grid",
+                value: "\(model.gridSize.width) × \(model.gridSize.height)"
+            )
+            LabDivider()
+            LabRow(
+                label: "A moment costs",
+                value: "\(model.millisecondsPerTick.formatted(.number.precision(.fractionLength(1)))) ms",
+                tint: costTint
+            )
+            LabDivider()
+            LabRow(label: "Moments a second", value: "\(model.ticksPerSecond)", tint: rateTint)
+        }
+    }
+
+    /// A frame at the display's full rate is 8.3 milliseconds, and the simulation does not get all of
+    /// it — so half of that is the point at which there is still comfortable room for everything else.
+    private var costTint: Color {
+        let cost = model.millisecondsPerTick
+        if cost <= 4.2 { return Palette.ok }
+        if cost <= 8.3 { return Palette.warn }
+        return Palette.danger
+    }
+
+    private var rateTint: Color {
+        if model.ticksPerSecond >= 100 { return Palette.ok }
+        if model.ticksPerSecond >= 50 { return Palette.warn }
+        return Palette.danger
     }
 
     // MARK: Appearance

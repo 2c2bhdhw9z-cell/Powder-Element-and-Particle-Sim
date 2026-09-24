@@ -75,6 +75,10 @@ struct ContentView: View {
     /// Whether the chamber you are not looking at keeps running. Off by default, matching the
     /// reference: stepping a world nobody is watching spends the frame budget of the one they are.
     @AppStorage("bothChambersRun") private var bothChambersRun = false
+    /// Remembered between launches, like the other preferences. Stored as its cell budget, which is
+    /// the enumeration's own value, so an unrecognised number falls back to the default rather than
+    /// refusing to start.
+    @AppStorage("detail") private var detailRaw = SimulationModel.Detail.balanced.rawValue
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -127,6 +131,7 @@ struct ContentView: View {
             field.tilt = tilt
             powder.audio = audio
             audio.isEnabled = soundEnabled
+            powder.detail = SimulationModel.Detail(rawValue: detailRaw) ?? .balanced
             restoreAutosaveOnce()
             updateCompanionStepping()
         }
@@ -134,6 +139,9 @@ struct ContentView: View {
         // hook depends on both.
         .onChange(of: chamberRaw) { _, _ in updateCompanionStepping() }
         .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
+        // Written back whenever it changes, so the panel drives the model and the model is the one
+        // source of truth rather than the two being kept in step by hand.
+        .onChange(of: powder.detail) { _, level in detailRaw = level.rawValue }
         // Every eight seconds, matching the web version.
         .task {
             while !Task.isCancelled {

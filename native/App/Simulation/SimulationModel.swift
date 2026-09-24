@@ -706,30 +706,94 @@ final class SimulationModel {
         activeCells = 0
     }
 
+    /// How fine the grid is.
+    ///
+    /// ## Why this is a choice rather than a number chosen for you
+    ///
+    /// The cost of a moment is almost entirely the number of cells that have something in them, and
+    /// that is measured rather than guessed — the benchmark prints it on every build. On Apple
+    /// hardware a thirty-percent-full world costs roughly 3.2 milliseconds at 86,000 cells and 13.2
+    /// at 382,000. A frame at the display's full rate is 8.3 milliseconds *in total*, and the
+    /// simulation does not get all of it.
+    ///
+    /// So there is a genuine trade — finer material against a smoother picture — and no single right
+    /// answer. Somebody building a careful scene wants detail; somebody setting off explosions wants
+    /// the frame rate. One cell per screen pixel would be over three million cells and about 124
+    /// milliseconds a moment, which is why it is not on the list: it is not a setting, it is a
+    /// different engine.
+    enum Detail: Int, CaseIterable, Identifiable, Codable {
+        /// Coarse and fast, with room to spare even on a crowded world.
+        case fast = 60_000
+        /// The default. Comfortably inside a frame at the full refresh rate.
+        case balanced = 150_000
+        /// Finer, and near the limit of a full-rate frame once the world fills up.
+        case fine = 320_000
+        /// Finest offered. Expect the frame rate to fall on a busy world.
+        case finest = 600_000
+
+        var id: Int { rawValue }
+
+        var title: String {
+            switch self {
+            case .fast: "Fast"
+            case .balanced: "Balanced"
+            case .fine: "Fine"
+            case .finest: "Finest"
+            }
+        }
+
+        /// What to expect, in terms of what someone will actually notice.
+        var explanation: String {
+            switch self {
+            case .fast: "Chunky material, and the smoothest motion."
+            case .balanced: "A good match for most worlds."
+            case .fine: "Finer material. Motion may ease off on a busy world."
+            case .finest: "The finest offered. Expect slower motion once it fills up."
+            }
+        }
+
+        /// The most cells this level will ask for.
+        var cellBudget: Int { rawValue }
+    }
+
+    /// The chosen level.
+    ///
+    /// Changing it re-fits the world immediately, using the size the view last reported, so the
+    /// setting takes effect while the panel is still open and the result can be seen.
+    var detail: Detail = .balanced {
+        didSet {
+            guard detail != oldValue else { return }
+            applyLastKnownSize()
+        }
+    }
+
+    /// The last size the view reported, so a change of detail can re-fit without waiting for one.
+    private var lastViewSize: CGSize = .zero
+    private var lastViewScale: CGFloat = 1
+
     /// Matches the world to the space it is being drawn in.
     ///
-    /// The aim is one cell per screen pixel, capped so that an unexpectedly large view cannot
-    /// ask for a grid too big to simulate in a frame. The cap is on the number of cells
-    /// rather than on either side, because that is what the tick actually costs.
+    /// The aim is one cell per screen pixel, capped by the chosen detail. The cap is on the number of
+    /// cells rather than on either side, because that is what a moment actually costs.
     func resize(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
-        // Chosen from measurement, not taste. On Apple hardware the engine simulates a
-        // thirty-percent-full world at roughly 3.2ms for 86,000 cells and 13.2ms for 382,000
-        // — see the Benchmark step of the Engine workflow, which prints this on every run.
-        //
-        // A 120fps frame is 8.33ms in total and the simulation does not get all of it, so
-        // 150,000 cells leaves the drawing and the interface a real share. That is a long way
-        // short of one cell per screen pixel, which on this phone is over three million cells
-        // and currently 124ms a tick: reaching it needs the tick spread across processor
-        // cores, which is a change to the engine rather than a number to raise here.
-        let maximumCells = 150_000.0
+        lastViewSize = size
+        lastViewScale = scale
+        applyLastKnownSize()
+    }
+
+    private func applyLastKnownSize() {
+        let size = lastViewSize
+        let scale = lastViewScale
+        guard size.width > 0, size.height > 0 else { return }
 
         var width = Double(size.width * scale)
         var height = Double(size.height * scale)
         let cells = width * height
-        if cells > maximumCells {
+        let budget = Double(detail.cellBudget)
+        if cells > budget {
             // Scaled down keeping the shape, so the world still matches the screen.
-            let factor = (maximumCells / cells).squareRoot()
+            let factor = (budget / cells).squareRoot()
             width *= factor
             height *= factor
         }
@@ -738,8 +802,9 @@ final class SimulationModel {
         let newHeight = max(32, Int(height.rounded(.down)))
         guard newWidth != engine.width || newHeight != engine.height else { return }
         engine.resize(width: newWidth, height: newHeight)
-        // The world that was there described a different shape, so coming back to it would
-        // mean stretching it. Cleaner to start the record again.
+        activeCells = engine.activeParticleCount
+        // The world that was there described a different shape, so coming back to it would mean
+        // stretching it. Cleaner to start the record again.
         history.clear()
     }
 }
