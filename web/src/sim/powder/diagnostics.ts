@@ -6,8 +6,14 @@ import type { PowderCtx } from "./context";
 export function getDiagnostics(e: PowderCtx) {
   let activeParticles = 0;
   let corruptCellCount = 0;
-  let maxTemp = -273;
-  let minTemp = 3000;
+  // Tracked with an explicit "did we see anything" flag rather than magic starting
+  // temperatures. The original started these at -273 and 3000 and then mapped those
+  // exact values back to 20 in the report, so a world genuinely uniform at absolute
+  // zero reported room temperature, and a grid of pure NaN reported 20/20 while the
+  // corrupt-cell count screamed.
+  let sawTemp = false;
+  let maxTemp = 0;
+  let minTemp = 0;
   let sumTemp = 0;
   const totalCells = e.width * e.height;
 
@@ -23,15 +29,16 @@ export function getDiagnostics(e: PowderCtx) {
     }
     const t = e.gridTemp[i];
     if (!Number.isNaN(t)) {
-      if (t > maxTemp) maxTemp = t;
-      if (t < minTemp) minTemp = t;
+      if (!sawTemp || t > maxTemp) maxTemp = t;
+      if (!sawTemp || t < minTemp) minTemp = t;
+      sawTemp = true;
       sumTemp += t;
     } else {
       corruptCellCount++;
     }
   }
 
-  const avgTemp = totalCells > 0 ? Math.round(sumTemp / totalCells) : 20;
+  const avgTemp = sawTemp ? Math.round(sumTemp / totalCells) : Math.round(e.ambientTemp);
   // 19 bytes per cell: gridType 2 + gridTemp 4 + gridLife 2 + gridVisited 1 +
   // gridVx 1 + gridVy 1 + gridP 4 + gridPNext 4. The old figure of 6 was written
   // when temperature was a single byte and the pressure fields did not exist, so it
@@ -40,7 +47,9 @@ export function getDiagnostics(e: PowderCtx) {
   const issues: string[] = [];
 
   if (corruptCellCount > 0) issues.push(`Detected ${corruptCellCount} corrupted/NaN grid cells`);
-  if (maxTemp > 3000 || minTemp < -273) issues.push(`Thermal extremes detected (${Math.round(minTemp)}°C to ${Math.round(maxTemp)}°C)`);
+  if (sawTemp && (maxTemp > 3000 || minTemp < -273)) {
+    issues.push(`Thermal extremes detected (${Math.round(minTemp)}°C to ${Math.round(maxTemp)}°C)`);
+  }
   if (activeParticles > totalCells * 0.95) issues.push("Grid density near maximum capacity (>95%)");
 
   return {
@@ -51,8 +60,8 @@ export function getDiagnostics(e: PowderCtx) {
     corruptCellCount,
     // Guarded like avgTemp above. A zero-cell grid used to report NaN here.
     loadPercentage: totalCells > 0 ? Math.round((activeParticles / totalCells) * 100) : 0,
-    maxTemp: maxTemp === -273 ? 20 : Math.round(maxTemp),
-    minTemp: minTemp === 3000 ? 20 : Math.round(minTemp),
+    maxTemp: sawTemp ? Math.round(maxTemp) : Math.round(e.ambientTemp),
+    minTemp: sawTemp ? Math.round(minTemp) : Math.round(e.ambientTemp),
     avgTemp,
     memoryBytes,
     frameCount: e.frameCount,

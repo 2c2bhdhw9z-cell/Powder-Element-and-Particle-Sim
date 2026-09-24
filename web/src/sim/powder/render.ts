@@ -229,20 +229,37 @@ export function captureThumbnail(e: PowderCtx, maxW: number = 320): string {
     canvas.height = e.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return "";
-    renderToCanvas(e, ctx, "normal");
-    if (e.width > maxW) {
-      const scale = maxW / e.width;
-      const out = document.createElement("canvas");
-      out.width = maxW;
-      out.height = Math.round(e.height * scale);
-      const octx = out.getContext("2d");
-      if (!octx) return canvas.toDataURL("image/png");
-      octx.imageSmoothingEnabled = false;
-      octx.drawImage(canvas, 0, 0, out.width, out.height);
-      return out.toDataURL("image/png");
+
+    // Render into a scratch buffer, not the engine's shared one.
+    //
+    // The offscreen canvas has the same dimensions as the live one, so
+    // renderToCanvas would reuse `e.imageData` and overwrite the live render buffer
+    // with normal-mode pixels — a "capture" call quietly mutating shared state, and
+    // throwing away whichever overlay mode the user was actually looking at.
+    const liveBuffer = e.imageData;
+    e.imageData = null;
+    try {
+      renderToCanvas(e, ctx, "normal");
+      return scaleToDataUrl(canvas, e.width, e.height, maxW);
+    } finally {
+      e.imageData = liveBuffer;
     }
-    return canvas.toDataURL("image/png");
   } catch {
     return "";
   }
+}
+
+/** Downscale a rendered grid canvas to at most `maxW` wide and encode it as PNG. */
+function scaleToDataUrl(canvas: HTMLCanvasElement, width: number, height: number, maxW: number): string {
+  if (width <= maxW) return canvas.toDataURL("image/png");
+
+  const out = document.createElement("canvas");
+  out.width = maxW;
+  out.height = Math.round(height * (maxW / width));
+  const octx = out.getContext("2d");
+  if (!octx) return canvas.toDataURL("image/png");
+  // Nearest-neighbour: the grid is one cell per pixel and should stay crisp.
+  octx.imageSmoothingEnabled = false;
+  octx.drawImage(canvas, 0, 0, out.width, out.height);
+  return out.toDataURL("image/png");
 }
