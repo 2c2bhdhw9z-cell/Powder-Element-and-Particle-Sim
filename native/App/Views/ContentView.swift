@@ -38,6 +38,8 @@ struct ContentView: View {
     /// One sensor for both chambers. There is only one phone being tilted, and a second reader
     /// would mean a second stream of readings for nothing.
     @State private var tilt = TiltSensor()
+    /// One speaker for the whole app.
+    @State private var audio = LabAudio()
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -54,6 +56,7 @@ struct ContentView: View {
     @AppStorage("chamber") private var chamberRaw = Chamber.powder.rawValue
     @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
+    @AppStorage("soundEnabled") private var soundEnabled = true
 
     private var chamber: Chamber { Chamber(rawValue: chamberRaw) ?? .powder }
     private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
@@ -89,6 +92,11 @@ struct ContentView: View {
             // to notice a change.
             powder.tilt = tilt
             field.tilt = tilt
+            powder.audio = audio
+            audio.isEnabled = soundEnabled
+        }
+        .onChange(of: soundEnabled) { _, wanted in
+            audio.isEnabled = wanted
         }
         .sheet(isPresented: $showingScenes) {
             ScenePicker { recipe in
@@ -107,6 +115,7 @@ struct ContentView: View {
                 model: powder,
                 glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
                 showDebugOverlay: $showDebugOverlay,
+                soundEnabled: $soundEnabled,
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true

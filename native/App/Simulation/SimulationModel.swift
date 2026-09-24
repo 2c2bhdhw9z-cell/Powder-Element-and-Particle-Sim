@@ -144,6 +144,12 @@ final class SimulationModel {
     /// letting someone drag a slider whose value is overwritten sixty times a second.
     private(set) var isSteeredByTilt = false
 
+    /// Where sounds are played, when the app has provided somewhere.
+    ///
+    /// Optional for the same reason the sensor is: the simulation runs perfectly well in silence,
+    /// and every test does.
+    var audio: LabAudio?
+
     /// Where tilt readings come from.
     ///
     /// Injected rather than created here, because both chambers read the same phone and a second
@@ -401,6 +407,9 @@ final class SimulationModel {
 
         let start = engine.start(event)
         if start.shake > 0 { screenShake = start.shake }
+        // The engine reports which sound the event wants and never plays one itself; it has no
+        // speaker. This is the app's side of that.
+        audio?.play(start.sound, intensity: start.soundIntensity)
         activeCells = engine.activeParticleCount
 
         guard let followUp = start.followUp else { return }
@@ -410,6 +419,7 @@ final class SimulationModel {
             try? await Task.sleep(for: .seconds(followUp.delaySeconds))
             engine.finish(followUp)
             if followUp.shake > 0 { screenShake = followUp.shake }
+            audio?.play(followUp.sound, intensity: followUp.soundIntensity)
             activeCells = engine.activeParticleCount
         }
     }

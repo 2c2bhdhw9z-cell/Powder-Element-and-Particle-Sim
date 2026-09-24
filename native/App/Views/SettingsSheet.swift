@@ -9,6 +9,7 @@ struct SettingsSheet: View {
     let model: SimulationModel
     @Binding var glass: GlassLevel
     @Binding var showDebugOverlay: Bool
+    @Binding var soundEnabled: Bool
     /// Opens the health report. Handed in rather than presented from here, because a sheet cannot
     /// sensibly present another sheet on top of itself.
     let onShowDiagnostics: () -> Void
@@ -87,6 +88,7 @@ struct SettingsSheet: View {
                 format: { "\($0.formatted(.number.precision(.fractionLength(0))))°C" }
             )
 
+            Toggle("Sound", isOn: $soundEnabled)
             Toggle("Pressure", isOn: Binding(
                 get: { model.pressureEnabled },
                 set: { model.pressureEnabled = $0 }
