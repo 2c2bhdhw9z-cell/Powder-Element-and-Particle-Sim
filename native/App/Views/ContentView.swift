@@ -40,6 +40,7 @@ struct ContentView: View {
     @State private var tilt = TiltSensor()
     /// One speaker for the whole app.
     @State private var audio = LabAudio()
+    @State private var store = SceneStore()
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
@@ -47,6 +48,9 @@ struct ContentView: View {
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
     @State private var showingPeriodic = false
+    @State private var showingSaves = false
+    /// Whether the autosave has been read. Once only, and before anything else touches a world.
+    @State private var hasRestored = false
     /// Which material's card is open, if any. Held as the element rather than a flag so the sheet
     /// cannot be shown without knowing what it is describing.
     @State private var infoElement: ElementInfoTarget?
@@ -57,6 +61,8 @@ struct ContentView: View {
     @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
     @AppStorage("soundEnabled") private var soundEnabled = true
+
+    @Environment(\.scenePhase) private var scenePhase
 
     private var chamber: Chamber { Chamber(rawValue: chamberRaw) ?? .powder }
     private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
@@ -94,6 +100,20 @@ struct ContentView: View {
             field.tilt = tilt
             powder.audio = audio
             audio.isEnabled = soundEnabled
+            restoreAutosaveOnce()
+        }
+        // Every eight seconds, matching the web version.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(SceneStore.autosaveInterval))
+                writeAutosave()
+            }
+        }
+        // And on the way out. A phone can kill a backgrounded app with no further warning, so this
+        // is the last reliable moment to keep anything — a timer alone would lose up to eight
+        // seconds of work every time.
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { writeAutosave() }
         }
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
@@ -134,6 +154,36 @@ struct ContentView: View {
         .sheet(item: $infoElement) { target in
             ElementInfoSheet(model: powder, elementID: target.id)
         }
+        .sheet(isPresented: $showingSaves) {
+            SavesSheet(powder: powder, field: field, store: store)
+        }
+    }
+
+    // MARK: - Keeping work
+
+    /// Puts back whatever was on screen last time.
+    ///
+    /// Once per launch, and before anything else has touched a world — otherwise it would overwrite
+    /// a scene someone had already started building in the same session.
+    private func restoreAutosaveOnce() {
+        guard !hasRestored else { return }
+        hasRestored = true
+        guard let scene = store.readAutosave() else { return }
+        powder.adopt(scene.customElements)
+        if let state = scene.powder { powder.apply(state) }
+        if let state = scene.particle { field.apply(state) }
+    }
+
+    private func writeAutosave() {
+        store.writeAutosave(
+            LabScene(
+                version: LabScene.currentVersion,
+                savedAt: Date(),
+                powder: powder.captureState(),
+                particle: field.captureState(),
+                customElements: powder.customElements
+            )
+        )
     }
 
     // MARK: - Pieces
@@ -221,7 +271,8 @@ struct ContentView: View {
                 onShowScenes: { showingScenes = true },
                 onShowSettings: { showingSettings = true },
                 onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
-                onShowPeriodic: { showingPeriodic = true }
+                onShowPeriodic: { showingPeriodic = true },
+                onShowSaves: { showingSaves = true }
             )
         case .field:
             FieldDock(

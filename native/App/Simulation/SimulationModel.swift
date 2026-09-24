@@ -364,6 +364,41 @@ final class SimulationModel {
         engine.jostle(6)
     }
 
+    // MARK: - Saving and loading
+
+    /// The world as something that can be written to a file.
+    func captureState() -> PowderState {
+        engine.captureState()
+    }
+
+    /// Any materials the person invented, so a scene using them still works elsewhere.
+    var customElements: [ElementDefinition] {
+        engine.registry.customElements
+    }
+
+    /// Puts a saved world back.
+    ///
+    /// - Returns: whether it was applied. `false` leaves the current world untouched, which matters:
+    ///   the alternative is wiping what someone was working on in order to fail.
+    @discardableResult
+    func apply(_ state: PowderState) -> Bool {
+        // An undo point first, so loading the wrong scene is recoverable.
+        history.push(engine)
+        let applied = engine.apply(state)
+        activeCells = engine.activeParticleCount
+        return applied
+    }
+
+    /// Registers materials that came with a scene.
+    ///
+    /// Already-present ones are skipped rather than overwritten. A scene should not be able to
+    /// silently redefine something the person made themselves.
+    func adopt(_ elements: [ElementDefinition]) {
+        for element in elements where !engine.registry.table[element.id].isDefined {
+            _ = engine.registry.register(element)
+        }
+    }
+
     // MARK: - Health
 
     /// Examines the world and reports what is wrong with it.

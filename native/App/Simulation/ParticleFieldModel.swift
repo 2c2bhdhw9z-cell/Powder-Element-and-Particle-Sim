@@ -97,6 +97,23 @@ final class ParticleFieldModel {
         engine.gravityY = tilt.particleGravityY
     }
 
+    /// The field as something that can be written to a file.
+    func captureState() -> ParticleState {
+        engine.captureState()
+    }
+
+    /// Puts a saved field back.
+    ///
+    /// - Returns: whether it was applied. `false` leaves the current field alone.
+    @discardableResult
+    func apply(_ state: ParticleState) -> Bool {
+        // An undo point first, so loading the wrong scene is recoverable.
+        recordUndoPoint()
+        let applied = engine.apply(state)
+        bodyCount = engine.bodyCount
+        return applied
+    }
+
     var showTrails: Bool {
         get { engine.showTrails }
         set { engine.showTrails = newValue }

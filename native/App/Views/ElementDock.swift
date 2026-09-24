@@ -16,6 +16,7 @@ struct ElementDock: View {
     /// dock is not a sheet and the card has to sit above everything.
     let onShowInfo: (ElementID) -> Void
     let onShowPeriodic: () -> Void
+    let onShowSaves: () -> Void
 
     /// Elements grouped the way someone reaching for one would look for them, rather than by
     /// internal identifier.
@@ -116,6 +117,7 @@ struct ElementDock: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             iconButton("atom", "Periodic table", action: onShowPeriodic)
+            iconButton("tray.full", "Scenes you kept", action: onShowSaves)
             iconButton("square.grid.2x2", "Scenes", action: onShowScenes)
             iconButton("slider.horizontal.3", "Settings", action: onShowSettings)
         }
