@@ -1,6 +1,8 @@
 import CrucibleCore
 import Observation
 import SwiftUI
+// For UIImage, which a picture of the world is returned as.
+import UIKit
 
 /// Owns the simulation and drives it forward.
 ///
@@ -376,6 +378,36 @@ final class SimulationModel {
     /// Shakes the world, as a jolt of the phone would.
     func jostle() {
         engine.jostle(6)
+    }
+
+    // MARK: - Screenshots
+
+    /// A picture of the world exactly as it appears.
+    ///
+    /// Taken from the engine rather than by grabbing the screen, which is not a shortcut — it is the
+    /// better source. The Metal view does nothing but stretch these very pixels without smoothing
+    /// them, so this *is* what is on screen, and it is available even while the app is in the
+    /// background or the view has not been laid out.
+    ///
+    /// Enlarged by whole numbers so a grain stays a crisp square, the way the display shows it.
+    /// Blending on the way up would produce a soft picture that does not look like the thing that
+    /// was shared.
+    func snapshot() -> UIImage? {
+        let width = engine.width
+        let height = engine.height
+        guard width > 0, height > 0 else { return nil }
+
+        var pixels = [UInt32](repeating: 0, count: width * height)
+        pixels.withUnsafeMutableBufferPointer { buffer in
+            guard let base = buffer.baseAddress else { return }
+            engine.render(into: base, overlay: overlay)
+        }
+
+        // Aimed at roughly the width of a large phone screen, and never below the grid's own size,
+        // so a picture is worth looking at rather than a postage stamp. The choice is made by the
+        // engine's own arithmetic, which is tested — including that it always actually fits.
+        let factor = PixelExport.enlargement(forWidth: width, targetWidth: 1200)
+        return LabSnapshot.image(fromEngineColors: pixels, width: width, height: height, scale: factor)
     }
 
     // MARK: - Saving and loading

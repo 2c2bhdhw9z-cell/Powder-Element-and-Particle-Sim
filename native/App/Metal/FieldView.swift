@@ -1,6 +1,7 @@
 import CrucibleCore
 import Metal
 import MetalKit
+import UIKit
 import simd
 
 /// Draws the particle field.
@@ -135,6 +136,82 @@ final class FieldView: MTKView {
               let device
         else { return }
 
+        let frame = prepare(device: device)
+        if let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) {
+            encode(frame, into: encoder)
+            encoder.endEncoding()
+        }
+        buffer.present(drawable)
+        buffer.commit()
+    }
+
+    // MARK: - Capturing a picture
+
+    /// Draws the field once more into a texture of its own and reads it back.
+    ///
+    /// The whole reason this exists rather than grabbing the screen: the field is geometry the GPU
+    /// assembles — discs clipped to circles, trails, springs, the ring — and none of that exists
+    /// anywhere the processor can see. Asking the same pipelines to draw into a texture is the only
+    /// way to get exactly what is on screen.
+    ///
+    /// Deliberately does **not** advance the simulation. Taking a picture should not move the world
+    /// on by a moment, which would make a screenshot of a paused field subtly different from the
+    /// paused field itself.
+    func snapshot() -> UIImage? {
+        guard let device, let buffer = commandQueue.makeCommandBuffer() else { return nil }
+
+        let width = Int(model.worldSize.width.rounded())
+        let height = Int(model.worldSize.height.rounded())
+        guard width > 0, height > 0 else { return nil }
+
+        let descriptor = MTLTextureDescriptor()
+        descriptor.pixelFormat = .bgra8Unorm
+        descriptor.width = width
+        descriptor.height = height
+        descriptor.usage = [.renderTarget, .shaderRead]
+        // Shared, so the processor can read it afterwards without a separate copy. A private
+        // texture would be faster to draw into and then need a blit to get at, which for one still
+        // picture is more machinery for no gain.
+        descriptor.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = texture
+        pass.colorAttachments[0].loadAction = .clear
+        // The same near-black the view clears to, so a shared picture has the same room behind it.
+        pass.colorAttachments[0].clearColor = clearColor
+        pass.colorAttachments[0].storeAction = .store
+
+        let frame = prepare(device: device)
+        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { return nil }
+        encode(frame, into: encoder)
+        encoder.endEncoding()
+        buffer.commit()
+        // Waited on, because the bytes are wanted now. This is a button press, not a frame.
+        buffer.waitUntilCompleted()
+
+        let bytesPerRow = width * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
+        bytes.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            texture.getBytes(
+                base,
+                bytesPerRow: bytesPerRow,
+                from: MTLRegionMake2D(0, 0, width, height),
+                mipmapLevel: 0
+            )
+        }
+        return LabSnapshot.image(fromMetalBGRA: bytes, width: width, height: height)
+    }
+
+    // MARK: - Drawing
+
+    /// Reads this frame out of the model and gets it onto the GPU.
+    ///
+    /// Separate from the encoding below so that both the live view and a still capture run exactly
+    /// the same code. Two copies of a four-pass draw would drift apart, and the one that drifted
+    /// would be the one nobody looks at until they share a picture.
+    private func prepare(device: MTLDevice) -> ParticleFieldModel.Frame {
         let frame = model.fillFrame(
             positions: &positions,
             colors: &colors,
@@ -145,11 +222,6 @@ final class FieldView: MTKView {
             trailColors: &trailColors
         )
 
-        var uniforms = Uniforms(
-            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
-            pointSize: Float(frame.pointSize)
-        )
-
         upload(&positionBuffer, from: positions, count: frame.bodyCount * 2, device: device)
         upload(&colorBuffer, from: colors, count: frame.bodyCount, device: device)
         upload(&springBuffer, from: springPositions, count: frame.springCount * 4, device: device)
@@ -158,11 +230,15 @@ final class FieldView: MTKView {
         upload(&trailPositionBuffer, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
         upload(&trailColorBuffer, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
 
-        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) else {
-            buffer.present(drawable)
-            buffer.commit()
-            return
-        }
+        return frame
+    }
+
+    /// The four passes, in the order that decides what sits in front of what.
+    private func encode(_ frame: ParticleFieldModel.Frame, into encoder: MTLRenderCommandEncoder) {
+        var uniforms = Uniforms(
+            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
+            pointSize: Float(frame.pointSize)
+        )
 
         // The swarm first and smallest: it is the crowd, and the few individually interesting
         // bodies should never be buried under it.
@@ -236,10 +312,6 @@ final class FieldView: MTKView {
             // shape that is always the whole screen.
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
         }
-
-        encoder.endEncoding()
-        buffer.present(drawable)
-        buffer.commit()
     }
 
     /// Copies a slice of an array into a GPU buffer, making a bigger one only when needed.

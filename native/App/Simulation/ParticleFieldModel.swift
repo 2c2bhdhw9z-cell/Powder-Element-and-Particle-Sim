@@ -1,6 +1,8 @@
 import CrucibleCore
 import Observation
 import SwiftUI
+// For UIImage, which a picture of the world is returned as.
+import UIKit
 
 /// Owns the particle field and drives it forward.
 ///
@@ -162,6 +164,23 @@ final class ParticleFieldModel {
     /// number that suggests a boundary.
     var hasUnlimitedReach: Bool {
         ParticleOverlayStyle.isUnlimited(reach: engine.mouseRadius)
+    }
+
+    /// Where a picture of the field comes from.
+    ///
+    /// Set by the Metal view when it appears, because the field is drawn as real geometry on the GPU
+    /// — discs, trails, springs and the ring — and none of that exists anywhere the simulation can
+    /// reach. The powder chamber needs no such arrangement: its renderer produces finished pixels,
+    /// so a picture of it can be made from the engine alone.
+    ///
+    /// Optional, so the model works with no view attached, which is what every test does.
+    /// Marked as belonging to the main actor, because drawing is: the closure reaches a Metal view.
+    /// Left unannotated, a stored closure could in principle be called from anywhere.
+    var snapshotProvider: (@MainActor () -> UIImage?)?
+
+    /// A picture of the field exactly as it appears, or nothing if there is no view to ask.
+    func snapshot() -> UIImage? {
+        snapshotProvider?()
     }
 
     var showTrails: Bool {

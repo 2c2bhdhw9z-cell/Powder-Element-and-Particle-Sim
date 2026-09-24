@@ -1,5 +1,7 @@
 import CrucibleCore
 import SwiftUI
+// For UIImage, which a picture of the world is returned as.
+import UIKit
 
 /// Which half of the lab is on screen.
 enum Chamber: String, CaseIterable, Codable {
@@ -59,6 +61,8 @@ struct ContentView: View {
     /// Which material's card is open, if any. Held as the element rather than a flag so the sheet
     /// cannot be shown without knowing what it is describing.
     @State private var infoElement: ElementInfoTarget?
+    /// A picture waiting to be sent somewhere.
+    @State private var shareTarget: ShareTarget?
 
     /// Remembered between launches. All three are preferences rather than state: coming back to
     /// the chamber you were in, the interface you chose, and the readout you left on.
@@ -181,6 +185,18 @@ struct ContentView: View {
         .sheet(isPresented: $showingFieldSettings) {
             FieldSettingsSheet(model: field, glass: glass)
         }
+        .sheet(item: $shareTarget) { target in
+            // The system's own share sheet, which is the one place it is right to look like iOS
+            // rather than like Crucible — it is the phone's furniture, not the app's.
+            ShareLink(item: target.url) {
+                Label("Share this picture", systemImage: "square.and.arrow.up")
+                    .font(.labBody(14, .medium))
+            }
+            .padding(24)
+            .presentationDetents([.height(140)])
+            .presentationBackground(Palette.background)
+            .preferredColorScheme(.dark)
+        }
     }
 
     // MARK: - What the header reads
@@ -264,8 +280,10 @@ struct ContentView: View {
     @ViewBuilder
     private var tools: some View {
         switch chamber {
-        case .powder: ToolCluster(model: powder, tilt: tilt, glass: glass)
-        case .field: FieldToolCluster(model: field, tilt: tilt, glass: glass)
+        case .powder:
+            ToolCluster(model: powder, tilt: tilt, glass: glass, shareTarget: $shareTarget)
+        case .field:
+            FieldToolCluster(model: field, tilt: tilt, glass: glass, shareTarget: $shareTarget)
         }
     }
 
@@ -348,6 +366,7 @@ struct FieldToolCluster: View {
     let model: ParticleFieldModel
     let tilt: TiltSensor
     let glass: GlassLevel
+    @Binding var shareTarget: ShareTarget?
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
 
@@ -357,6 +376,14 @@ struct FieldToolCluster: View {
                 HStack(spacing: 0) {
                     button("arrow.uturn.backward", "Undo", enabled: model.canUndo) { model.undo() }
                     button("arrow.uturn.forward", "Redo", enabled: model.canRedo) { model.redo() }
+                    button("camera", "Take a picture", enabled: true) {
+                        // Asked of the Metal view, because the field is geometry the GPU assembles
+                        // and none of it exists anywhere the processor can see.
+                        guard let image = model.snapshot(),
+                              let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
+                        else { return }
+                        shareTarget = ShareTarget(url: url)
+                    }
                 }
                 .glassPanel(glass)
 

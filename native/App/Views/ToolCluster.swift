@@ -1,4 +1,6 @@
 import SwiftUI
+// For UIImage, which a picture of the world is returned as.
+import UIKit
 
 /// The floating tools at the top-left of the canvas: undo, redo, shake, and the speed dial.
 ///
@@ -9,6 +11,8 @@ struct ToolCluster: View {
     let model: SimulationModel
     let tilt: TiltSensor
     let glass: GlassLevel
+    /// Somewhere to send a picture once one has been taken.
+    @Binding var shareTarget: ShareTarget?
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
 
@@ -32,6 +36,15 @@ struct ToolCluster: View {
             }
             toolButton("waveform", "Shake") {
                 model.jostle()
+            }
+            toolButton("camera", "Take a picture") {
+                // From the engine's own pixels rather than a screen grab. The view does nothing but
+                // stretch these without smoothing, so this is what is on screen — and it works
+                // while paused, and at a crisper size than the screen shows.
+                guard let image = model.snapshot(),
+                      let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
+                else { return }
+                shareTarget = ShareTarget(url: url)
             }
         }
         .glassPanel(glass)
