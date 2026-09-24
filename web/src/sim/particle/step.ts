@@ -281,15 +281,22 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
         p1.vx = (Math.random() - 0.5) * 1.5;
       }
 
-      // DNA Helix horizontal wrapping & undulation
-      if (p1.ignoreGravity && p1.vx > 0 && (p1.color === "#06b6d4" || p1.color === "#a855f7")) {
+      // DNA Helix horizontal wrapping & undulation.
+      //
+      // Driven by the explicit `helixStrand` flag. This used to compare `color`
+      // against two hex strings, so any mouse mode that repaints a particle — painter
+      // and hyper-drive both do, permanently — silently dropped it out of the helix
+      // for good. Behaviour belongs to a property, not to a shade.
+      if (p1.helixStrand !== undefined && p1.vx > 0) {
         if (p1.x > e.width - 10) {
           p1.x = 10;
+          // Wrapping to the far side otherwise leaves the trail stretched across the
+          // whole world.
+          p1.trail.length = 0;
         }
         const wavelength = 120;
         const angle = (p1.x / wavelength) * Math.PI * 2;
-        const dir = p1.color === "#06b6d4" ? 1 : -1;
-        const targetY = e.height / 2 + Math.sin(angle) * 50 * dir;
+        const targetY = e.height / 2 + Math.sin(angle) * 50 * p1.helixStrand;
         p1.vy += (targetY - p1.y) * 0.2;
       }
 

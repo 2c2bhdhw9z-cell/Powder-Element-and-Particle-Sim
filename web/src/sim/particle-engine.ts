@@ -341,6 +341,7 @@ export class ParticleEngine implements ParticleCtx {
       originX: particle.originX,
       originY: particle.originY,
       latticeBound: particle.latticeBound || false,
+      helixStrand: particle.helixStrand,
       trail: [],
       lifespan: particle.lifespan,
       maxLife: particle.maxLife || particle.lifespan,

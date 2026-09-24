@@ -76,6 +76,15 @@ export interface ParticleObject {
    * also true of seven orbital presets, and crushed them inward.
    */
   latticeBound?: boolean;
+  /**
+   * Which strand of the DNA-helix preset this belongs to: `1` or `-1`.
+   *
+   * Explicit rather than inferred from the particle's colour. The helix wave used to
+   * be driven by comparing `color` against two hex strings, so painting over a
+   * particle — which the painter and hyper-drive mouse modes both do permanently —
+   * silently dropped it out of the helix for good.
+   */
+  helixStrand?: number;
   type: 'standard' | 'emitter' | 'blackhole' | 'repulsor' | 'bouncy' | 'glow';
   trail: { x: number; y: number }[];
 }

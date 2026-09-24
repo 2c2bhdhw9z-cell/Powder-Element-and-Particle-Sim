@@ -26,6 +26,50 @@ public struct PackedColor: Sendable, Hashable {
     /// Fully transparent black — the value used for empty cells.
     public static let clear = PackedColor(r: 0, g: 0, b: 0, a: 0)
 
+    /// Builds a colour from hue, saturation and lightness.
+    ///
+    /// The particle presets and the painter tool describe colours this way, and the
+    /// web implementation builds a CSS string for each one and re-parses it. Doing the
+    /// conversion directly avoids creating and parsing a string per particle per
+    /// frame, which in painter mode is once for every particle under the finger.
+    ///
+    /// - Parameters:
+    ///   - hue: Degrees. Wrapped, so any value is valid.
+    ///   - saturation: `0 ... 1`.
+    ///   - lightness: `0 ... 1`.
+    public init(hue: Double, saturation: Double, lightness: Double, alpha: UInt8 = 255) {
+        let h = ((hue.truncatingRemainder(dividingBy: 360)) + 360).truncatingRemainder(dividingBy: 360) / 360
+        let s = max(0, min(1, saturation))
+        let l = max(0, min(1, lightness))
+
+        func channel(_ offset: Double) -> UInt8 {
+            guard s > 0 else { return UInt8(max(0, min(255, (l * 255).rounded()))) }
+            let q = l < 0.5 ? l * (1 + s) : l + s - l * s
+            let p = 2 * l - q
+            var t = h + offset
+            if t < 0 { t += 1 }
+            if t > 1 { t -= 1 }
+            let value: Double
+            if t < 1.0 / 6.0 {
+                value = p + (q - p) * 6 * t
+            } else if t < 1.0 / 2.0 {
+                value = q
+            } else if t < 2.0 / 3.0 {
+                value = p + (q - p) * (2.0 / 3.0 - t) * 6
+            } else {
+                value = p
+            }
+            return UInt8(max(0, min(255, (value * 255).rounded())))
+        }
+
+        self.init(
+            r: channel(1.0 / 3.0),
+            g: channel(0),
+            b: channel(-1.0 / 3.0),
+            a: alpha
+        )
+    }
+
     /// Parses a CSS-style hex color.
     ///
     /// Accepts `#RGB`, `#RGBA`, `#RRGGBB` and `#RRGGBBAA`, with or without the

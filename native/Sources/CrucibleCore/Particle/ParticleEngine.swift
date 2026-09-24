@@ -1,0 +1,439 @@
+/// The particle field: free-moving bodies, springs, and a million-body swarm.
+///
+/// The other half of the lab. Where the powder world is a fixed grid of cells that
+/// swap places, this is a list of bodies with positions and velocities that push and
+/// pull on each other.
+///
+/// ## Two stores, on purpose
+///
+/// ``particles`` holds object bodies — each one carries a dozen properties and can
+/// be a black hole, a cloth corner, or part of a helix. ``swarm`` holds bodies that
+/// are only a position, a velocity and a colour, of which there may be a million.
+/// Keeping them separate lets each be stored the way it wants to be.
+///
+/// ## Removal goes through one door
+///
+/// Springs remember the particles they join by position in the list, so anything
+/// that removes or reorders particles has to keep them in step. In the web
+/// implementation six separate places filtered or sliced the list directly, and
+/// every spring below a removal silently re-attached to a different pair — which
+/// sheared cloth and fed energy into the scene on every later frame. Here every
+/// removal goes through ``removeParticles(where:)``.
+public final class ParticleEngine {
+    // MARK: - Contents
+
+    /// The object bodies.
+    ///
+    /// Writable inside the engine only. Springs remember the bodies they join by
+    /// position in this list, so anything that shortens or reorders it has to go
+    /// through ``removeParticles(where:)``; nothing outside the engine may touch it at
+    /// all.
+    public internal(set) var particles: [ParticleObject] = []
+    /// Distance constraints between pairs of ``particles``, by index.
+    public internal(set) var springs: [Spring] = []
+    /// The high-count body store.
+    public let swarm: Swarm
+
+    // MARK: - World
+
+    public private(set) var width: Double
+    public private(set) var height: Double
+
+    public var gravityX: Double = 0
+    public var gravityY: Double = 0.3
+    /// Air friction, applied to everything that does not ignore gravity.
+    public var damping: Double = 0.99
+    /// How much speed survives a bounce off the world's edge.
+    public var elasticity: Double = 0.8
+    /// Strength of the attraction and repulsion between charged bodies.
+    public var electrostaticFactor: Double = 100
+    /// Strength of a swirl about the centre of the world. Zero disables it.
+    public var vortexForce: Double = 0
+    /// Global speed limit.
+    ///
+    /// Applies to every body, object and swarm alike. In the web implementation the
+    /// clamp sat inside the branch for orbital particles, so it only ever reached
+    /// them: every ordinary particle was uncapped despite the interface offering one
+    /// slider, and the swarm had no limit at all. Uncapped speed is also what let
+    /// bodies cross a whole world in a single tick and escape a wrapping boundary.
+    public var maxSpeed: Double = 30
+    public var boundaryMode: ParticleBoundaryMode = .bounce
+
+    // MARK: - Input
+
+    public var mouseMode: ParticleMouseMode = .attract
+    public var mouseRadius: Double = 120
+    public var mouseForceMultiplier: Double = 1.0
+    public private(set) var lastMouseX: Double = 0
+    public private(set) var lastMouseY: Double = 0
+    public private(set) var lastMouseActive: Bool = false
+
+    // MARK: - Presentation and limits
+
+    public var colorMode: ParticleColorMode = .native
+    /// Drawn radius for bodies that do not specify one.
+    public var particleSize: Double = 2
+    /// Upper bound on the whole field, objects and swarm together.
+    ///
+    /// The web implementation applied this to each store independently, so the two
+    /// together could exceed it, and lowering it trimmed only the objects.
+    public private(set) var maxParticles: Int = 1_000_000
+    public var showTrails: Bool = true
+    /// When greater than zero, bodies without a lifetime are given one.
+    public var decaySpeed: Double = 0
+
+    public var collisionsEnabled: Bool = true
+    /// Whether boids-style flocking runs.
+    public var flockEnabled: Bool = false
+
+    /// Reserved. No physics reads these yet.
+    ///
+    /// Carried over because the interface exposes them, and recorded here plainly so
+    /// nobody assumes they do something. The powder half had three properties in the
+    /// same state, and two of them turned out to be features that had simply never
+    /// been implemented.
+    public var fluidEnabled: Bool = false
+    /// Reserved. See ``fluidEnabled``.
+    public var nbodyEnabled: Bool = false
+
+    /// Called at the end of every tick, so the app can sample telemetry.
+    public var onAfterStep: (() -> Void)?
+
+    /// The random stream. Owned by the engine so a field plus a seed replays exactly.
+    public var rng: Mulberry32
+
+    // MARK: - Internals
+
+    /// Source of particle identifiers.
+    ///
+    /// Monotonic and never reused. The web implementation built batch identifiers from
+    /// the list's length plus a loop counter, and since the length grew with each push
+    /// they skipped values and collided outright between two batches.
+    private var nextSerial: Int = 0
+
+    private var undoStack: [Snapshot] = []
+    private var redoStack: [Snapshot] = []
+    private let maximumUndoSteps = 20
+
+    // MARK: - Lifetime
+
+    public init(width: Double = 800, height: Double = 600, seed: UInt32? = nil) {
+        self.width = max(0, width)
+        self.height = max(0, height)
+        self.rng = seed.map(Mulberry32.init(seed:)) ?? Mulberry32()
+        // The swarm shares the seed so the whole field replays from one number.
+        self.swarm = Swarm(seed: seed.map { $0 &+ 0x9E37_79B9 })
+    }
+
+    /// How many bodies exist in total.
+    public var bodyCount: Int {
+        particles.count + swarm.count
+    }
+
+    /// Changes the world size. Contents keep their positions.
+    public func resize(width newWidth: Double, height newHeight: Double) {
+        let safeWidth = max(0, newWidth)
+        let safeHeight = max(0, newHeight)
+        if safeWidth == width && safeHeight == height { return }
+        width = safeWidth
+        height = safeHeight
+    }
+
+    /// Empties the field and returns its settings to their defaults.
+    ///
+    /// The settings matter as much as the contents. The web implementation left
+    /// gravity, the vortex, the decay rate and the boundary rule exactly as the
+    /// previous preset had set them — and since only one of fourteen presets sets the
+    /// vortex explicitly, switching from a swirling scene into a calm one left it
+    /// spinning. "Clear" meant different things depending on what came before it.
+    public func clear() {
+        pushUndo()
+        particles.removeAll(keepingCapacity: true)
+        springs.removeAll(keepingCapacity: true)
+        swarm.removeAll()
+        flockEnabled = false
+        nbodyEnabled = false
+        fluidEnabled = false
+        vortexForce = 0
+        decaySpeed = 0
+        boundaryMode = .bounce
+    }
+
+    // MARK: - Adding and removing
+
+    /// Adds a body, evicting the oldest if the field is already full.
+    @discardableResult
+    public func addParticle(
+        x: Double? = nil,
+        y: Double? = nil,
+        velocityX: Double? = nil,
+        velocityY: Double? = nil,
+        radius: Double? = nil,
+        mass: Double = 1,
+        charge: Double? = nil,
+        color: PackedColor? = nil,
+        lifespan: Int? = nil,
+        maxLife: Int? = nil,
+        isFixed: Bool = false,
+        ignoresGravity: Bool = false,
+        originX: Double? = nil,
+        originY: Double? = nil,
+        latticeBound: Bool = false,
+        helixStrand: Double? = nil,
+        kind: ParticleKind = .standard
+    ) -> Int {
+        if bodyCount >= maxParticles, !particles.isEmpty {
+            // Evicted through removeParticles so spring endpoints follow the shift.
+            // Dropping the first element directly renumbered every particle and left
+            // every spring pointing one place too high.
+            let oldestID = particles[0].id
+            removeParticles { $0.id == oldestID }
+        }
+
+        let id = nextSerial
+        nextSerial += 1
+
+        let resolvedColor = color ?? PackedColor(hue: rng.next() * 360, saturation: 0.85, lightness: 0.65)
+
+        let particle = ParticleObject(
+            id: id,
+            x: x ?? width / 2,
+            y: y ?? height / 2,
+            velocityX: velocityX ?? (rng.next() - 0.5) * 4,
+            velocityY: velocityY ?? (rng.next() - 0.5) * 4,
+            // An explicit radius of zero is a legitimate value. The web implementation
+            // used a truthiness test here and replaced it with a random size.
+            radius: radius ?? (rng.next() * 3 + 2),
+            mass: mass,
+            charge: charge ?? (rng.next() > 0.5 ? 1 : -1),
+            color: resolvedColor,
+            lifespan: lifespan,
+            maxLife: maxLife ?? lifespan,
+            isFixed: isFixed,
+            ignoresGravity: ignoresGravity,
+            originX: originX,
+            originY: originY,
+            latticeBound: latticeBound,
+            helixStrand: helixStrand,
+            kind: kind
+        )
+        particles.append(particle)
+        return id
+    }
+
+    /// Removes every body matching the predicate, keeping springs consistent.
+    ///
+    /// Spring endpoints are remapped to their new positions, and any spring that lost
+    /// an end is dropped. Every removal path in the engine comes through here; see the
+    /// type's documentation for why.
+    ///
+    /// - Returns: how many bodies were removed.
+    @discardableResult
+    public func removeParticles(where shouldRemove: (ParticleObject) -> Bool) -> Int {
+        let before = particles.count
+        guard before > 0 else { return 0 }
+
+        var remap = [Int](repeating: -1, count: before)
+        var survivors: [ParticleObject] = []
+        survivors.reserveCapacity(before)
+        for index in 0 ..< before {
+            if shouldRemove(particles[index]) { continue }
+            remap[index] = survivors.count
+            survivors.append(particles[index])
+        }
+
+        let removed = before - survivors.count
+        guard removed > 0 else { return 0 }
+
+        particles = survivors
+        if !springs.isEmpty {
+            springs = springs.compactMap { spring in
+                guard spring.a >= 0, spring.a < before, spring.b >= 0, spring.b < before else { return nil }
+                let a = remap[spring.a]
+                let b = remap[spring.b]
+                guard a >= 0, b >= 0 else { return nil }
+                return Spring(a: a, b: b, rest: spring.rest, k: spring.k)
+            }
+        }
+        return removed
+    }
+
+    /// Adds a spring between two bodies, ignoring an out-of-range request.
+    public func addSpring(a: Int, b: Int, rest: Double, k: Double) {
+        guard a >= 0, a < particles.count, b >= 0, b < particles.count, a != b else { return }
+        springs.append(Spring(a: a, b: b, rest: rest, k: k))
+    }
+
+    /// Replaces the whole spring set, dropping anything that does not refer to a real
+    /// pair of bodies.
+    public func setSprings(_ next: [Spring]) {
+        springs = next.filter { spring in
+            spring.a >= 0 && spring.a < particles.count
+                && spring.b >= 0 && spring.b < particles.count
+                && spring.a != spring.b
+        }
+    }
+
+    /// Sets the limit on the whole field and trims whatever now exceeds it.
+    @discardableResult
+    public func setMaxParticles(_ limit: Int) -> Int {
+        let next = max(1000, min(Swarm.maximumCount, limit))
+        maxParticles = next
+
+        if particles.count > next {
+            // Trim the newest, through removeParticles so springs stay consistent.
+            let keptIDs = Set(particles.prefix(next).map(\.id))
+            removeParticles { !keptIDs.contains($0.id) }
+        }
+        // The swarm has to respect the limit too. Lowering it from a million to a
+        // thousand used to leave the swarm untouched while the diagnostics panel
+        // advertised the smaller figure.
+        let roomForSwarm = max(0, next - particles.count)
+        if swarm.count > roomForSwarm { swarm.trim(to: roomForSwarm) }
+        return next
+    }
+
+    /// Mutates a body in place.
+    ///
+    /// The list is deliberately not writable from outside: springs depend on its
+    /// order, so it can only be changed through the methods that keep them valid.
+    public func withParticle(at index: Int, _ body: (inout ParticleObject) -> Void) {
+        guard index >= 0, index < particles.count else { return }
+        body(&particles[index])
+    }
+
+    /// Replaces the entire body list, discarding every spring.
+    ///
+    /// Used when loading a scene. Springs are cleared rather than kept, because
+    /// indices from another world mean nothing here — keeping them is how the web
+    /// implementation ended up with springs indexing a list they were never built for.
+    public func replaceParticles(_ next: [ParticleObject]) {
+        particles = next
+        springs.removeAll(keepingCapacity: true)
+        for index in particles.indices {
+            particles[index].id = nextSerial
+            nextSerial += 1
+        }
+    }
+
+    // MARK: - Undo
+
+    /// One undo entry: the whole field, not just the bodies.
+    ///
+    /// The web implementation snapshotted only the object list, yet clearing the field
+    /// takes a snapshot and then wipes the springs, the swarm and three toggles — so
+    /// undoing a clear returned loose beads with no structure and an empty swarm.
+    public struct Snapshot: Sendable {
+        public var particles: [ParticleObject]
+        public var springs: [Spring]
+        public var swarm: Swarm.Snapshot?
+        public var flockEnabled: Bool
+        public var nbodyEnabled: Bool
+        public var fluidEnabled: Bool
+        public var vortexForce: Double
+        public var decaySpeed: Double
+        public var boundaryMode: ParticleBoundaryMode
+    }
+
+    /// Largest swarm that is worth copying into an undo entry.
+    ///
+    /// Copying a million bodies on every brush stroke would cost more than the feature
+    /// is worth, so above this the swarm is left out and an undo restores the bodies
+    /// and structure but not the crowd.
+    private static let undoSwarmLimit = 200_000
+
+    private func makeSnapshot() -> Snapshot {
+        Snapshot(
+            particles: particles,
+            springs: springs,
+            swarm: swarm.count > 0 && swarm.count <= Self.undoSwarmLimit ? swarm.snapshot() : nil,
+            flockEnabled: flockEnabled,
+            nbodyEnabled: nbodyEnabled,
+            fluidEnabled: fluidEnabled,
+            vortexForce: vortexForce,
+            decaySpeed: decaySpeed,
+            boundaryMode: boundaryMode
+        )
+    }
+
+    private func apply(_ snapshot: Snapshot) {
+        particles = snapshot.particles
+        springs = snapshot.springs
+        flockEnabled = snapshot.flockEnabled
+        nbodyEnabled = snapshot.nbodyEnabled
+        fluidEnabled = snapshot.fluidEnabled
+        vortexForce = snapshot.vortexForce
+        decaySpeed = snapshot.decaySpeed
+        boundaryMode = snapshot.boundaryMode
+        if let swarmSnapshot = snapshot.swarm {
+            swarm.restore(from: swarmSnapshot, budget: max(0, maxParticles - particles.count))
+        } else {
+            swarm.removeAll()
+        }
+    }
+
+    /// Records the current field as an undo point. Call before mutating.
+    public func pushUndo() {
+        // Cleared first, so a failure while capturing cannot leave a redo entry
+        // describing a future that never happened.
+        redoStack.removeAll(keepingCapacity: true)
+        undoStack.append(makeSnapshot())
+        if undoStack.count > maximumUndoSteps { undoStack.removeFirst() }
+    }
+
+    public var canUndo: Bool { !undoStack.isEmpty }
+    public var canRedo: Bool { !redoStack.isEmpty }
+
+    @discardableResult
+    public func undo() -> Bool {
+        guard let previous = undoStack.popLast() else { return false }
+        redoStack.append(makeSnapshot())
+        if redoStack.count > maximumUndoSteps { redoStack.removeFirst() }
+        apply(previous)
+        return true
+    }
+
+    @discardableResult
+    public func redo() -> Bool {
+        guard let next = redoStack.popLast() else { return false }
+        undoStack.append(makeSnapshot())
+        if undoStack.count > maximumUndoSteps { undoStack.removeFirst() }
+        apply(next)
+        return true
+    }
+
+    public func clearHistory() {
+        undoStack.removeAll()
+        redoStack.removeAll()
+    }
+
+    // MARK: - The tick
+
+    /// Advances the field one tick.
+    ///
+    /// - Parameters:
+    ///   - mouseX: Where the finger is, if it is down.
+    ///   - mouseY: Where the finger is, if it is down.
+    ///   - mouseActive: Whether the finger is down.
+    ///   - now: Current time in milliseconds, used only by the painter tool to cycle
+    ///     its hue. Supplied by the caller because the engine has no clock of its own
+    ///     — a simulation that reads the wall clock cannot be replayed.
+    public func step(mouseX: Double? = nil, mouseY: Double? = nil, mouseActive: Bool = false, now: Double = 0) {
+        if let mouseX { lastMouseX = mouseX }
+        if let mouseY { lastMouseY = mouseY }
+        lastMouseActive = mouseActive
+
+        if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
+            spawnEmitter(at: mouseX, y: mouseY)
+        }
+
+        if !particles.isEmpty {
+            stepParticles(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+            stepSprings()
+            if flockEnabled { stepFlock() }
+        }
+
+        stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive)
+        onAfterStep?()
+    }
+}
