@@ -212,6 +212,9 @@ struct ContentView: View {
         // hook depends on both.
         .onChange(of: chamberRaw) { _, _ in updateCompanionStepping() }
         .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
+        // Joining or leaving a room changes whether the powder chamber has to keep running while
+        // somebody looks at the field. See `updateCompanionStepping`.
+        .onChange(of: isSharingRoom) { _, _ in updateCompanionStepping() }
         // Written back whenever it changes, so the panel drives the model and the model is the one
         // source of truth rather than the two being kept in step by hand.
         .onChange(of: powder.detail) { _, level in detailRaw = level.rawValue }
@@ -487,17 +490,34 @@ struct ContentView: View {
         // While split, both chambers are on screen and each has a view driving its own clock. Wiring a
         // companion as well would step the hidden one twice per frame — it is not hidden — and it would
         // run at double speed.
-        guard bothChambersRun, !isSplit else { return }
+        guard !isSplit else { return }
 
         switch chamber {
         case .powder:
-            // The powder chamber's clock is the one running, so it carries the field along. The
-            // timestamp is the same one the field's own view would have handed it.
+            // The powder chamber's clock is the one running, so it carries the field along if that was
+            // asked for. The timestamp is the same one the field's own view would have handed it.
+            guard bothChambersRun else { return }
             field.tilt = tilt
             powder.alsoStep = { [field] in field.tick(now: CFAbsoluteTimeGetCurrent() * 1000) }
         case .field:
+            // The field's clock is the one running, and it carries the powder chamber along for either
+            // of two reasons.
+            //
+            // The second one is not optional. In a shared room, other people are watching this phone's
+            // powder chamber — so it has to keep running even while this phone is looking at the field.
+            // Without this, everybody else's view froze the moment somebody switched chamber, and
+            // nothing anywhere said why.
+            guard bothChambersRun || isSharingRoom else { return }
             field.alsoStep = { [powder] in powder.tick() }
         }
+    }
+
+    /// Whether a shared room is currently connected.
+    ///
+    /// Read as a plain value rather than reached for through the optional at each use, so it can also be
+    /// watched for changes — the wiring above depends on it.
+    private var isSharingRoom: Bool {
+        room?.session.status == .connected
     }
 
     // MARK: - Keeping work

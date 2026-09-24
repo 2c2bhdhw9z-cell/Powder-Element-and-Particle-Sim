@@ -26,6 +26,7 @@ struct HelpSheet: View {
             materials
             tilting
             keeping
+            sharing
         }
     }
 
@@ -119,6 +120,30 @@ struct HelpSheet: View {
                     + "button captures a clip with sound.\n\n"
                     + "Anything you paint is one **undo** away, and so is loading a scene, setting off "
                     + "an event, or running a repair."
+            )
+        }
+    }
+
+    /// Sharing, and the limits of it.
+    ///
+    /// Every limit stated. All three read as the app being broken if you meet one without having been
+    /// told — a room that finds nobody, a follower whose controls do very little, a workshop that says
+    /// nothing has been kept. The panels say the same things where they happen; this is for somebody
+    /// reading before they try.
+    private var sharing: some View {
+        LabGroup("Sharing with other people") {
+            paragraph(
+                "**Shared room** lets somebody next to you paint in the same world. One phone runs the "
+                    + "world and the others are shown it many times a second; everybody can paint, and "
+                    + "every mark goes to whichever phone is running things. If that phone leaves, "
+                    + "another takes over on its own.\n\n"
+                    + "It works between phones **in the same place**, over wifi or Bluetooth. There is no "
+                    + "server involved and nothing goes over the internet — so somebody in another town "
+                    + "cannot join, and a room here cannot see a room opened in a browser.\n\n"
+                    + "**Your worlds** keeps worlds on a server instead of on this phone, and the "
+                    + "**workshop** is where people publish them. Both need Crucible's web address typed "
+                    + "in once, under Your worlds — the app has no way of knowing it. Browsing the "
+                    + "workshop needs no account; keeping and publishing do."
             )
         }
     }
