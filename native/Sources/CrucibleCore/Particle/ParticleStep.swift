@@ -278,7 +278,11 @@ extension ParticleEngine {
                             bodies[i].velocityX += (-dy / distance) * force + (dx / distance) * (force * 0.1)
                             bodies[i].velocityY += (dx / distance) * force + (dy / distance) * (force * 0.1)
                         case .painter:
-                            let hue = (now / 10 + Double(i) * 5).truncatingRemainder(dividingBy: 360)
+                            // Floored to a whole degree, as the web reference does
+                            // before it builds its colour string.
+                            let hue = (now / 10 + Double(i) * 5)
+                                .truncatingRemainder(dividingBy: 360)
+                                .rounded(.down)
                             bodies[i].color = PackedColor(hue: hue, saturation: 0.95, lightness: 0.65)
                         case .gravityWell:
                             let force = (3500 / distanceSquared) * (0.2 + 0.8 * falloff) * multiplier

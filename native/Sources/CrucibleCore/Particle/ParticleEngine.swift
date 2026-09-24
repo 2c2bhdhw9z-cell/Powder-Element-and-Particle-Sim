@@ -121,8 +121,9 @@ public final class ParticleEngine {
         self.width = max(0, width)
         self.height = max(0, height)
         self.rng = seed.map(Mulberry32.init(seed:)) ?? Mulberry32()
-        // The swarm shares the seed so the whole field replays from one number.
-        self.swarm = Swarm(seed: seed.map { $0 &+ 0x9E37_79B9 })
+        // The swarm draws from this engine's stream rather than one of its own, so the
+        // whole field replays from a single seed.
+        self.swarm = Swarm()
     }
 
     /// How many bodies exist in total.

@@ -50,11 +50,14 @@ public final class Swarm {
     private var nextInBucket: UnsafeMutablePointer<Int32>?
     private var nextInBucketCount: Int = 0
 
-    /// The random stream, so a swarm replays exactly.
-    public var rng: Mulberry32
-
-    public init(seed: UInt32? = nil) {
-        self.rng = seed.map(Mulberry32.init(seed:)) ?? Mulberry32()
+    /// The swarm deliberately owns no random stream of its own.
+    ///
+    /// Scattering a new swarm draws from the stream its owner passes in, so the whole
+    /// field — object bodies and swarm alike — replays from a single seed. The web
+    /// reference works this way by accident, because everything there calls one global
+    /// `Math.random`; here it is the explicit contract, and it is what lets the two
+    /// implementations be compared draw for draw.
+    public init() {
         // One element rather than zero, so the pointers are always valid to hold.
         self.capacity = 0
         self.positions = UnsafeMutablePointer<Float>.allocate(capacity: 1)
@@ -143,7 +146,16 @@ public final class Swarm {
     ///   whatever the object particle list is already using, because the limit covers
     ///   the whole field — the web version handed the swarm the full limit regardless,
     ///   so the two together exceeded it.
-    public func spawn(count requested: Int, width: Double, height: Double, color: UInt32, budget: Int) {
+    /// - Parameter rng: The field's random stream, passed in rather than owned. See
+    ///   ``init()``.
+    public func spawn(
+        count requested: Int,
+        width: Double,
+        height: Double,
+        color: UInt32,
+        budget: Int,
+        rng: inout Mulberry32
+    ) {
         let room = max(0, min(Self.maximumCount, budget) - count)
         let adding = min(requested, room)
         guard adding > 0 else { return }

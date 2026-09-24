@@ -616,7 +616,14 @@ extension ParticleEngine {
             // of it. The web version handed the swarm the full limit regardless, so the
             // two together could exceed what the user asked for.
             let budget = max(0, maxParticles - particles.count)
-            swarm.spawn(count: count, width: width, height: height, color: color?.packedRGBA ?? 0, budget: budget)
+            swarm.spawn(
+                count: count,
+                width: width,
+                height: height,
+                color: color?.packedRGBA ?? 0,
+                budget: budget,
+                rng: &rng
+            )
             return
         }
 

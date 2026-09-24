@@ -1,22 +1,57 @@
 import type { ParticleCtx } from "./context";
 
+/** Clamps to a whole byte, so no channel can ever bleed into the next one. */
+function toByte(unit: number): number {
+  if (!Number.isFinite(unit)) return 0;
+  return Math.max(0, Math.min(255, Math.round(unit * 255)));
+}
+
 /** Fast ABGR Uint32 color converter for Little-Endian ImageData */
 export function parseColorToUint32(colorStr: string): number {
   if (colorStr.startsWith("#")) {
-    let hex = colorStr.slice(1);
-    if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
-    const num = parseInt(hex, 16);
+    let hex = colorStr.slice(1).trim();
+    // `#RGB` and `#RGBA` shorthand both expand by doubling each digit. Only the
+    // three-digit form used to be handled, so a four- or eight-digit color — which
+    // the color picker and hand-edited save files can both produce — was fed to
+    // parseInt whole and its channels came out shifted.
+    if (hex.length === 3 || hex.length === 4) {
+      hex = hex.split("").map((c) => c + c).join("");
+    }
+    if (hex.length !== 6 && hex.length !== 8) return 0xffffffff;
+    const num = parseInt(hex.slice(0, 6), 16);
+    if (!Number.isFinite(num)) return 0xffffffff;
     const r = (num >> 16) & 255;
     const g = (num >> 8) & 255;
     const b = num & 255;
-    return 0xff000000 | (b << 16) | (g << 8) | r;
+    const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) & 255 : 255;
+    return ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
   }
   if (colorStr.startsWith("hsl")) {
-    const match = colorStr.match(/\d+/g);
+    // Fraction-aware, and each component clamped into its own range.
+    //
+    // This used to match `\d+`, which splits a fractional hue in two: the string
+    // "hsl(15.9, 100%, 60%)" produced the four matches 15, 9, 100, 60, so the hue
+    // lost its decimals, the *decimals* were read as the saturation, and the real
+    // saturation and lightness shifted one slot along and off the end. A saturation
+    // of 9 (instead of 1.0) then pushed every channel above 1.0, and `Math.round`
+    // of that, shifted left, bled into the neighbouring channel's bits.
+    //
+    // The result was not subtly off. Solar flare asks for `hsl(15.9, 100%, 60%)`
+    // and got pure white; the pour preset's blues came out grey. Most presets are
+    // affected, because every fractional hue hits this, including the random default
+    // color in `addParticle`.
+    const match = colorStr.match(/-?\d*\.?\d+/g);
     if (match && match.length >= 3) {
-      const h = parseInt(match[0], 10) / 360;
-      const s = parseInt(match[1], 10) / 100;
-      const l = parseInt(match[2], 10) / 100;
+      const rawH = parseFloat(match[0]);
+      const rawS = parseFloat(match[1]);
+      const rawL = parseFloat(match[2]);
+      if (!Number.isFinite(rawH) || !Number.isFinite(rawS) || !Number.isFinite(rawL)) {
+        return 0xffffffff;
+      }
+      // Hue is an angle, so it wraps rather than clamping.
+      const h = (((rawH % 360) + 360) % 360) / 360;
+      const s = Math.max(0, Math.min(1, rawS / 100));
+      const l = Math.max(0, Math.min(1, rawL / 100));
       let r, g, b;
       if (s === 0) {
         r = g = b = l;
@@ -35,7 +70,7 @@ export function parseColorToUint32(colorStr: string): number {
         g = hue2rgb(h);
         b = hue2rgb(h - 1 / 3);
       }
-      return 0xff000000 | (Math.round(b * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(r * 255);
+      return ((0xff << 24) | (toByte(b) << 16) | (toByte(g) << 8) | toByte(r)) >>> 0;
     }
   }
   return 0xffffffff; // default white
