@@ -178,6 +178,24 @@ final class SimulationModel {
     /// and every test does.
     var audio: LabAudio?
 
+    /// Something else to step whenever this one steps.
+    ///
+    /// Only one chamber is on screen, and only the chamber on screen has a Metal view driving a clock
+    /// — so the other one stops. That is usually right: stepping a world nobody is looking at spends
+    /// the frame budget of the world they are. But a field left mid-orbit while its owner builds
+    /// something in the powder chamber is a reasonable thing to want, so this exists behind a setting.
+    ///
+    /// A hook rather than a second timer, because two clocks would drift and the display's refresh is
+    /// the only honest one.
+    var alsoStep: (@MainActor () -> Void)?
+
+    /// Whether a step is already under way.
+    ///
+    /// Insurance rather than a mechanism. Only one chamber is ever given a companion, but if both
+    /// were, they would step each other back and forth until the app hung — and a wiring mistake
+    /// should not be able to do that.
+    private var isStepping = false
+
     /// Where tilt readings come from.
     ///
     /// Injected rather than created here, because both chambers read the same phone and a second
@@ -276,6 +294,10 @@ final class SimulationModel {
     /// for by running several ticks: catching up makes a slow device run the world *faster*
     /// than a quick one, which changes the physics rather than the smoothness.
     func tick() {
+        guard !isStepping else { return }
+        isStepping = true
+        defer { isStepping = false }
+
         // Before the pause check, so that tipping the phone still turns the world while time is
         // stopped. Gravity is the state of the world rather than an event in it, and watching a
         // paused pile hang at an angle is how you see what is about to happen when you unpause.
@@ -283,6 +305,10 @@ final class SimulationModel {
         // Outside the pause check too: a shake left mid-decay when time stopped would hold the
         // whole screen at an offset until it started again.
         decayScreenShake()
+
+        // Before this chamber's own pause is honoured, so each chamber's pause means only itself. The
+        // companion decides for itself whether it is running.
+        alsoStep?()
 
         guard isRunning else { return }
 
@@ -316,6 +342,7 @@ final class SimulationModel {
             simulationSeconds = 0
             lastSampleTime = now
         }
+
     }
 
     // MARK: - What the renderer needs

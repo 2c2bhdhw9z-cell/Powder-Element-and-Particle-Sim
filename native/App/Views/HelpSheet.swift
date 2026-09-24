@@ -36,8 +36,9 @@ struct HelpSheet: View {
             paragraph(
                 "**Powder** is falling matter on a grid — sand, water, lava, fire. **Particles** is a "
                     + "field of free bodies pulling on one another: orbits, swarms, cloth.\n\nSwitch "
-                    + "between them at the top. Neither stops while you are looking at the other, and "
-                    + "each remembers what you left it doing."
+                    + "between them at the top. Whichever you are not looking at pauses and picks up "
+                    + "exactly where it left off — or, if you turn on **Keep both running** in the "
+                    + "Lab panel, carries on out of sight."
             )
         }
     }
@@ -67,7 +68,9 @@ struct HelpSheet: View {
                     + "up it covers the whole world, and the ring grows to say so.\n\n"
                     + "**Arrangements** drop in a ready-made setup — a galaxy, a cloth, a helix. "
                     + "**Add** scatters in more bodies, up to whatever ceiling you have set.\n\n"
-                    + "Pull on a cloth hard enough and it tears. Hold near a flock and they scatter."
+                    + "Cloth, rope and blob are held together by springs, so dragging one pulls the "
+                    + "whole sheet. A flock is steered by its own neighbours, and pushing into it "
+                    + "scatters them until they regroup."
             )
         }
     }

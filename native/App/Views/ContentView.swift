@@ -72,6 +72,9 @@ struct ContentView: View {
     @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
     @AppStorage("soundEnabled") private var soundEnabled = true
+    /// Whether the chamber you are not looking at keeps running. Off by default, matching the
+    /// reference: stepping a world nobody is watching spends the frame budget of the one they are.
+    @AppStorage("bothChambersRun") private var bothChambersRun = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -125,7 +128,12 @@ struct ContentView: View {
             powder.audio = audio
             audio.isEnabled = soundEnabled
             restoreAutosaveOnce()
+            updateCompanionStepping()
         }
+        // Re-wired whenever either the chamber or the setting changes, because which model needs the
+        // hook depends on both.
+        .onChange(of: chamberRaw) { _, _ in updateCompanionStepping() }
+        .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
         // Every eight seconds, matching the web version.
         .task {
             while !Task.isCancelled {
@@ -160,6 +168,7 @@ struct ContentView: View {
                 glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
                 showDebugOverlay: $showDebugOverlay,
                 soundEnabled: $soundEnabled,
+                bothChambersRun: $bothChambersRun,
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true
@@ -257,6 +266,30 @@ struct ContentView: View {
         // Closed on the way across, since the two trays hold different things and leaving one open
         // would swap its contents out from under your hand.
         isDockOpen = false
+    }
+
+    // MARK: - Two chambers, one clock
+
+    /// Points the visible chamber at the hidden one, or at nothing.
+    ///
+    /// Exactly one hook is ever set. Both models clear theirs first, so switching chambers cannot
+    /// leave the old direction wired alongside the new one — which would have them stepping each
+    /// other. They also refuse to re-enter, so even that could not hang the app, but not relying on
+    /// the safety net is cheaper than relying on it.
+    private func updateCompanionStepping() {
+        powder.alsoStep = nil
+        field.alsoStep = nil
+        guard bothChambersRun else { return }
+
+        switch chamber {
+        case .powder:
+            // The powder chamber's clock is the one running, so it carries the field along. The
+            // timestamp is the same one the field's own view would have handed it.
+            field.tilt = tilt
+            powder.alsoStep = { [field] in field.tick(now: CFAbsoluteTimeGetCurrent() * 1000) }
+        case .field:
+            field.alsoStep = { [powder] in powder.tick() }
+        }
     }
 
     // MARK: - Keeping work

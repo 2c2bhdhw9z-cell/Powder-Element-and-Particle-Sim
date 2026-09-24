@@ -13,6 +13,7 @@ struct SettingsSheet: View {
     @Binding var glass: GlassLevel
     @Binding var showDebugOverlay: Bool
     @Binding var soundEnabled: Bool
+    @Binding var bothChambersRun: Bool
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
 
@@ -92,8 +93,9 @@ struct SettingsSheet: View {
             "World",
             footnote: model.isSteeredByTilt
                 ? "The phone's tilt is setting gravity. Tap Tilt twice more to take it back."
-                : "Pressure is the most expensive part of a moment. Turning it off buys speed, and "
-                    + "costs trapped gas its way out."
+                : "Keeping both chambers running means the one you are not looking at carries on, at "
+                    + "the cost of some of the other's speed. Pressure is the most expensive part of a "
+                    + "moment; turning it off buys speed, and costs trapped gas its way out."
         ) {
             LabChoice(
                 label: "Which way is down",
@@ -126,6 +128,8 @@ struct SettingsSheet: View {
 
             LabDivider()
             LabToggle(label: "Sound", isOn: $soundEnabled)
+            LabDivider()
+            LabToggle(label: "Keep both running", isOn: $bothChambersRun)
             LabDivider()
             LabToggle(
                 label: "Pressure",

@@ -68,6 +68,16 @@ final class ParticleFieldModel {
     /// Where tilt readings come from. Shared with the powder chamber — one phone, one sensor.
     var tilt: TiltSensor?
 
+    /// Something else to step whenever this one steps. See the note on the powder model's.
+    var alsoStep: (@MainActor () -> Void)?
+
+    /// Whether a step is already under way.
+    ///
+    /// Insurance rather than a mechanism. Only one chamber is ever given a companion, but if both
+    /// were, they would step each other back and forth until the app hung — and a wiring mistake
+    /// should not be able to do that.
+    private var isStepping = false
+
     /// Gravity as last set by hand, restored when tilt is switched off.
     ///
     /// The resting value is the field's own gentle default rather than the powder world's full
@@ -226,9 +236,17 @@ final class ParticleFieldModel {
     // MARK: - Time
 
     func tick(now: Double) {
+        guard !isStepping else { return }
+        isStepping = true
+        defer { isStepping = false }
+
         // Before the pause check, so tipping the phone still turns the field while time is
         // stopped. See the same note in SimulationModel.
         steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
+
+        // Before this chamber's own pause is honoured, so each chamber's pause means only itself. The
+        // companion decides for itself whether it is running.
+        alsoStep?()
 
         guard isRunning else { return }
         stepCredit += max(0, speed)
@@ -263,6 +281,7 @@ final class ParticleFieldModel {
             simulationSeconds = 0
             lastSampleTime = sampledAt
         }
+
     }
 
     // MARK: - What the renderer needs
