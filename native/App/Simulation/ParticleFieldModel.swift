@@ -484,6 +484,40 @@ final class ParticleFieldModel {
         ("burst", "Burst"), ("swarm", "Swarm"),
     ]
 
+    /// The limit on how many bodies the field will hold.
+    ///
+    /// Read-only through the engine, because lowering it has to trim what is already there — and the
+    /// swarm as well as the objects, which the reference forgot.
+    var maxBodies: Int {
+        get { engine.maxParticles }
+        set {
+            engine.setMaxParticles(newValue)
+            bodyCount = engine.bodyCount
+        }
+    }
+
+    /// The choices offered for the limit, as round numbers.
+    static let bodyCapChoices = [50_000, 100_000, 250_000, 500_000, 1_000_000]
+
+    /// The choices offered for how many to add at once.
+    static let batchChoices = [1_000, 10_000, 50_000, 100_000, 500_000]
+
+    /// Scatters more bodies into the field.
+    ///
+    /// Asks for no more than there is room for, so tapping it against the limit does nothing rather
+    /// than quietly discarding most of what was asked for.
+    func spawn(_ count: Int) {
+        let room = max(0, engine.maxParticles - engine.bodyCount)
+        guard room > 0 else { return }
+        engine.spawnBatch(count: min(count, room))
+        bodyCount = engine.bodyCount
+    }
+
+    /// How much room is left before the limit.
+    var remainingRoom: Int {
+        max(0, engine.maxParticles - engine.bodyCount)
+    }
+
     func loadPreset(_ id: String) {
         // Every preset but the burst clears the field first, and clearing already records an
         // undo point — so one is only needed for the two that do not.

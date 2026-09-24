@@ -94,6 +94,131 @@ struct FieldDock: View {
         .padding(.bottom, 4)
     }
 
+    /// How many bodies a tap of the add button scatters in.
+    @State private var batch = 10_000
+
+    /// The eighteen arrangements, as chips rather than only inside a sheet.
+    ///
+    /// They are the quickest thing in the chamber to want and the reference keeps them here, one tap
+    /// away, rather than behind a panel. The sheet stays as well — it has room to explain them.
+    private var presetChips: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("ARRANGEMENTS")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ForEach(ParticleFieldModel.presets, id: \.id) { preset in
+                    Button {
+                        model.loadPreset(preset.id)
+                    } label: {
+                        Text(preset.name)
+                            .font(.labBody(12, .medium))
+                            .foregroundStyle(Palette.foreground)
+                            .padding(.horizontal, 11)
+                            .frame(height: 32)
+                            .background(Capsule().fill(Color.white.opacity(0.10)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// Adding bodies, and the ceiling on how many there can be.
+    private var population: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("POPULATION")
+                    .font(.labBody(10, .semiBold))
+                    .tracking(0.8)
+                    .foregroundStyle(Palette.subtleForeground)
+                Spacer(minLength: 8)
+                Text("\(model.remainingRoom.formatted()) more will fit")
+                    .font(.labNumeric(10))
+                    .foregroundStyle(Palette.subtleForeground)
+            }
+
+            HStack(spacing: 6) {
+                Button {
+                    model.spawn(batch)
+                } label: {
+                    Text("Add \(Self.shortCount(batch))")
+                        .font(.labBody(12, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 13)
+                        .frame(height: 32)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+                .disabled(model.remainingRoom == 0)
+                .opacity(model.remainingRoom == 0 ? 0.4 : 1)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(ParticleFieldModel.batchChoices, id: \.self) { choice in
+                            countChip(Self.shortCount(choice), selected: batch == choice) {
+                                batch = choice
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Text("Most it will hold")
+                    .font(.labBody(12))
+                    .foregroundStyle(Palette.muted)
+                Spacer(minLength: 8)
+                Text(Self.shortCount(model.maxBodies))
+                    .font(.labNumeric(11))
+                    .foregroundStyle(Palette.foreground)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(ParticleFieldModel.bodyCapChoices, id: \.self) { choice in
+                        countChip(Self.shortCount(choice), selected: model.maxBodies == choice) {
+                            model.maxBodies = choice
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func countChip(
+        _ title: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.labNumeric(11))
+                .foregroundStyle(selected ? Palette.primaryForeground : Palette.muted)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(
+                    Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.08))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Large counts as people say them: fifty thousand is "50k", a million is "1M".
+    ///
+    /// Not the system's abbreviation, which would give "50K" and "1.0M" — and which changes with the
+    /// phone's language, so a row of chips would change width unpredictably.
+    private static func shortCount(_ value: Int) -> String {
+        if value >= 1_000_000 {
+            let millions = Double(value) / 1_000_000
+            return millions == millions.rounded()
+                ? "\(Int(millions))M"
+                : "\(millions.formatted(.number.precision(.fractionLength(1))))M"
+        }
+        if value >= 1_000 { return "\(value / 1_000)k" }
+        return "\(value)"
+    }
+
     /// The ways into the other panels.
     private var destinations: some View {
         LabFlow(spacing: 6) {
@@ -125,6 +250,8 @@ struct FieldDock: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 14) {
             destinations
+            presetChips
+            population
             labelledSlider(
                 "Reach",
                 value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
