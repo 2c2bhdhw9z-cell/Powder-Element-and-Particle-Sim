@@ -1,6 +1,21 @@
 node_modules
 dist
 .output
+
+# Swift / Xcode build products. Scoped to native/ so nothing in web/ is caught
+# by an over-broad pattern. The Xcode project is generated from project.yml, so
+# it is deliberately not tracked.
+native/.build
+native/.swiftpm
+native/build
+native/DerivedData
+native/*.xcodeproj
+native/*.xcworkspace
+native/Payload
+*.ipa
+*.xcarchive
+*.dSYM
+
 .vinxi
 .tanstack
 .vercel
