@@ -56,26 +56,56 @@ Roughly in the order it should be done.
 
 ### 1. Tick optimisation — in progress
 
-The goal is one cell per screen pixel: 3.1 million cells. Currently **124 ms a tick**
-against an 8.3 ms budget.
+The goal is one cell per screen pixel on an iPhone 17 Pro Max: 1206 × 2622, **3.16 million
+cells**. The budget for 120 frames a second is 8.3 ms a tick, and the simulation does not
+get all of it.
 
-**Decision on record: do not spread the tick across processor cores.** The sand's whole
-character comes from a strict processing order — bottom row first, horizontal direction
-alternating per row and per tick, each cell moving at most once. Reordering that changes
-how the sand behaves, and would forfeit the cell-for-cell verification. Two provably
-identical savings first:
+**The benchmark now measures the split**, because guessing at it led to the wrong plan
+once already. Run `swift run -c release crucible-bench`; it prints this on every CI run.
+Figures below are from the Linux container, which is about 1.2× slower than the Apple
+hardware the CI macOS job reports — the ratio is what matters, not the absolute.
 
-- The tick walks the whole grid **a second time** just to locate portals, which almost no
-  world contains. Keep a count of portal-B cells and skip the pass when it is zero.
-- The tick walks rows that are **entirely empty**. In a settled world that is most of
-  them. Keep a per-row count of occupied cells and skip a row whose count is zero —
-  provably identical, because processing an empty cell already does nothing.
+| | Cost |
+| --- | --- |
+| Sweeping every cell, whatever is in it | **13.6 ms** |
+| Each occupied cell, on top of that | **163 ns** |
+| Total at 30% fill (950k occupied) | ~151 ms |
 
-Both need an occupancy count maintained at every site that writes `type[…]`. Missing a
-site makes the counts drift and rows get wrongly skipped, which the golden comparison
-will catch loudly — so the refactor is safe to attempt.
+Two conclusions, and the first one overturned my initial plan:
 
-If that is not enough, come back to the user before changing how the sand behaves.
+**Skipping empty rows is nearly worthless.** The walk's path for an empty cell is already
+two reads and a branch. The cost is 91% in the *occupied* cells, so the row-skipping idea
+that this file previously described has been dropped. Worth knowing before trying it again.
+
+**The whole-grid sweeps alone blow the 120 fps budget** at this size — 13.6 ms before a
+single grain exists. Those are locating portals, spreading heat, and rebuilding the
+pressure field, and they are the part that *can* be narrowed without changing behaviour:
+
+- Heat and pressure over a region that is entirely empty and entirely at ambient produce
+  no change, so restricting the sweeps to a bounding box around anything not-empty or
+  not-at-ambient is provably identical. Air matters to heat, so the box cannot simply be
+  the occupied cells — it has to include anything off ambient.
+- The portal scan is a second full pass for something almost no world contains. It has no
+  dedicated write site, so counting portal cells means hooking all 37 places that write a
+  cell; the golden comparison would catch a missed one loudly, so it is safe to attempt,
+  but do the bounding box first — it is a bigger win for less risk.
+
+**Then the per-cell path.** 163 ns is roughly 500 processor cycles for one cell, which is a
+lot for what it does; there is likely 2–4× in it from the reaction dispatch and repeated
+element lookups. Even so, the arithmetic says single-threaded full resolution lands around
+30 ms a tick at best — about 30 frames a second, not 120.
+
+**Decision on record: do not spread the tick across processor cores without asking.** The
+sand's whole character comes from a strict processing order — bottom row first, horizontal
+direction alternating per row and per tick, each cell moving at most once. Reordering it
+changes how the sand behaves and forfeits the cell-for-cell verification that has found
+about eighty bugs. The realistic choice to put to the user, once the exact optimisations
+are done and measured, is between:
+
+1. quarter resolution at 120 fps (what the app does today);
+2. full resolution at around 30 fps;
+3. full resolution at 120 fps, by processing cells in a different order — faster, and no
+   longer quite their simulation.
 
 ### 2. App features still missing
 

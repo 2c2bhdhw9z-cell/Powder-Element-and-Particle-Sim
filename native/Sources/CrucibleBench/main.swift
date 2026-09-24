@@ -123,4 +123,57 @@ for testCase in cases {
 print("")
 print("A 60fps budget is 16.67ms per frame and 120fps is 8.33ms, and the")
 print("simulation does not get all of it — drawing and the interface need a share.")
-print("Occupied cells dominate the cost, so a sparse world runs far faster than this.")
+
+// MARK: - Where the time actually goes
+//
+// Separating the cost that scales with the number of cells from the cost that scales with
+// the number of *occupied* cells, because they lead to completely different conclusions.
+//
+// Several stages sweep the whole grid no matter what is in it: locating portals, spreading
+// heat, and rebuilding the pressure field. Everything else — decay, phase change,
+// chemistry, movement — only happens where there is something to do.
+//
+// Measured rather than reasoned about: running the same grid at several fills and reading
+// the slope gives both figures without having to instrument the engine, and without the
+// measurement itself changing what is being measured.
+
+print("")
+print("Where the time goes, at one cell per pixel (1206x2622):")
+print("")
+print("  fill      ms/tick     occupied cells")
+print("  ---------------------------------------")
+
+let breakdownWidth = 1206
+let breakdownHeight = 2622
+let breakdownCells = Double(breakdownWidth * breakdownHeight)
+var samples: [(fill: Double, ms: Double)] = []
+
+for fill in [0.0, 0.15, 0.30, 0.60] {
+    let engine = PowderEngine(width: breakdownWidth, height: breakdownHeight, seed: 99)
+    populate(engine, fill: fill)
+    for _ in 0 ..< 10 { engine.step() }
+
+    let started = now()
+    let steps = 12
+    for _ in 0 ..< steps { engine.step() }
+    let ms = (now() - started) / Double(steps) * 1000
+    samples.append((fill, ms))
+
+    let occupied = engine.activeParticleCount
+    print(String(format: "  %4.0f%%   %8.3f     %d", fill * 100, ms, occupied))
+}
+
+if let empty = samples.first, let full = samples.last, full.fill > empty.fill {
+    // The intercept is the sweep over every cell; the slope is the work per occupied cell.
+    let perOccupiedCellNs = (full.ms - empty.ms) * 1_000_000
+        / (breakdownCells * (full.fill - empty.fill))
+    print("")
+    print(String(format: "  Sweeping every cell, whatever is in it:  %.2f ms", empty.ms))
+    print(String(format: "  Each occupied cell, on top of that:      %.1f ns", perOccupiedCellNs))
+    print("")
+    print("  That split decides what is worth optimising. The whole-grid sweeps can be")
+    print("  skipped or narrowed without changing any behaviour. The per-cell work is the")
+    print("  physics itself, and the only way to make a lot of it happen at once is to")
+    print("  process cells in a different order — which is precisely what gives falling")
+    print("  sand its character, so it cannot be reordered without changing the result.")
+}
