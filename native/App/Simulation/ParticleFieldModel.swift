@@ -114,6 +114,56 @@ final class ParticleFieldModel {
         return applied
     }
 
+    /// How much speed survives each moment. One is frictionless; below about 0.97 the field
+    /// visibly congeals.
+    var damping: Double {
+        get { engine.damping }
+        set { engine.damping = newValue }
+    }
+
+    /// How much of its speed a body keeps when it bounces off a wall.
+    var elasticity: Double {
+        get { engine.elasticity }
+        set { engine.elasticity = newValue }
+    }
+
+    /// How strongly charged bodies push and pull on one another.
+    var electrostaticFactor: Double {
+        get { engine.electrostaticFactor }
+        set { engine.electrostaticFactor = newValue }
+    }
+
+    /// A whole-field swirl. Negative spins the other way.
+    var vortexForce: Double {
+        get { engine.vortexForce }
+        set { engine.vortexForce = newValue }
+    }
+
+    /// The fastest anything may travel, which is what stops a close encounter flinging a body off
+    /// the screen.
+    var maxSpeed: Double {
+        get { engine.maxSpeed }
+        set { engine.maxSpeed = newValue }
+    }
+
+    /// How hard a finger pulls or pushes.
+    var mouseForceMultiplier: Double {
+        get { engine.mouseForceMultiplier }
+        set { engine.mouseForceMultiplier = newValue }
+    }
+
+    /// How quickly bodies with a lifespan fade away. Zero means they never do.
+    var decaySpeed: Double {
+        get { engine.decaySpeed }
+        set { engine.decaySpeed = newValue }
+    }
+
+    /// Whether the reach is effectively unlimited, so the interface can say so rather than showing a
+    /// number that suggests a boundary.
+    var hasUnlimitedReach: Bool {
+        ParticleOverlayStyle.isUnlimited(reach: engine.mouseRadius)
+    }
+
     var showTrails: Bool {
         get { engine.showTrails }
         set { engine.showTrails = newValue }

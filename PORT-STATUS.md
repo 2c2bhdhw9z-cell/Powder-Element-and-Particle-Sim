@@ -44,11 +44,15 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | Particle renderer | complete | 6 colour modes, pixel for pixel |
 | The four set-piece events | complete | 4 events x 4 sizes, cells + heat + momentum + draws + the shake and sound they ask for |
 | Tilt to tip gravity | complete | 12 tests on the tuning; the attitude algebra verified over 258,000 orientations |
+| Encyclopedia and periodic drawer | complete | generated from the reference text, 9 tests hold it there |
+| Sound — all six | complete | 18 tests, checked as signals rather than as settings |
+| Trails and the touch ring | decisions complete | 9 tests; see the note below on why not pixels |
+| Saving, loading, autosave, sharing, invented materials | complete | builds in CI |
 | iOS app: Metal, both chambers, glass dial, docks, settings | first pass | builds in CI, installs, runs |
 | iOS app: real typefaces, tilt button, world controls, health report | complete | builds in CI |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**267 engine tests. 128 reference tests. 93 script tests.** Green on Linux and macOS, in
+**303 engine tests. 131 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 ---
@@ -136,29 +140,35 @@ about eighty bugs. The choice to put to the user is between:
 
 ### 2. App features still missing
 
-Roughly in order of how much they are missed.
+Short now, and roughly in order of how much they are missed.
 
-- **Particle trails and the touch-reach ring.** The trail *recording* is already ported and
-  tested — `TrailBuffer`, and all six places a trail has to be discarded so no line stretches
-  across the world. What is missing is drawing it. Note this cannot be verified pixel for
-  pixel: the web draws it with Canvas2D, whose antialiasing and line joins are not
-  reproducible, so the honest split is to verify the *decisions* (0.3 alpha, a width of
-  0.8x the body's radius, the 25%-alpha background wipe that makes the fade, the ring's
-  cyan and its unlimited-radius rule) as data, and draw them in Metal.
-- **Saving and loading in the app.** Engine side complete and byte-exact
-  (`PowderSerialization`, `ParticleSerialization`); there is no file picker and no autosave
-  timer. The web autosaves every 8 seconds and on page hide, into one browser storage key.
-- **The element editor.** The registry already supports ids 50-99 and round-trips them; the
-  three presets the web offers (Goo, Foam, Slag) are in `lab-modals.tsx`.
-- **Encyclopedia and the periodic drawer.** Pure data: 50 lore entries, one per built-in
-  element, in `web/src/sim/encyclopedia.ts`; 18 real elements and 6 compounds mapped onto lab
-  materials in `periodic.ts`. Worth extracting to a fixture rather than retyping.
-- **Sound.** `web/src/sim/audio-engine.ts` — six procedural sounds, each a few oscillators
-  and an envelope, with a per-sound throttle. The events already report which sound they
-  want and how loud; nothing consumes it yet.
-- **Screen recording and screenshots.** `web/src/sim/canvas-recorder.ts`.
-- **The remaining docks.** The particle chamber's Physics and Visuals panels, and the powder
-  dock's search box and category filter, are in the web version and not here.
+- **The fading backdrop behind trails.** The trails themselves are drawn. What is not is the
+  reference's trick of painting the background over the previous frame at a quarter opacity
+  instead of clearing it, which is what makes a trail longer than the six positions a body
+  remembers. Needs the field drawn into a texture that survives between frames, then blitted
+  to the screen — see `ParticleOverlayStyle.frameFadeOpacity`, which already records the figure.
+- **Screenshots and screen recording.** `web/src/sim/canvas-recorder.ts`. The screenshot is
+  the easy half: the Metal view can be read back into an image. Recording needs
+  `ReplayKit` or a frame-by-frame writer, and is the larger job.
+- **The powder dock's search box and category filter.** Fifty materials are grouped but not
+  searchable. Matters more now that invented ones sit alongside them.
+- **A few particle-chamber controls.** The body cap and batch-spawn sizes are fixed rather
+  than adjustable, and the 18 presets are in a list rather than as chips in the dock.
+- **Split view.** The web version can show both chambers at once, with a switch for whether
+  the hidden one keeps running. Deliberately left until last: on a phone-sized screen two
+  half-height chambers may simply be worse, and it is worth deciding that with the app in hand.
+
+#### Verified differently, and why
+
+Two things in the app are *not* compared against the reference frame for frame, and both are
+recorded here so nobody assumes it was an oversight:
+
+- **Trails and the touch ring.** The reference draws them with the browser's 2D canvas, whose
+  antialiasing and line joins are specified nowhere. A recorded picture would prove only that
+  one rasteriser agrees with itself. Every decision feeding into them is tested instead.
+- **The six sounds.** The reference hands a description to the browser and lets it generate the
+  samples. They are checked as signals — that the meteor falls and the freeze rises, that the
+  explosion darkens, that nothing clips — rather than sample for sample.
 
 ### 3. Online
 

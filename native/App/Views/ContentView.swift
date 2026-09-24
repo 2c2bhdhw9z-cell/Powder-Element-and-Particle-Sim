@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var showingPeriodic = false
     @State private var showingSaves = false
     @State private var showingEditor = false
+    @State private var showingFieldSettings = false
     /// Bumped when the set of materials changes, which is what makes the palette rebuild. The dock's
     /// rows are derived from the registry, and a registry is a class — SwiftUI cannot see inside it.
     @State private var paletteVersion = 0
@@ -163,6 +164,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingEditor) {
             ElementEditorSheet(model: powder) { paletteVersion += 1 }
+        }
+        .sheet(isPresented: $showingFieldSettings) {
+            FieldSettingsSheet(model: field)
         }
     }
 
@@ -289,7 +293,10 @@ struct ContentView: View {
                 glass: glass,
                 isOpen: $isDockOpen,
                 onShowPresets: { showingPresets = true },
-                onShowSettings: { showingSettings = true }
+                // Its own sheet, not the powder world's. Almost nothing carries over between them —
+                // there are no cells here, no temperature and no wind — so sharing one would be a
+                // list of controls that mostly did not apply.
+                onShowSettings: { showingFieldSettings = true }
             )
         }
     }
