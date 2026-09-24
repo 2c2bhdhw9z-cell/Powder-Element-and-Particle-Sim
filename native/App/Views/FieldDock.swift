@@ -288,8 +288,19 @@ struct FieldDock: View {
     private var expandedContents: some View {
         VStack(alignment: .leading, spacing: 14) {
             destinations
+            costWarning
             presetChips
             population
+            // Directly under how many there are, because it is the other half of the same question and
+            // because this is where somebody looks for it. It used to sit between Reach and Gravity,
+            // among the forces, called "Body size" — in a chamber named the Particle field, which is a
+            // good way to make a control that exists impossible to find.
+            labelledSlider(
+                "Particle size",
+                value: Binding(get: { model.particleSize }, set: { model.particleSize = $0 }),
+                range: 1 ... 8,
+                display: { $0.formatted(.number.precision(.fractionLength(1))) }
+            )
             labelledSlider(
                 "Reach",
                 value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
@@ -297,12 +308,6 @@ struct FieldDock: View {
                 // At the top of the range the physics treats the reach as unlimited, which is
                 // worth saying rather than showing as a number that stops meaning anything.
                 display: { model.mouseRadius >= 800 ? "whole field" : "\(Int($0))" }
-            )
-            labelledSlider(
-                "Body size",
-                value: Binding(get: { model.particleSize }, set: { model.particleSize = $0 }),
-                range: 1 ... 8,
-                display: { $0.formatted(.number.precision(.fractionLength(1))) }
             )
             labelledSlider(
                 "Gravity",
@@ -324,6 +329,16 @@ struct FieldDock: View {
             .font(.labBody(12))
             .foregroundStyle(Palette.foreground)
             .tint(Palette.primary)
+
+            // Said once, plainly, next to the switch it is about. This is by a very wide margin the most
+            // expensive thing in the chamber, and nothing used to indicate that — so a crowd that would
+            // have run at a thousand frames a second ran at five, and the only visible explanation was
+            // that the app could not cope.
+            Text("Collide is what costs: about a millisecond for every thousand bodies. Everything else "
+                + "here is nearly free.")
+                .font(.labBody(11))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
 
             // Three kinds of physics that existed in the engine with no way to switch them on. Each
             // changes what the field *is* rather than how it looks, which is why they sit apart from
@@ -347,6 +362,60 @@ struct FieldDock: View {
             .tint(Palette.primary)
 
             colourModes
+        }
+    }
+
+    /// Says so when the crowd and the collisions together cannot work, and offers the one tap that fixes
+    /// it.
+    ///
+    /// ## Why this is here rather than the field simply being faster
+    ///
+    /// Because it cannot be. Pushing bodies apart costs about a millisecond per thousand of them:
+    /// measured, two hundred thousand comes to two hundred milliseconds a moment, which is five frames a
+    /// second, while the same crowd with Collide off costs under one millisecond. A factor of two hundred
+    /// and fifty.
+    ///
+    /// The pass is not badly written — it is a uniform grid with a hard cap on how many neighbours any
+    /// cell examines, and it runs at about the speed the memory can feed it. Two hundred thousand bodies
+    /// each overlapping dozens of others, resolved twice a frame, is simply not a smooth workload in any
+    /// implementation. See `SwarmCost` for the figures.
+    ///
+    /// So the field still offers the crowd, and now tells the truth about what it costs instead of
+    /// quietly grinding to five frames a second and leaving somebody to conclude the app is broken.
+    @ViewBuilder
+    private var costWarning: some View {
+        if let warning = SwarmCost.warning(bodies: model.bodyCount, collisions: model.collisionsEnabled) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.labBody(12, .medium))
+                        .foregroundStyle(Palette.warn)
+                    Text(warning)
+                        .font(.labBody(11))
+                        .foregroundStyle(Palette.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button {
+                    model.collisionsEnabled = false
+                } label: {
+                    Text("Switch Collide off")
+                        .font(.labBody(12, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 12)
+                        .frame(height: 30)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(11)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                    .fill(Palette.warn.opacity(0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                    .stroke(Palette.warn.opacity(0.3), lineWidth: 1)
+            )
         }
     }
 

@@ -106,7 +106,7 @@ struct FieldSettingsSheet: View {
                 step: 0.1
             ) { "\($0.formatted(.number.precision(.fractionLength(1))))×" }
             LabDivider()
-            LabSlider(label: "Body size", value: bind(\.particleSize), range: 1 ... 8, step: 0.5) {
+            LabSlider(label: "Particle size", value: bind(\.particleSize), range: 1 ... 8, step: 0.5) {
                 $0.formatted(.number.precision(.fractionLength(1)))
             }
             LabDivider()

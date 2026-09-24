@@ -431,7 +431,7 @@ public enum CloudCallback {
     public static func decode(_ text: String) -> String {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(text.utf8.count)
-        var iterator = Array(text.utf8)
+        let iterator = Array(text.utf8)
         var index = 0
         while index < iterator.count {
             let byte = iterator[index]

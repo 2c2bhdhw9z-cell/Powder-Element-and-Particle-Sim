@@ -350,3 +350,62 @@ print("")
 print("  Compare that against the stone figure above. Stone's cost is one such lookup plus")
 print("  the walk through the stages, so the gap between them is everything that is not")
 print("  the lookup.")
+
+
+// MARK: - The particle field, which had no figures at all until it needed them
+//
+// This section exists because its absence was the bug. The powder engine has been measured on every CI
+// run since it was ported; the field never was, so nobody noticed that pushing bodies apart costs about
+// a millisecond per thousand of them. The app happily offered a million.
+//
+// The gap between the two columns below is the whole story, and it is a factor of a couple of hundred.
+
+print("")
+print("Particle field — one moment, by crowd size:")
+print("")
+print("  bodies      pushing apart    not pushing apart")
+
+for count in [25_000, 50_000, 100_000, 200_000, 500_000] {
+    var figures: [Double] = []
+    for collide in [true, false] {
+        let field = ParticleEngine(width: 400, height: 700)
+        _ = field.setMaxParticles(1_000_000)
+        field.collisionsEnabled = collide
+        var swarmRng = Mulberry32(seed: 1)
+        field.swarm.spawn(
+            count: count,
+            width: 400,
+            height: 700,
+            color: 0xFFFF_FFFF,
+            budget: 1_000_000,
+            rng: &swarmRng
+        )
+        // Settled first, so the grid cells are as full as they get in practice. A crowd measured while
+        // still evenly spread is measured at its easiest, which is not the case anybody meets.
+        for _ in 0 ..< 10 { field.step() }
+
+        let rounds = collide ? 8 : 40
+        let started = now()
+        for _ in 0 ..< rounds { field.step() }
+        figures.append((now() - started) / Double(rounds) * 1000)
+    }
+    print(
+        String(
+            format: "  %-10@  %8.1f ms      %8.2f ms",
+            count.formattedWithSeparators as NSString,
+            figures[0],
+            figures[1]
+        )
+    )
+}
+
+print("")
+print("  The right-hand column is why the crowd is offered at all, and the left-hand one is why")
+print("  `SwarmCost` exists. Two hundred thousand bodies pushing each other apart is five frames a")
+print("  second; the same crowd with that switched off is under a millisecond.")
+print("")
+print("  Before assuming the pass is badly written: it is a uniform grid, nine neighbouring cells, and")
+print("  at most eight candidates examined per cell. That is about seven nanoseconds per candidate,")
+print("  which for reads scattered over a megabyte and a half is roughly what the memory can do.")
+print("  Laying the bodies out in visiting order would help perhaps threefold — and would change the")
+print("  order pairs are resolved in, which changes the simulation. It would still not be smooth.")
