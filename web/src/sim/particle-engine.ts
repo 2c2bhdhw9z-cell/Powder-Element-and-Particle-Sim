@@ -311,6 +311,27 @@ export class ParticleEngine implements ParticleCtx {
     return removed;
   }
 
+  /**
+   * Replace the whole particle list, discarding every spring.
+   *
+   * Use this when loading a scene, an autosave, or a payload from a peer — never
+   * `engine.particles = […]` directly.
+   *
+   * Springs store positions in this list, so a list from somewhere else makes every
+   * existing spring meaningless. Assigning the array directly left each spring joining
+   * whichever two particles now happened to sit at its two indices, with a rest length
+   * measured for a completely different pair — and `stepSprings` can only detect an
+   * index that is out of range, never one that is merely wrong. The result was a
+   * structure that silently pumped energy into the scene on every frame afterwards.
+   *
+   * Springs are cleared rather than remapped because there is nothing to map them to:
+   * the particles they described are gone.
+   */
+  public replaceParticles(next: ParticleObject[]) {
+    this.particles = next;
+    this.springs = [];
+  }
+
   public addParticle(particle: Partial<ParticleObject>) {
     if (this.particles.length >= this.maxParticles) {
       // Evict the oldest through removeParticles so spring endpoints follow the

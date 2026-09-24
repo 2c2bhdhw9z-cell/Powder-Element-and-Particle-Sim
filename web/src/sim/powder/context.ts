@@ -49,4 +49,12 @@ export interface PowderCtx {
   swapCells(idx1: number, idx2: number): void;
   triggerExplosion(centerX: number, centerY: number, radius: number, shockwaveForce?: number, maxHeat?: number): void;
   resize(newWidth: number, newHeight: number): void;
+  /**
+   * Set the horizontal wind, clamped to the range the physics can handle.
+   *
+   * Part of the interface so that restoring an undo snapshot goes through the clamp
+   * like every other writer. `windX` is a plain field, so anything can put an absurd
+   * value in it, and undo used to carry that value back out verbatim.
+   */
+  setWind(value: number): void;
 }

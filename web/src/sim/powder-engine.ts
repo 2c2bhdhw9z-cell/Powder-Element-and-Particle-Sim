@@ -1,4 +1,16 @@
-import { ElementRegistry, EMPTY_ELEMENT_ID } from "./element-registry";
+import { ElementRegistry, EMPTY_ELEMENT_ID, MAX_ELEMENT_ID } from "./element-registry";
+
+/**
+ * One cell as the lite wire format carries it.
+ *
+ * The format is a single byte per cell, so anything outside a byte has to become air.
+ * `hashLite` and `serializeLite` both go through here, which is the point: when they
+ * disagreed about a cell, the sender's fingerprint never matched the world the
+ * receiver actually built, and the host resent the whole grid every tick forever.
+ */
+function liteByte(id: number): number {
+  return id > 0 && id <= 255 ? id : EMPTY_ELEMENT_ID;
+}
 import { ElementDefinition } from "./types";
 import { PowderHistory } from "./powder/history";
 import { updatePhase } from "./powder/phase-change";
@@ -453,7 +465,12 @@ export class PowderEngine implements PowderCtx {
       (Math.round(this.gravityX * 10) | 0) * 17 +
       (Math.round(this.gravityY * 10) | 0) * 29;
     const step = Math.max(1, (t.length / 4000) | 0);
-    for (let i = 0; i < t.length; i += step) h = (h * 33 + t[i]) | 0;
+    // Mixes the value `serializeLite` would actually put on the wire, not the raw
+    // cell. The two disagreed for any id above 255, which the wire format has to
+    // flatten to air: the sender's fingerprint kept reflecting the original id while
+    // the receiver held air, so the host's "have we diverged?" test was true forever.
+    // It resent the entire grid every tick, and the two worlds never converged.
+    for (let i = 0; i < t.length; i += step) h = (h * 33 + liteByte(t[i])) | 0;
     return h;
   }
 
@@ -476,7 +493,7 @@ export class PowderEngine implements PowderCtx {
     for (let i = 0; i < t.length; i += chunk) {
       const end = Math.min(t.length, i + chunk);
       const bytes: number[] = [];
-      for (let k = i; k < end; k++) bytes.push(t[k] > 255 ? 0 : t[k]);
+      for (let k = i; k < end; k++) bytes.push(liteByte(t[k]));
       raw += String.fromCharCode(...bytes);
     }
     return JSON.stringify({ w: this.width, h: this.height, t: btoa(raw), gx: this.gravityX, gy: this.gravityY });
@@ -497,8 +514,12 @@ export class PowderEngine implements PowderCtx {
       // landed at 1200°C where lava had been and melted immediately, and incoming
       // fire or smoke inherited a lifetime of 0 and vanished on the next tick. This
       // is the payload a joining multiplayer peer receives, so it mattered.
-      this.resetGrid();
+      //
+      // Decoded BEFORE the reset, so a payload that turns out to be undecodable
+      // leaves the world alone. Resetting first meant one malformed message from a
+      // peer wiped the receiving player's world and logged a line to the console.
       const bin = atob(o.t);
+      this.resetGrid();
       const n = Math.min(this.gridType.length, bin.length);
       for (let i = 0; i < n; i++) {
         const id = bin.charCodeAt(i);
@@ -535,9 +556,23 @@ export class PowderEngine implements PowderCtx {
     try {
       const obj = JSON.parse(jsonStr);
       if (obj.gridType && Array.isArray(obj.gridType)) {
-        if (PowderEngine.isValidSize(obj.width, obj.height)) {
+        // The declared size decides the row stride the cells are written at, so a
+        // payload that does not declare a usable size cannot be applied at all.
+        //
+        // This used to guard only the resize and then fall through, blitting the cells
+        // into whatever the current grid's stride happened to be — every row landing
+        // at the wrong offset, the whole world sheared, and no error anywhere. The
+        // same happened when the resize itself was refused, which is why the result is
+        // re-checked rather than assumed.
+        if (!PowderEngine.isValidSize(obj.width, obj.height)) {
+          debug.error("Refusing a grid state with an unusable size", obj.width, obj.height);
+          return;
+        }
+        if (obj.width !== this.width || obj.height !== this.height) {
+          this.resize(obj.width, obj.height);
           if (obj.width !== this.width || obj.height !== this.height) {
-            this.resize(obj.width, obj.height);
+            debug.error("Could not resize to the saved grid size; leaving the world alone");
+            return;
           }
         }
         this.resetGrid();
@@ -548,7 +583,12 @@ export class PowderEngine implements PowderCtx {
         // spread through heat diffusion to poison the whole world.
         for (let i = 0; i < len; i++) {
           const id = Number(obj.gridType[i]);
-          this.gridType[i] = Number.isInteger(id) && id >= 0 && id < 500 ? id : EMPTY_ELEMENT_ID;
+          // Bounded by what the registry can actually describe. See MAX_ELEMENT_ID:
+          // the old ceiling of 500 admitted a band of ids that drew as air, behaved as
+          // air, could not be cleared by the repair tools, and still counted as active
+          // particles forever.
+          this.gridType[i] =
+            Number.isInteger(id) && id >= 0 && id <= MAX_ELEMENT_ID ? id : EMPTY_ELEMENT_ID;
         }
         if (Array.isArray(obj.gridTemp)) {
           const tlen = Math.min(len, obj.gridTemp.length);

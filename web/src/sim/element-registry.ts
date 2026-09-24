@@ -621,6 +621,18 @@ export const CORE_ELEMENTS: ElementDefinition[] = DEFAULT_ELEMENTS;
 const CUSTOM_ID_START = 50;
 const CUSTOM_ID_END = 99;
 
+/**
+ * The largest element id that can ever mean anything.
+ *
+ * Exported so the loaders can reject anything above it. They used to admit ids up to
+ * 499 on the grounds that the id space was "documented as reaching 499" — but nothing
+ * hands out an id above `CUSTOM_ID_END`, and `getElement` falls back to air for
+ * anything it does not recognise. The result was a class of permanent phantom: a cell
+ * holding id 300 drew as air, behaved as air, could not be cleared by the repair tools
+ * (which only look above 500), and yet counted as an active particle forever.
+ */
+export const MAX_ELEMENT_ID = CUSTOM_ID_END;
+
 export class ElementRegistry {
   private elements: Map<number, ElementDefinition> = new Map();
 

@@ -67,6 +67,22 @@ export function exportLabScene(): LabScene {
   };
 }
 
+/**
+ * A number from a file, or the existing value if the file's is unusable.
+ *
+ * Scene files are user data and may have been hand-edited, truncated, or written by a
+ * different build. These settings used to be assigned straight through, so a single
+ * `null` or `NaN` for `damping` poisoned every particle's velocity on the next step —
+ * and because it spread through the forces, the whole field went to not-a-number in
+ * one frame with nothing pointing at the cause.
+ */
+function finite(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const BOUNDARY_MODES = ["bounce", "wrap", "void"] as const;
+
 export function importLabScene(scene: LabScene) {
   if (!scene || scene.v !== 1) return false;
   try {
@@ -74,16 +90,27 @@ export function importLabScene(scene: LabScene) {
     const pe = getParticleEngine();
     const s = scene.particle;
     if (s) {
-      pe.gravityX = s.gravityX;
-      pe.gravityY = s.gravityY;
-      pe.damping = s.damping;
-      pe.elasticity = s.elasticity;
-      pe.vortexForce = s.vortexForce;
-      pe.maxSpeed = s.maxSpeed;
-      pe.boundaryMode = (s.boundaryMode as typeof pe.boundaryMode) || "bounce";
-      pe.collisionsEnabled = s.collisionsEnabled;
-      pe.setMaxParticles(s.maxParticles || pe.maxParticles);
-      pe.particles = [];
+      // The canvas size is saved, and used to be ignored — so a scene captured on a
+      // large display dropped most of its particles outside a smaller field, where
+      // they sat against the walls or were deleted outright.
+      pe.resize(finite(s.width, pe.width), finite(s.height, pe.height));
+      pe.gravityX = finite(s.gravityX, pe.gravityX);
+      pe.gravityY = finite(s.gravityY, pe.gravityY);
+      pe.damping = finite(s.damping, pe.damping);
+      pe.elasticity = finite(s.elasticity, pe.elasticity);
+      pe.vortexForce = finite(s.vortexForce, pe.vortexForce);
+      pe.maxSpeed = finite(s.maxSpeed, pe.maxSpeed);
+      pe.boundaryMode = BOUNDARY_MODES.includes(s.boundaryMode as (typeof BOUNDARY_MODES)[number])
+        ? (s.boundaryMode as typeof pe.boundaryMode)
+        : "bounce";
+      pe.collisionsEnabled = !!s.collisionsEnabled;
+      pe.setMaxParticles(finite(s.maxParticles, pe.maxParticles));
+      // Through replaceParticles, which also drops the springs. Assigning the array
+      // directly left every spring from the previous scene joining whichever two
+      // particles now sat at its indices, with a rest length measured for a different
+      // pair — a structure that pumps energy in on every frame and cannot be detected
+      // by the spring step, which only checks for indices out of range.
+      pe.replaceParticles([]);
       pe.swarm.clear();
       if (s.swarm && s.swarm.n) {
         pe.swarm.fromSplit(s.swarm, pe.width, pe.height, pe.maxParticles);

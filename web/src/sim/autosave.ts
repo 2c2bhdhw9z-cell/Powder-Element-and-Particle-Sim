@@ -68,12 +68,19 @@ export function readAutosave(): boolean {
     if (data.powder) powder.deserializeState(data.powder);
     powder.keepWorld = true;
     if (data.particle) {
-      pe.gravityX = data.particle.gx;
-      pe.gravityY = data.particle.gy;
-      pe.damping = data.particle.damp;
-      pe.collisionsEnabled = data.particle.collide;
+      // Validated, like a scene file. An autosave can be a partial write from a build
+      // that crashed, or left over from an older format.
+      const num = (value: unknown, fallback: number) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      };
+      pe.gravityX = num(data.particle.gx, pe.gravityX);
+      pe.gravityY = num(data.particle.gy, pe.gravityY);
+      pe.damping = num(data.particle.damp, pe.damping);
+      pe.collisionsEnabled = !!data.particle.collide;
       pe.fluidEnabled = !!data.particle.fluid;
-      pe.particles = [];
+      // Through replaceParticles so the springs go too — see its documentation.
+      pe.replaceParticles([]);
       pe.swarm.clear();
       const sw = data.particle.swarm;
       if (sw && sw.n) {
