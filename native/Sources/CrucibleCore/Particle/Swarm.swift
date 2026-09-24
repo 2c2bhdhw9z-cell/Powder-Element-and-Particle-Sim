@@ -261,10 +261,20 @@ public final class Swarm {
         let maxSpeedSquared = maxSpeed * maxSpeed
         let wrapping = options.boundaryMode == .wrap
 
+        // Each stage below lands back in the buffers, which are single precision, so
+        // each stage rounds. That is deliberate rather than incidental: the stored
+        // velocity *is* the body's velocity, and the position update has to use the
+        // value that was stored, not a more precise one carried alongside it. Holding
+        // doubles across the whole update instead would be marginally more accurate,
+        // would no longer match the reference implementation, and would model something
+        // the buffers cannot actually represent.
         for i in 0 ..< count {
             let pair = i * 2
-            var velX = velocities[pair].asDouble * damping + options.gravityX
-            var velY = velocities[pair + 1].asDouble * damping + options.gravityY
+
+            velocities[pair] = JS.toFloat32(velocities[pair].asDouble * damping + options.gravityX)
+            velocities[pair + 1] = JS.toFloat32(
+                velocities[pair + 1].asDouble * damping + options.gravityY
+            )
 
             if options.mouseActive {
                 let dx = options.mouseX - positions[pair].asDouble
@@ -272,51 +282,63 @@ public final class Swarm {
                 let distanceSquared = dx * dx + dy * dy
                 if distanceSquared < radiusSquared && distanceSquared > 0.5 {
                     let inverse = force / distanceSquared.squareRoot()
-                    velX += dx * inverse
-                    velY += dy * inverse
+                    velocities[pair] = JS.toFloat32(velocities[pair].asDouble + dx * inverse)
+                    velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble + dy * inverse)
                 }
             }
 
             // The same speed limit the object particles obey. The web swarm had none
             // at all, so the one slider the interface offers governed a few hundred
             // bodies and ignored the other million.
+            let velX = velocities[pair].asDouble
+            let velY = velocities[pair + 1].asDouble
             let speedSquared = velX * velX + velY * velY
             if speedSquared > maxSpeedSquared && speedSquared > 0 {
                 let scale = maxSpeed / speedSquared.squareRoot()
-                velX *= scale
-                velY *= scale
+                velocities[pair] = JS.toFloat32(velX * scale)
+                velocities[pair + 1] = JS.toFloat32(velY * scale)
             }
 
-            var posX = positions[pair].asDouble + velX
-            var posY = positions[pair + 1].asDouble + velY
+            positions[pair] = JS.toFloat32(positions[pair].asDouble + velocities[pair].asDouble)
+            positions[pair + 1] = JS.toFloat32(
+                positions[pair + 1].asDouble + velocities[pair + 1].asDouble
+            )
 
             if wrapping {
-                if width > 0 { posX = ((posX.truncatingRemainder(dividingBy: width)) + width).truncatingRemainder(dividingBy: width) }
-                if height > 0 { posY = ((posY.truncatingRemainder(dividingBy: height)) + height).truncatingRemainder(dividingBy: height) }
-            } else {
-                // Void has no meaning for a fixed buffer with no per-body lifetime, so
-                // it falls back to bouncing rather than leaking bodies outside the
-                // world where nothing would ever bring them back.
-                if posX < 1 {
-                    posX = 1
-                    velX *= -bounce
-                } else if posX > width - 1 {
-                    posX = width - 1
-                    velX *= -bounce
+                if width > 0 {
+                    let x = positions[pair].asDouble
+                    positions[pair] = JS.toFloat32(
+                        ((x.truncatingRemainder(dividingBy: width)) + width)
+                            .truncatingRemainder(dividingBy: width)
+                    )
                 }
-                if posY < 1 {
-                    posY = 1
-                    velY *= -bounce
-                } else if posY > height - 1 {
-                    posY = height - 1
-                    velY *= -bounce
+                if height > 0 {
+                    let y = positions[pair + 1].asDouble
+                    positions[pair + 1] = JS.toFloat32(
+                        ((y.truncatingRemainder(dividingBy: height)) + height)
+                            .truncatingRemainder(dividingBy: height)
+                    )
                 }
+                continue
             }
 
-            positions[pair] = JS.toFloat32(posX)
-            positions[pair + 1] = JS.toFloat32(posY)
-            velocities[pair] = JS.toFloat32(velX)
-            velocities[pair + 1] = JS.toFloat32(velY)
+            // Void has no meaning for a fixed buffer with no per-body lifetime, so it
+            // falls back to bouncing rather than leaking bodies outside the world where
+            // nothing would ever bring them back.
+            if positions[pair].asDouble < 1 {
+                positions[pair] = 1
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
+            } else if positions[pair].asDouble > width - 1 {
+                positions[pair] = JS.toFloat32(width - 1)
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
+            }
+            if positions[pair + 1].asDouble < 1 {
+                positions[pair + 1] = 1
+                velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
+            } else if positions[pair + 1].asDouble > height - 1 {
+                positions[pair + 1] = JS.toFloat32(height - 1)
+                velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
+            }
         }
 
         if options.collide && count > 1 {

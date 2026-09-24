@@ -16,13 +16,23 @@ extension ParticleEngine {
         for _ in 0 ..< 6 {
             let angle = rng.next() * Double.pi * 2
             let speed = rng.next() * 6 + 1
+            // Size before shade, and each drawn into its own constant before the call.
+            //
+            // The order in which bodies take numbers from the random stream is part of
+            // the behaviour, not an implementation detail. These two were once the other
+            // way round, which gave every emitted body the other one's size — and since
+            // a body's size decides where it meets a wall, and the charge forces couple
+            // every body to every other while the count is still small, the whole scene
+            // drifted. The draw *count* was unaffected, so only comparing the values
+            // caught it.
+            let radius = rng.next() * 3 + 1
             let hue = rng.next() * 360
             addParticle(
                 x: x,
                 y: y,
                 velocityX: jsCos(angle) * speed,
                 velocityY: jsSin(angle) * speed,
-                radius: rng.next() * 3 + 1,
+                radius: radius,
                 color: PackedColor(hue: hue, saturation: 0.9, lightness: 0.65)
             )
         }

@@ -647,8 +647,14 @@ export class ParticleEngine implements ParticleCtx {
     getSwarmGPU().dirty = true;
   }
 
-  // Physics Integration Step
-  public step(mouseX?: number, mouseY?: number, mouseActive?: boolean) {
+  /**
+   * Physics Integration Step.
+   *
+   * @param now Optional frame timestamp. Painter mode colours particles by the
+   *   current time, so passing this in makes a frame exactly reproducible — which is
+   *   how the native port is compared against this one. Left out, the clock is read.
+   */
+  public step(mouseX?: number, mouseY?: number, mouseActive?: boolean, now?: number) {
     if (mouseX !== undefined) this.lastMouseX = mouseX;
     if (mouseY !== undefined) this.lastMouseY = mouseY;
     this.lastMouseActive = !!mouseActive;
@@ -665,7 +671,7 @@ export class ParticleEngine implements ParticleCtx {
       return;
     }
 
-    stepParticles(this, mouseX, mouseY, mouseActive);
+    stepParticles(this, mouseX, mouseY, mouseActive, now);
 
     stepSprings(this);
     if (this.flockEnabled) stepFlock(this);

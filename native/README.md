@@ -24,10 +24,9 @@ native/
 
 ## The two-layer split, and why it matters
 
-**`Sources/CrucibleCore` imports no Apple frameworks.** Not Metal, not SwiftUI,
-not UIKit, not CoreMotion, not even Foundation. It is standard-library Swift plus
-the platform's C maths library, which is needed only because Swift's standard
-library has square roots but no powers or trigonometry.
+**`Sources/CrucibleCore` imports nothing at all.** Not Metal, not SwiftUI, not
+UIKit, not CoreMotion, not Foundation, and — since `Support/FDLibm.swift` — not
+even the platform's C maths library. It is pure standard-library Swift.
 
 That constraint is load-bearing, for two reasons.
 
@@ -39,6 +38,43 @@ of a cloud build.
 **It keeps the engine honest.** Anything needing a screen, a sensor or a GPU has
 to live in `App/`. The engine cannot quietly grow a dependency on being drawn,
 which is what keeps it fast, portable and testable as the project grows.
+
+## Why the engine brings its own arithmetic
+
+`Support/FDLibm.swift` implements sine, cosine and powers rather than calling the
+platform's library. This is not gold-plating; it fixes a concrete problem.
+
+"The platform's maths library" is not one thing. glibc on the Linux test host,
+Darwin on an iPhone, and V8 in a browser all return *different* answers for the
+same argument — always by one unit in the last place, the smallest difference the
+format can express. Over four thousand arguments drawn the way the particle
+presets draw them, glibc disagreed with V8 on 3.3% of sines.
+
+One unit in the last place is not harmless here, because the presets are orbits.
+A body's position sets the force on it, which sets its next position; a last-bit
+difference doubles every few steps, so two runs that start identical end as
+visibly different pictures. Left alone that would mean physics verified on the
+test machine is not the physics that ships, and a saved or shared scene replays
+differently on someone else's phone.
+
+With the engine owning the arithmetic, every device agrees, and the app's physics
+is pinned permanently — it cannot drift when Apple updates their maths library.
+
+`sqrt` is deliberately *not* reimplemented: IEEE 754 requires it to be correctly
+rounded, so every implementation already agrees, and the standard library's is
+exact and hardware-accelerated.
+
+## User interface intent
+
+The app is not a redesign. It reproduces the web version's layout and feel,
+rendered in Apple's Liquid Glass rather than CSS approximations of it.
+
+One firm requirement: **the glass treatment must be adjustable, including all the
+way down.** Some people will want the full effect and some will want a flat,
+quiet, legible interface — and on a large simulation every blur and highlight
+costs frame time that belongs to the physics. So the visual richness is a setting
+with a real range, not a fixed style, and turning it down must genuinely remove
+the work rather than just fading it out.
 
 ## Running the tests
 

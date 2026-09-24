@@ -23,8 +23,24 @@ export function spawnEmitter(e: ParticleCtx, mouseX: number, mouseY: number) {
  * springs-aware integration, gravity/damping and boundary conditions.
  * The swarm, springs and flock sub-steps follow (see the engine).
  */
-export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, mouseActive?: boolean) {
+export function stepParticles(
+  e: ParticleCtx,
+  mouseX?: number,
+  mouseY?: number,
+  mouseActive?: boolean,
+  now?: number
+) {
   const total = e.particles.length;
+
+  // Read the clock once per frame, not once per particle.
+  //
+  // Painter mode derives its hue from the current time, and used to call
+  // `performance.now()` inside the per-particle loop — a thousand clock reads per
+  // frame to produce a thousand values a fraction of a millisecond apart, which is
+  // indistinguishable from one value. Hoisting it is faster and, more importantly,
+  // makes a frame reproducible: the native port is handed this same number, so the
+  // two implementations can be compared.
+  const frameNow = now !== undefined ? now : typeof performance !== "undefined" ? performance.now() : 0;
 
   // 1. Update lifespans & trails & recycling
   let hasExpired = false;
@@ -239,7 +255,7 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
           p1.vx += (-mdy / mDist) * mForce + (mdx / mDist) * (mForce * 0.1);
           p1.vy += (mdx / mDist) * mForce + (mdy / mDist) * (mForce * 0.1);
         } else if (e.mouseMode === "painter") {
-          const hue = Math.floor((performance.now() / 10 + i * 5) % 360);
+          const hue = Math.floor((frameNow / 10 + i * 5) % 360);
           p1.color = `hsl(${hue}, 95%, 65%)`;
           p1.colorUint32 = e.parseColorToUint32(p1.color);
         } else if (e.mouseMode === "gravity_well") {
@@ -279,6 +295,10 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
         p1.y = 15;
         p1.vy = Math.random() * 4 + 2;
         p1.vx = (Math.random() - 0.5) * 1.5;
+        // The trail has to go, exactly as it does on the other teleport paths. Left in
+        // place it draws a streak from the bottom of the world to the top on the frame
+        // after every recycle, which in a waterfall is several particles every frame.
+        p1.trail.length = 0;
       }
 
       // DNA Helix horizontal wrapping & undulation.
@@ -364,8 +384,24 @@ export function stepParticles(e: ParticleCtx, mouseX?: number, mouseY?: number, 
       // left anything travelling more than a world-width per frame permanently
       // outside the world, and `x === width` exactly stayed one pixel past the edge
       // the renderer draws.
-      if (e.width > 0) p1.x = ((p1.x % e.width) + e.width) % e.width;
-      if (e.height > 0) p1.y = ((p1.y % e.height) + e.height) % e.height;
+      //
+      // Crossing the edge discards the trail, like every other teleport does. A body
+      // leaving the right edge and reappearing at the left otherwise draws a streak
+      // straight back across the whole world.
+      if (e.width > 0) {
+        const wrapped = ((p1.x % e.width) + e.width) % e.width;
+        if (wrapped !== p1.x) {
+          p1.x = wrapped;
+          p1.trail.length = 0;
+        }
+      }
+      if (e.height > 0) {
+        const wrapped = ((p1.y % e.height) + e.height) % e.height;
+        if (wrapped !== p1.y) {
+          p1.y = wrapped;
+          p1.trail.length = 0;
+        }
+      }
     } else if (e.boundaryMode === "void") {
       if (p1.x < -10 || p1.x > e.width + 10 || p1.y < -10 || p1.y > e.height + 10) {
         p1.lifespan = 0;
