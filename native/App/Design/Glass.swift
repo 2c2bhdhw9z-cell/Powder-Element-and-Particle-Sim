@@ -85,6 +85,24 @@ private struct LiquidGlassBackground<S: Shape>: ViewModifier {
 }
 
 extension View {
+    /// Keeps the system's own glass out of a scrolling view's edges, unless the full treatment was what
+    /// was asked for.
+    ///
+    /// iOS 26 fades the content at the edge of anything that scrolls, behind a soft blur of its own
+    /// making. That is Apple's glass turning up somewhere this app never put any — which is welcome at
+    /// the top setting and is precisely what the bottom setting exists to remove. "No blur at all" is the
+    /// promise Flat makes, and a blur the app did not draw breaks it just as thoroughly as one it did.
+    @ViewBuilder
+    func labScrollEdges(_ level: GlassLevel) -> some View {
+        if #available(iOS 26.0, *), level != .full {
+            // Hard rather than hidden: the content still stops cleanly at the edge, it simply stops
+            // instead of dissolving into a pane of frosted glass.
+            scrollEdgeEffectStyle(.hard, for: .all)
+        } else {
+            self
+        }
+    }
+
     /// Gives a panel the current glass treatment.
     func glassPanel<S: Shape>(_ level: GlassLevel, in shape: S) -> some View {
         modifier(GlassBackground(level: level, shape: shape))

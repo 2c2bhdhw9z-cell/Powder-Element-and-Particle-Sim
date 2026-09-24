@@ -282,6 +282,7 @@ struct FieldDock: View {
         }
         .frame(minHeight: 220, maxHeight: 380)
         .scrollBounceBehavior(.basedOnSize)
+        .labScrollEdges(glass)
     }
 
     private var expandedContents: some View {
@@ -419,6 +420,7 @@ struct FieldDock: View {
             .padding(.horizontal, 16)
         }
         .frame(height: 38)
+        .labScrollEdges(glass)
     }
 
     private var transport: some View {

@@ -64,6 +64,15 @@ struct ToolCluster: View {
         .glassPanel(glass)
     }
 
+    /// The five speeds.
+    ///
+    /// Every step is the **same** width, and that is the fix rather than a detail. They were a minimum
+    /// width, so each step took whatever its text needed: "0.25×" and "0.5×" ended up crushed together
+    /// while "1×", "2×" and "4×" sat in the middle of great pools of space. It read as a row that had
+    /// been assembled carelessly, which is exactly what it was.
+    ///
+    /// The pill also has padding of its own now, so the first label is not pressed against the screen's
+    /// edge with nothing between the two.
     private var speedDial: some View {
         HStack(spacing: 0) {
             ForEach(Self.speeds, id: \.self) { value in
@@ -77,11 +86,12 @@ struct ToolCluster: View {
                         .foregroundStyle(
                             model.speed == value ? Palette.foreground : Palette.muted
                         )
-                        .frame(minWidth: 34, minHeight: 40)
+                        .frame(width: 42, height: 40)
                 }
                 .buttonStyle(.plain)
             }
         }
+        .padding(.horizontal, 5)
         .glassPanel(glass)
     }
 

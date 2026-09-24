@@ -734,6 +734,8 @@ struct FieldToolCluster: View {
                 .glassPanel(glass)
 
                 HStack(spacing: 6) {
+                    // One width for every step, and padding inside the pill. See the note on
+                    // `ToolCluster.speedDial` for why both.
                     HStack(spacing: 0) {
                         ForEach(Self.speeds, id: \.self) { value in
                             Button {
@@ -744,11 +746,12 @@ struct FieldToolCluster: View {
                                     .foregroundStyle(
                                         model.speed == value ? Palette.foreground : Palette.muted
                                     )
-                                    .frame(minWidth: 34, minHeight: 40)
+                                    .frame(width: 42, height: 40)
                             }
                             .buttonStyle(.plain)
                         }
                     }
+                    .padding(.horizontal, 5)
                     .glassPanel(glass)
 
                     TiltButton(tilt: tilt, glass: glass)

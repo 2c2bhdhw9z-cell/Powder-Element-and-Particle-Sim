@@ -47,6 +47,7 @@ struct LabSheet<Content: View>: View {
                 .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .labScrollEdges(glass)
         }
         .background(panelBackground)
         .overlay(alignment: .top) {

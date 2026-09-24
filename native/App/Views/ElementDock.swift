@@ -193,6 +193,7 @@ struct ElementDock: View {
         .frame(minHeight: 220, maxHeight: 380)
         // No rubber-banding when it all fits, so a short tray does not feel broken.
         .scrollBounceBehavior(.basedOnSize)
+        .labScrollEdges(glass)
     }
 
     /// How a touch paints, and the eyedropper.
@@ -320,6 +321,7 @@ struct ElementDock: View {
                     }
                 }
             }
+            .labScrollEdges(glass)
         }
     }
 
@@ -387,6 +389,7 @@ struct ElementDock: View {
             .padding(.horizontal, 16)
         }
         .frame(height: 38)
+        .labScrollEdges(glass)
     }
 
     private var transport: some View {
