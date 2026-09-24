@@ -2,98 +2,64 @@
 
 Particle field + powder world. Switch anytime.
 
-A dual-chamber simulation lab: a cellular-automata **powder world** (sand, water,
-lava, acid, electricity, recipes, explosions) and a 1,000,000-cap **particle
-field** (swarms, black holes, cloth, flocking, springs), sharing one canvas,
-one undo history, and P2P multiplayer.
+A dual-chamber simulation lab: a cellular-automata **powder world** (50 elements —
+sand, water, lava, acid, electricity, recipes, explosions) and a 1,000,000-capacity
+**particle field** (swarms, black holes, cloth, flocking, springs), sharing one
+canvas and one undo history.
 
-## Run
+## Repository map
+
+This repo holds two implementations of the same simulation. They are kept
+deliberately separate.
+
+| Area                     | What it is                                                                                                                                                       | Status                       |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| [`native/`](native/)     | **The shipping app.** 100% native iOS — Swift + Metal + SwiftUI. No WebKit, no HTML, no JavaScript. Compiles to an `.ipa`.                                        | In development               |
+| [`web/`](web/README.md)  | **Reference implementation.** The original TanStack/React/Canvas web app, kept working and fully tested. Not shipped — it is the spec the native port is checked against. | Complete, green, frozen-ish  |
+
+### Why the web version stays
+
+Its test suite (93 tooling tests + 47 simulation tests, deterministic via a
+seeded random generator) encodes the real behavior of the sim: gravity,
+buoyancy, decay, lava quenching, undo/redo, serialization. Those tests are
+translated into the native test suite and act as the behavioral oracle. When the
+native engine and the web tests disagree, the native engine is wrong.
+
+## Build the native app
+
+The native app targets iPhone and is built entirely in CI — no Mac required
+locally. See [`native/README.md`](native/README.md) for the full pipeline.
 
 ```bash
+cd native
+swift test              # simulation core: runs on Linux and macOS, no Apple hardware needed
+```
+
+The iOS app itself (Metal renderer + SwiftUI shell) is compiled by the
+[GitHub Actions workflow](.github/workflows), which produces an unsigned `.ipa`
+attached to a release for on-device signing.
+
+## Run the web reference
+
+```bash
+cd web
 npm install
-npm run dev          # vite, 0.0.0.0:8080 (live-preview contract — don't change)
+npm run dev             # vite, 0.0.0.0:8080
+npm test                # the oracle suite
 ```
 
-Other scripts:
+## Design intent
 
-```bash
-npm run typecheck    # tsc --noEmit
-npm run lint         # eslint .
-npm test             # node --test (scripts) + vitest (simulation core)
-npm run build        # vite build + db:migrate (skips DB when DATABASE_URL unset)
-```
+- **Target device:** iPhone 17 Pro Max. Mobile-first, iOS glass look.
+- **Performance:** the web version targets ~30 FPS and is capped by a
+  single JavaScript thread. The native version targets the display's full
+  refresh rate, using multiple CPU cores for the powder grid and the GPU via
+  Metal for the particle field.
+- **Architecture principle (carried over from the web version):** the engine
+  owns only state and orchestration; each physics subsystem is a plain module
+  operating on a context interface. The simulation core has no UI dependency at
+  all, so it is unit-testable in isolation on any platform.
 
-## Environment
-
-All env is optional. With nothing set, the lab runs as a guest on an embedded
-database and contacts no external service. See [.env.example](.env.example).
-
-| Var                                                                                            | Meaning                                                                                   |
-| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                                                                 | Real Postgres (e.g. Neon). Unset falls back to embedded PGLite (preview/local).           |
-| `VITE_AUTH_ENABLED`                                                                            | Sign-in toggle. Off by default; the lab is fully usable as a guest.                       |
-| `AUTH_ISSUER`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` | Only if you self-host sign-in: your OWN OAuth provider's credentials. The app ships none. |
-| `DEBUG=1` / `?debug`                                                                           | Enables gated `debug.warn`/`debug.log` output (see `src/lib/debug.ts`).                   |
-
-> Setting `DATABASE_URL` without also enabling auth (`VITE_AUTH_ENABLED=true`
-> plus the `AUTH_*` creds) makes per-user server functions fail closed by
-> design: the app refuses to share the one local dev-user against a real
-> database. Enable auth as well, or leave `DATABASE_URL` unset to run as a guest.
-
-## Architecture
-
-```
-src/
-  sim/                    # Simulation core (no UI, fully unit-tested)
-    powder-engine.ts      # PowderEngine facade: grid state + tick orchestration
-    particle-engine.ts    # ParticleEngine facade: particle state + tick orchestration
-    powder/               # Powder physics modules (PowderCtx structural interface)
-      phase-change.ts     #   boil / freeze / melt / condense, lava quench
-      electricity.ts      #   lightning: seek wet → ride conductors → burn
-      reactions.ts        #   chemical reactions & special element behavior
-      explosion.ts        #   shockwave / shatter / embers / smoke plume
-      movement.ts         #   gravity, buoyancy, viscosity, momentum
-      thermals.ts         #   heat diffusion, heat pipes, wind, pressure
-      brush.ts            #   painting tools, flood fill, bulk spawn, jostle
-      history.ts          #   typed-array undo/redo snapshots
-      render.ts           #   canvas renderer + overlay modes
-      diagnostics.ts      #   health inspection & repair actions
-    particle/             # Particle physics modules (ParticleCtx interface)
-      spawners.ts         #   scene presets (galaxy, black hole, cloth, …)
-      step.ts             #   forces, integration, boundaries, flock, springs
-      render.ts           #   pixel-buffer / vector renderers
-      diagnostics.ts      #   health inspection & repair actions
-    swarm.ts / swarm-gpu.ts   # SoA swarm + WebGPU collide (CPU fallback)
-    particle-gl.ts        # WebGL point renderer
-    element-registry.ts   # Element definitions + custom elements
-    scene.ts, autosave.ts # Scene export/import, autosave
-    multiplayer/          # P2P rooms over WebRTC + /api/rtc signaling
-    live-pack.ts          # Binary packing for live multiplayer sync
-  components/lab/         # iOS glass UI: chambers, tools, modals, overlays
-  lib/
-    auth/                 # Self-hosted Better Auth (tri-mode: deploy/preview/off)
-    db.ts                 # Neon (pg) or PGLite, with migrations
-    multiplayer/          # P2P client + signaling server
-    debug.ts              # Gated logger (errors always, warns gated)
-  routes/                 # TanStack Start routes (index = lab, /login, /api/*)
-server/middleware/        # Nitro middleware (PWA install page, OG identity)
-scripts/                  # Build tooling: PWA plugin, migrations, smoke tests
-migrations/               # SQL (0001_auth, 0002_lab)
-```
-
-The engine facades only own state and orchestration; each physics subsystem is
-a plain module operating on a structural context interface (`PowderCtx`,
-`ParticleCtx`), so every subsystem is testable in isolation and the sim core
-runs in plain Node.
-
-## Testing
-
-- `npm test` runs both suites:
-  - `node --test scripts/**` — build/PWA tooling
-  - `vitest run src/**` — simulation core (powder, particle, registry)
-- The sim tests are deterministic: they seed `Math.random` (`src/sim/__tests__/helpers.ts`).
-- The engines must keep passing them — they encode real behavior (gravity,
-  buoyancy, decay, quenching, undo/redo, serialization, multiplayer snapshots).
-
-See [docs/lab-ideas.md](docs/lab-ideas.md) for the shipped/unshipped feature
-list and [DEBUG.md](DEBUG.md) for the deep-dive brief.
+Further reading: [CRUCIBLE.md](CRUCIBLE.md) (the pitch),
+[docs/lab-ideas.md](docs/lab-ideas.md) (shipped / unshipped features),
+[web/DEBUG.md](web/DEBUG.md) (deep-dive brief on the reference implementation).
