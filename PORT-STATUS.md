@@ -309,6 +309,32 @@ implementation should be left exactly as it is.
 
 ---
 
+## Interface faults, and the one thing they all had in common
+
+**Every fault in this list was found by the owner installing the app and looking at it. Not one
+was found by a test, and not one was found by CI.** That is the single most important fact in
+this file about the app layer: CI proves the app *compiles*. It proves nothing whatsoever about
+whether it works, and there is no automated coverage below `CrucibleCore`. Read that as a
+standing instruction to look at screenshots and to be suspicious of anything you have only
+compiled.
+
+They also share a shape: **each one looked like the app being broken rather than like a mistake
+in a specific place**, and several were surrounded by things that looked perfect. That is why
+they survived so long.
+
+| What was seen | What it actually was |
+| --- | --- |
+| The recording preview's Save and close buttons sitting up inside the clock and the battery | `.ignoresSafeArea()` on a UIKit controller that positions its own bar relative to the top of whatever it is handed. Hand it the whole screen and its buttons go behind the island. Not fixable from inside — stop giving it the space. |
+| The play and clear buttons clipped at the very bottom edge | `.ignoresSafeArea(edges: .bottom)` on the content. Only the *backdrop* wanted to reach under the home indicator; the controls went with it, into the band iOS takes the swipe from. |
+| 4× and the tilt button missing from the screen | The row was about 446 points wide on a 440-point phone. It also slid under the readout in the opposite corner, which a comment in the same file confidently described as impossible. Two rows now. |
+| The tray opening with **no materials in it at all** | The tray is taller than what is left of the screen, so something must shrink. A `ScrollView` with only a `maxHeight` has no height of its own, so it was the only thing that could give — and it gave all of it, silently, with everything above it looking right. A **minimum** height is what fixes this; a maximum alone permits nought. |
+| "Heaviness" drawn on top of "Temperatures in" | `LabFlow` measured its rows against the width it was *offered* and reported the width it had *used*, which is narrower. It was then placed in that narrower box, so it wrapped a row the height had no room for. Measure and place must use one width. |
+| A whole settings panel where dragging a slider changed the number not at all | **The big one.** Both models are `@Observable`, but every setting is a *computed* property forwarding to the engine — and Observation only watches stored properties. So reading one registered nothing and writing one notified nobody. The panel drew once and never again; the knobs stayed where a finger left them because nothing redrew them either. Fixed with one stored counter per model that every forwarding property reads and bumps. **Anything added that forwards to the engine must do the same.** |
+| Blur still present with the glass setting on Flat | iOS 26 fades the edge of anything that scrolls behind a pane of its own. Apple's glass, in a place the app never put any. `labScrollEdges(_:)` asks for a hard edge below the top setting. |
+| The particle field "shitting itself" at 200,000 bodies | Collisions cost about a millisecond per thousand bodies — 210ms against 0.85ms with them off, a factor of 250 — from a switch that was on by default and said nothing. Not an implementation fault; see `SwarmCost`. The field was also the one engine with **no benchmark at all**, which is why nobody noticed. |
+| The four events appearing to do nothing | They worked perfectly, behind the panel that started them. A meteor falls before it detonates and all of that happened under the sheet. It closes first now, and switches to the powder chamber. |
+| "20°C" directly beneath the same panel's own switch set to °F | The unit was written into the slider's format string. A setting the app contradicts on the next line. |
+
 ## Things that will waste your time otherwise
 
 - **`/tmp` does not persist between shell calls.** Download, extract and read in one
