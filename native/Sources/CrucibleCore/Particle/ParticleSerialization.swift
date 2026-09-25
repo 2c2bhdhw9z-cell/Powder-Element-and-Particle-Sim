@@ -91,6 +91,12 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// What is drawn behind the field.
+    public var backdrop: String?
+    /// How brightly that is drawn.
+    public var backdropStrength: Double?
+    /// How brightly the field glows.
+    public var glow: ParticleGlow?
     /// What silhouette bodies are drawn as.
     public var particleShape: String?
     /// Whether a colour ramp replaces the hue arithmetic.
@@ -139,6 +145,9 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             fluidSettings: fluidSettings,
             bodyGravitySettings: bodyGravitySettings,
+            backdrop: backdrop.rawValue,
+            backdropStrength: backdropStrength,
+            glow: glow,
             particleShape: particleShape.rawValue,
             paletteEnabled: paletteEnabled,
             palette: palette,
@@ -238,6 +247,9 @@ extension ParticleEngine {
         }
         paletteEnabled = state.paletteEnabled ?? false
         if let saved = state.palette { palette = saved }
+        if let saved = state.backdrop, let kind = ParticleBackdrop(rawValue: saved) { backdrop = kind }
+        if let saved = state.backdropStrength { backdropStrength = saved }
+        if let saved = state.glow { glow = saved.sanitized }
         if let saved = state.fluidSettings { fluidSettings = saved }
         if let saved = state.bodyGravitySettings { bodyGravitySettings = saved }
         flockEnabled = state.flockEnabled ?? false

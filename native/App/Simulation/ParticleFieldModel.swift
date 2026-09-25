@@ -130,6 +130,36 @@ final class ParticleFieldModel {
         ) ?? SwarmCost.bodyGravityWarning(bodies: bodyCount, gravity: engine.nbodyEnabled)
     }
 
+    /// What is drawn behind the field.
+    var backdrop: ParticleBackdrop {
+        get { observeEngine(); return engine.backdrop }
+        set { engine.backdrop = newValue; engineDidChange() }
+    }
+
+    /// How brightly the backdrop is drawn.
+    var backdropStrength: Double {
+        get { observeEngine(); return engine.backdropStrength }
+        set { engine.backdropStrength = newValue; engineDidChange() }
+    }
+
+    /// How bright the glow is. Nought switches it off.
+    var glowStrength: Double {
+        get { observeEngine(); return engine.glow.sanitized.strength }
+        set { engine.glow.strength = newValue; engineDidChange() }
+    }
+
+    /// How far the glow spreads.
+    var glowSpread: Double {
+        get { observeEngine(); return engine.glow.sanitized.spread }
+        set { engine.glow.spread = newValue; engineDidChange() }
+    }
+
+    /// How bright something has to be before it glows.
+    var glowThreshold: Double {
+        get { observeEngine(); return engine.glow.sanitized.threshold }
+        set { engine.glow.threshold = newValue; engineDidChange() }
+    }
+
     /// What silhouette bodies are drawn as.
     var particleShape: ParticleShape {
         get { observeEngine(); return engine.particleShape }
@@ -486,6 +516,13 @@ final class ParticleFieldModel {
         // still be able to turn it round and see the shape of it.
         advanceCameraSpin(now: now)
 
+        // And the backdrop keeps moving while paused too. Stars that stopped twinkling the moment time
+        // stopped would make a paused field look broken rather than paused.
+        if let last = lastBackdropTime, now > last {
+            backdropSeconds += min(0.1, (now - last) / 1000)
+        }
+        lastBackdropTime = now
+
         // Before this chamber's own pause is honoured, so each chamber's pause means only itself. The
         // companion decides for itself whether it is running.
         alsoStep?()
@@ -545,6 +582,17 @@ final class ParticleFieldModel {
         var camera: ParticleCamera
         /// What silhouette bodies are drawn as.
         var shape: ParticleShape
+        /// What is drawn behind the field.
+        var background: ParticleBackdrop
+        /// How brightly that is drawn.
+        var backgroundStrength: Double
+        /// Seconds since the field started, for the twinkle and the drift.
+        ///
+        /// Seconds rather than the millisecond clock the rest of the tick uses, because a shader's
+        /// arithmetic is single precision: a millisecond count reaches seven figures within a couple of
+        /// minutes, and at that size single precision cannot tell one millisecond from the next — so the
+        /// twinkle would visibly seize up the longer the app was left running.
+        var backgroundTime: Double
         var bodyCount: Int
         var springCount: Int
         var pointSize: Double
@@ -654,6 +702,9 @@ final class ParticleFieldModel {
             viewHeight: engine.height,
             camera: camera,
             shape: engine.particleShape,
+            background: engine.backdrop,
+            backgroundStrength: engine.backdropStrength,
+            backgroundTime: backdropSeconds,
             bodyCount: bodies.count,
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
@@ -837,6 +888,15 @@ final class ParticleFieldModel {
     func clearedTrailHistory() {
         trailHistoryIsStale = false
     }
+
+    /// How long the field has been running, in seconds, for the backdrop's own movement.
+    ///
+    /// Counted here rather than read from a clock, so it starts at nought — see the note on the frame's
+    /// own copy of it for why that matters.
+    private var backdropSeconds: Double = 0
+
+    /// When the backdrop was last moved on, in milliseconds.
+    private var lastBackdropTime: Double?
 
     /// When the spin was last moved on, in milliseconds. Nothing means it has not started.
     private var lastSpinTime: Double?

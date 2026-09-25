@@ -367,7 +367,74 @@ struct FieldDock: View {
             colourModes
             colourRamps
             shapeChoices
+            backdropChoices
             viewControls
+        }
+    }
+
+    /// What the field sits on, and how brightly it glows.
+    ///
+    /// Together these change the character of the chamber more than any physics setting does. The field
+    /// has always been a scatter of points on flat near-black; stars behind it and a glow around it make
+    /// the same arrangement read as a photograph of something rather than as a chart.
+    private var backdropChoices: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("BEHIND")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ForEach(ParticleBackdrop.allCases, id: \.self) { choice in
+                    let selected = model.backdrop == choice
+                    Button {
+                        model.backdrop = choice
+                    } label: {
+                        Text(choice.displayName)
+                            .font(.labBody(12, selected ? .semiBold : .regular))
+                            .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
+                            .padding(.horizontal, 11)
+                            .frame(height: 32)
+                            .background(
+                                Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if model.backdrop != .none {
+                LabSlider(
+                    label: "How strong",
+                    value: Binding(
+                        get: { model.backdropStrength },
+                        set: { model.backdropStrength = $0 }
+                    ),
+                    range: 0 ... 2,
+                    step: 0.05
+                ) { "\($0.formatted(.number.precision(.fractionLength(2))))×" }
+            }
+
+            LabSlider(
+                label: "Glow",
+                value: Binding(get: { model.glowStrength }, set: { model.glowStrength = $0 }),
+                range: 0 ... 3,
+                step: 0.05
+            ) { $0 == 0 ? "off" : "\($0.formatted(.number.precision(.fractionLength(2))))×" }
+
+            if model.glowStrength > 0 {
+                LabSlider(
+                    label: "Glow spread",
+                    value: Binding(get: { model.glowSpread }, set: { model.glowSpread = $0 }),
+                    range: 0.4 ... 8,
+                    step: 0.1
+                ) { $0.formatted(.number.precision(.fractionLength(1))) }
+                LabSlider(
+                    label: "Glow threshold",
+                    value: Binding(get: { model.glowThreshold }, set: { model.glowThreshold = $0 }),
+                    range: 0 ... 1,
+                    step: 0.02
+                ) { $0.formatted(.number.precision(.fractionLength(2))) }
+            }
         }
     }
 

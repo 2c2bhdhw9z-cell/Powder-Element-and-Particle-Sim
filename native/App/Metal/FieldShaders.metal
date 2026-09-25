@@ -429,3 +429,220 @@ fragment half4 fadeFragment(RingOut in [[stage_in]],
     // replaced rather than kept.
     return half4(half3(fade.color.rgb), half(fade.color.a));
 }
+
+
+
+// MARK: - The background
+//
+// The field has always sat on flat near-black. These are the alternatives, and all of them are worked
+// out per pixel rather than drawn from a picture — a starfield with no texture, a nebula with no
+// bitmap — so they cost nothing to carry around and stay sharp at any size.
+//
+// Drawn *behind* the particles, which is worth saying because the reference implementation this was
+// merged from does the opposite: its backgrounds are separate web-page elements laid over the top of
+// the canvas, relying on a blending mode to look as though they are underneath. That works until
+// something needs to be genuinely in front of them.
+
+struct BackgroundUniforms {
+    // Which one. 0 none, 1 starfield, 2 gradient, 3 nebula.
+    int kind;
+    int reserved;
+    // Seconds, for the twinkle.
+    float time;
+    // How bright the whole thing is.
+    float strength;
+};
+
+// A repeatable pseudo-random number from a pair of whole numbers.
+//
+// The usual trick: multiply by a couple of awkward constants, take the sine, and keep the fractional
+// part. It is not a good random number by any measure that matters to statistics, but it is a fixed
+// function of its input — so a star is in the same place every frame without anything having to
+// remember where it was.
+static inline float hash21(float2 p) {
+    float h = dot(p, float2(127.1, 311.7));
+    return fract(sin(h) * 43758.5453123);
+}
+
+fragment half4 backgroundFragment(RingOut in [[stage_in]],
+                                  constant FieldUniforms &uniforms [[buffer(2)]],
+                                  constant BackgroundUniforms &background [[buffer(0)]]) {
+    float2 view = max(uniforms.viewSize, float2(1.0));
+    // Nought to one across the screen, and the aspect kept so a round thing stays round.
+    float2 uv = in.screen / view;
+    float aspect = view.x / max(view.y, 1.0);
+    float3 colour = float3(0.0);
+
+    if (background.kind == 1) {
+        // Starfield.
+        //
+        // The screen is cut into a grid of cells and each cell holds at most one star, placed
+        // somewhere inside it by the hash. That is what makes the stars spread evenly without ever
+        // clumping — and it means finding the star near a pixel is a handful of arithmetic rather
+        // than a search through a list.
+        //
+        // Three passes at different sizes of cell, so there are a few large bright stars among many
+        // small faint ones. A single pass gives a field of identical dots, which reads as a texture
+        // rather than as a sky.
+        const int layers = 3;
+        for (int layer = 0; layer < layers; layer++) {
+            float density = 26.0 * float(layer + 1);
+            float2 grid = float2(uv.x * aspect, uv.y) * density;
+            float2 cell = floor(grid);
+            float2 within = fract(grid);
+
+            float exists = hash21(cell + float2(float(layer) * 37.0, 0.0));
+            // Only some cells hold a star, and fewer in the coarser layers — otherwise the big bright
+            // ones outnumber the small ones and the sky looks like a spill.
+            float chance = 0.42 - 0.1 * float(layer);
+            if (exists > chance) { continue; }
+
+            float2 where = float2(
+                hash21(cell + float2(11.3, 5.7 + float(layer))),
+                hash21(cell + float2(3.1, 19.7 + float(layer)))
+            );
+            float distance = length(within - where);
+
+            // A soft point of light. The falloff is steep, so a star is a point with a faint halo
+            // rather than a disc.
+            float size = (0.045 - 0.012 * float(layer)) * (0.5 + exists);
+            float brightness = smoothstep(size, 0.0, distance);
+
+            // Twinkling, at a rate of its own per star, and never all the way out — a star that
+            // blinks to nothing reads as a fault rather than as air.
+            float rate = 0.6 + hash21(cell + float2(71.0, 13.0)) * 1.8;
+            float phase = hash21(cell + float2(29.0, 47.0)) * 6.283185;
+            float twinkle = 0.62 + 0.38 * sin(background.time * rate + phase);
+
+            // Faintly coloured: most stars white, a few warm or cold. Sampled from the hash so a
+            // given star keeps its colour.
+            float tint = hash21(cell + float2(5.0, 91.0));
+            float3 starColour = mix(
+                float3(0.86, 0.90, 1.0),
+                tint > 0.72 ? float3(1.0, 0.86, 0.72) : float3(0.78, 0.88, 1.0),
+                tint
+            );
+            colour += starColour * brightness * twinkle * (0.55 + 0.45 * exists);
+        }
+    } else if (background.kind == 2) {
+        // A gradient: cool at the top, warm at the bottom, clear through the middle so the field
+        // itself is what draws the eye.
+        float3 top = float3(0.102, 0.153, 0.267);
+        float3 bottom = float3(0.102, 0.063, 0.063);
+        float towardEdges = abs(uv.y - 0.5) * 2.0;
+        float3 mixed = uv.y < 0.5 ? top : bottom;
+        colour = mixed * smoothstep(0.1, 1.0, towardEdges);
+    } else if (background.kind == 3) {
+        // A nebula: two soft clouds of colour, drifting. The reference implementation's version of
+        // this is two fixed shapes with no movement at all despite the name; this one turns slowly,
+        // which is the difference between a backdrop and a wallpaper.
+        float drift = background.time * 0.04;
+        float2 first = float2(0.38 + sin(drift) * 0.04, 0.32 + cos(drift * 0.8) * 0.03);
+        float2 second = float2(0.72 + cos(drift * 0.7) * 0.05, 0.68 + sin(drift) * 0.04);
+
+        float2 toFirst = (uv - first) * float2(aspect, 1.0);
+        float2 toSecond = (uv - second) * float2(aspect, 1.0);
+        float cloudA = smoothstep(0.55, 0.0, length(toFirst));
+        float cloudB = smoothstep(0.5, 0.0, length(toSecond));
+        colour = float3(0.275, 0.431, 0.745) * cloudA * 0.35
+               + float3(0.549, 0.235, 0.471) * cloudB * 0.28;
+    }
+
+    colour *= max(background.strength, 0.0);
+    // Opaque, because this is the bottom layer — everything else is composited over it.
+    return half4(half3(colour), 1.0h);
+}
+
+
+// MARK: - Glow
+//
+// Bright things bleeding into the space around them. A field of particles without it looks like a
+// scatter plot; with it, it looks lit.
+//
+// Three passes, and the arrangement is the point:
+//
+//   1. **Pick out what is bright**, at a quarter of the width and height. Quarter size because a
+//      glow is a blurred thing and blurring something that has already been shrunk is sixteen times
+//      less work for a result nobody can tell apart.
+//   2. **Blur sideways**, then **blur downward**. Two passes of nine samples each rather than one
+//      pass of eighty-one, which is the standard way and gives the same answer.
+//   3. **Add it back** over the field.
+//
+// The reference implementation does it in one pass at full size with twenty samples arranged in
+// rings, no centre sample, and no shrinking — so it costs sixteen times as much per unit of blur and
+// produces visible rings rather than a smooth falloff, because twenty scattered samples cannot make a
+// smooth curve. Its blur width is also tied to its strength slider, so asking for a brighter glow
+// makes a wider one, which is why turning it up reads as a haze rather than as brightness.
+
+struct GlowUniforms {
+    // How far apart the samples are, in whole pixels of the texture being read.
+    float2 step;
+    // Anything dimmer than this does not glow at all.
+    float threshold;
+    // How bright the glow is when added back.
+    float strength;
+};
+
+// The nine weights of a Gaussian blur, normalised so they add to one.
+//
+// Written out rather than worked out, and separated into the middle plus four pairs, because that is
+// how they are used: the shape is symmetric, so each pair is one weight applied twice.
+constant float kGlowWeights[5] = { 0.2270270270, 0.1945945946, 0.1216216216, 0.0540540541, 0.0162162162 };
+
+fragment half4 glowBrightFragment(RingOut in [[stage_in]],
+                                  constant FieldUniforms &uniforms [[buffer(2)]],
+                                  constant GlowUniforms &glow [[buffer(0)]],
+                                  texture2d<float> source [[texture(0)]],
+                                  sampler smooth [[sampler(0)]]) {
+    float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
+    float4 sampled = source.sample(smooth, uv);
+
+    // How bright it is, weighted the way an eye weighs the three channels — green counts for most,
+    // blue for least.
+    float brightness = dot(sampled.rgb, float3(0.2126, 0.7152, 0.0722));
+    // A soft knee rather than a hard cut. A hard cut makes the glow appear and disappear along a
+    // visible contour as something brightens, which looks like a fault in the picture.
+    float over = smoothstep(glow.threshold, glow.threshold + 0.25, brightness);
+    return half4(half3(sampled.rgb * over), 1.0h);
+}
+
+fragment half4 glowBlurFragment(RingOut in [[stage_in]],
+                                constant FieldUniforms &uniforms [[buffer(2)]],
+                                constant GlowUniforms &glow [[buffer(0)]],
+                                texture2d<float> source [[texture(0)]],
+                                sampler smooth [[sampler(0)]]) {
+    float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
+    float3 total = source.sample(smooth, uv).rgb * kGlowWeights[0];
+    for (int tap = 1; tap < 5; tap++) {
+        float2 offset = glow.step * float(tap);
+        total += source.sample(smooth, uv + offset).rgb * kGlowWeights[tap];
+        total += source.sample(smooth, uv - offset).rgb * kGlowWeights[tap];
+    }
+    return half4(half3(total), 1.0h);
+}
+
+// Lays the field over whatever is behind it.
+//
+// The field's own texture holds each colour already multiplied by its opacity, which is what the
+// blending that filled it produces. So laying it over the background is not a mix of two colours — it
+// is "keep all of this, and however much of what is underneath is still showing through". The pipeline
+// is set up to do exactly that, which is why this function simply hands the sample back.
+fragment half4 fieldOverFragment(RingOut in [[stage_in]],
+                                 constant FieldUniforms &uniforms [[buffer(2)]],
+                                 texture2d<float> field [[texture(0)]],
+                                 sampler smooth [[sampler(0)]]) {
+    float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
+    return half4(field.sample(smooth, uv));
+}
+
+// Adds the glow on top of everything.
+fragment half4 glowAddFragment(RingOut in [[stage_in]],
+                               constant FieldUniforms &uniforms [[buffer(2)]],
+                               constant GlowUniforms &glow [[buffer(0)]],
+                               texture2d<float> glowSource [[texture(0)]],
+                               sampler smooth [[sampler(0)]]) {
+    float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
+    float3 bloom = glowSource.sample(smooth, uv).rgb * max(glow.strength, 0.0);
+    // Alpha of one with an adding pipeline, so the glow brightens what is there and never dims it.
+    return half4(half3(bloom), 1.0h);
+}

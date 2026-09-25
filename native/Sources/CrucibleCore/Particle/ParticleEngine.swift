@@ -77,6 +77,12 @@ public final class ParticleEngine {
     /// 240, position modulo 360 — which gives six looks and no room for a seventh. A palette keeps
     /// what each mode *means* and changes which colours say it.
     public var paletteEnabled: Bool = false
+    /// What is drawn behind the field. Reached through ``backdrop``.
+    var storedBackdrop: ParticleBackdrop = .none
+    /// How brightly that is drawn. Reached through ``backdropStrength``.
+    var storedBackdropStrength: Double = 1
+    /// How brightly the field glows. Reached through ``glow``.
+    var storedGlow: ParticleGlow = .default
     /// Which colours the field is drawn in when ``paletteEnabled`` is set.
     public var palette: ParticlePaletteSpec = .default
     /// What silhouette bodies are drawn as.

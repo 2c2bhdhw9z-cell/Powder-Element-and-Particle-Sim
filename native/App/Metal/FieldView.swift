@@ -48,6 +48,22 @@ final class FieldView: MTKView {
         var color: SIMD4<Float>
     }
 
+    /// Mirrors `BackgroundUniforms` in the shader.
+    private struct BackgroundUniforms {
+        var kind: Int32
+        /// Nothing, and here on purpose — see the note on `Uniforms`.
+        var reserved: Int32 = 0
+        var time: Float
+        var strength: Float
+    }
+
+    /// Mirrors `GlowUniforms` in the shader. The two-component value comes first for its alignment.
+    private struct GlowUniforms {
+        var step: SIMD2<Float>
+        var threshold: Float
+        var strength: Float
+    }
+
     private struct RingUniforms {
         var color: SIMD4<Float>
         var centre: SIMD2<Float>
@@ -65,6 +81,25 @@ final class FieldView: MTKView {
     private let trailPipeline: MTLRenderPipelineState
     private let ringPipeline: MTLRenderPipelineState
     private let fadePipeline: MTLRenderPipelineState
+    private let backgroundPipeline: MTLRenderPipelineState
+    private let glowBrightPipeline: MTLRenderPipelineState
+    private let glowBlurPipeline: MTLRenderPipelineState
+    private let fieldOverPipeline: MTLRenderPipelineState
+    private let glowAddPipeline: MTLRenderPipelineState
+    private let smoothSampler: MTLSamplerState
+
+    /// The two small pictures the glow is built in.
+    ///
+    /// Half the width and height of the screen. A glow is a blurred thing, and blurring something that
+    /// has already been shrunk costs a quarter as much for a result nobody can tell apart — the
+    /// reference implementation blurs at full size, which is where most of its cost goes.
+    ///
+    /// Two of them because a blur is done in two passes, sideways then downward, and a pass cannot read
+    /// and write the same picture.
+    private var glowA: MTLTexture?
+    private var glowB: MTLTexture?
+    private var glowWidth = 0
+    private var glowHeight = 0
 
     /// The picture that survives between frames.
     ///
@@ -108,23 +143,71 @@ final class FieldView: MTKView {
               let trailFragment = library.makeFunction(name: "trailFragment"),
               let ringVertex = library.makeFunction(name: "ringVertex"),
               let ringFragment = library.makeFunction(name: "ringFragment"),
-              let fadeFragment = library.makeFunction(name: "fadeFragment")
+              let fadeFragment = library.makeFunction(name: "fadeFragment"),
+              let backgroundFragment = library.makeFunction(name: "backgroundFragment"),
+              let glowBrightFragment = library.makeFunction(name: "glowBrightFragment"),
+              let glowBlurFragment = library.makeFunction(name: "glowBlurFragment"),
+              let fieldOverFragment = library.makeFunction(name: "fieldOverFragment"),
+              let glowAddFragment = library.makeFunction(name: "glowAddFragment"),
+              let sampler = device.makeSamplerState(descriptor: {
+                  let descriptor = MTLSamplerDescriptor()
+                  // Smoothed, which is what turns nine samples of a shrunken picture into a continuous
+                  // blur rather than a grid of squares.
+                  descriptor.minFilter = .linear
+                  descriptor.magFilter = .linear
+                  // Clamped, so sampling past the edge of the glow picture repeats the edge rather than
+                  // wrapping round and putting a bright thing on one side into the other.
+                  descriptor.sAddressMode = .clampToEdge
+                  descriptor.tAddressMode = .clampToEdge
+                  return descriptor
+              }())
         else { return nil }
 
-        func pipeline(_ vertex: MTLFunction, _ fragment: MTLFunction) -> MTLRenderPipelineState? {
+        /// How a pass combines what it draws with what is already there.
+        enum Blending {
+            /// Overlapping bodies build up rather than the last one drawn winning, and a spring can be a
+            /// hairline rather than a hard white stripe.
+            case over
+            /// The colour is already multiplied by its opacity, so there is nothing to multiply again.
+            case premultipliedOver
+            /// Only ever brightens.
+            case adding
+            /// Replaces outright.
+            case replace
+        }
+
+        func pipeline(
+            _ vertex: MTLFunction,
+            _ fragment: MTLFunction,
+            blending: Blending = .over
+        ) -> MTLRenderPipelineState? {
             let descriptor = MTLRenderPipelineDescriptor()
             descriptor.vertexFunction = vertex
             descriptor.fragmentFunction = fragment
             descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
-            // Blended, so overlapping bodies build up rather than the last one drawn winning,
-            // and so a spring can be a hairline rather than a hard white stripe.
-            descriptor.colorAttachments[0].isBlendingEnabled = true
-            descriptor.colorAttachments[0].rgbBlendOperation = .add
-            descriptor.colorAttachments[0].alphaBlendOperation = .add
-            descriptor.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
-            descriptor.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
-            descriptor.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
-            descriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            let attachment = descriptor.colorAttachments[0]!
+            attachment.isBlendingEnabled = blending != .replace
+            attachment.rgbBlendOperation = .add
+            attachment.alphaBlendOperation = .add
+            switch blending {
+            case .over:
+                attachment.sourceRGBBlendFactor = .sourceAlpha
+                attachment.sourceAlphaBlendFactor = .sourceAlpha
+                attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            case .premultipliedOver:
+                attachment.sourceRGBBlendFactor = .one
+                attachment.sourceAlphaBlendFactor = .one
+                attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            case .adding:
+                attachment.sourceRGBBlendFactor = .one
+                attachment.sourceAlphaBlendFactor = .one
+                attachment.destinationRGBBlendFactor = .one
+                attachment.destinationAlphaBlendFactor = .one
+            case .replace:
+                break
+            }
             return try? device.makeRenderPipelineState(descriptor: descriptor)
         }
 
@@ -134,7 +217,17 @@ final class FieldView: MTKView {
               let ring = pipeline(ringVertex, ringFragment),
               // The fade reuses the ring's vertex function, which already covers the screen from the
               // vertex number alone and needs no geometry of its own.
-              let fade = pipeline(ringVertex, fadeFragment)
+              let fade = pipeline(ringVertex, fadeFragment),
+              // The background replaces whatever is under it, being the bottom layer.
+              let background = pipeline(ringVertex, backgroundFragment, blending: .replace),
+              let glowBright = pipeline(ringVertex, glowBrightFragment, blending: .replace),
+              let glowBlur = pipeline(ringVertex, glowBlurFragment, blending: .replace),
+              // The field's colours are already multiplied by their opacity, so laying it over the
+              // background keeps all of the field and however much of the background still shows
+              // through.
+              let fieldOver = pipeline(ringVertex, fieldOverFragment, blending: .premultipliedOver),
+              // And the glow only ever brightens.
+              let glowAdd = pipeline(ringVertex, glowAddFragment, blending: .adding)
         else { return nil }
 
         self.model = model
@@ -144,6 +237,12 @@ final class FieldView: MTKView {
         self.trailPipeline = trails
         self.ringPipeline = ring
         self.fadePipeline = fade
+        self.backgroundPipeline = background
+        self.glowBrightPipeline = glowBright
+        self.glowBlurPipeline = glowBlur
+        self.fieldOverPipeline = fieldOver
+        self.glowAddPipeline = glowAdd
+        self.smoothSampler = sampler
         super.init(frame: .zero, device: device)
 
         colorPixelFormat = .bgra8Unorm
@@ -199,9 +298,10 @@ final class FieldView: MTKView {
             pass.colorAttachments[0].loadAction = .load
         } else {
             // Wiped outright, which is both what the reference does with trails off and cheaper
-            // than drawing a fully opaque rectangle over it.
+            // than drawing a fully opaque rectangle over it. Wiped to *nothing*, not to black — see
+            // `clearAccumulation`.
             pass.colorAttachments[0].loadAction = .clear
-            pass.colorAttachments[0].clearColor = clearColor
+            pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         }
 
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else {
@@ -216,25 +316,178 @@ final class FieldView: MTKView {
         encode(frame, into: encoder)
         encoder.endEncoding()
 
-        // Copied across rather than drawn twice. A blit is the cheapest way to move a whole texture
-        // and needs no pipeline of its own.
-        if let blit = buffer.makeBlitCommandEncoder() {
-            blit.copy(
-                from: target,
-                sourceSlice: 0,
-                sourceLevel: 0,
-                sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
-                sourceSize: MTLSize(width: width, height: height, depth: 1),
-                to: drawable.texture,
-                destinationSlice: 0,
-                destinationLevel: 0,
-                destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
-            )
-            blit.endEncoding()
-        }
+        // The glow, built from the field before anything is laid over it.
+        let glow = model.glowStrength > 0
+            ? encodeGlow(frame, from: target, in: buffer, device: device)
+            : nil
+
+        // And the finished picture: the background at the bottom, the field over it, the glow on top.
+        //
+        // Three full-screen draws rather than the single copy this used to be. The copy was enough when
+        // the field was the whole picture; it cannot layer anything, and a background copied over would
+        // hide the field rather than sit behind it.
+        encodeFinalPicture(frame, field: target, glow: glow, to: drawable, in: buffer)
 
         buffer.present(drawable)
         buffer.commit()
+    }
+
+    /// Builds the glow: pick out what is bright, blur it sideways, blur it downward.
+    ///
+    /// Returns the picture holding the result, or nothing if it could not be made — in which case the
+    /// field is simply drawn without a glow, which is a reasonable thing for it to look like.
+    private func encodeGlow(
+        _ frame: ParticleFieldModel.Frame,
+        from field: MTLTexture,
+        in buffer: MTLCommandBuffer,
+        device: MTLDevice
+    ) -> MTLTexture? {
+        // Half the width and height. A glow is blurred, so blurring it small costs a quarter as much for
+        // a result nobody can tell apart.
+        let width = max(1, field.width / 2)
+        let height = max(1, field.height / 2)
+        guard let first = glowTexture(&glowA, width: width, height: height, device: device),
+              let second = glowTexture(&glowB, width: width, height: height, device: device)
+        else { return nil }
+        glowWidth = width
+        glowHeight = height
+
+        var uniforms = Self.uniforms(for: frame)
+        // The passes read from a picture at half size, so what they think the view measures has to be
+        // that picture rather than the screen — otherwise every sample lands in the wrong quarter of it.
+        uniforms.viewSize = SIMD2<Float>(Float(width), Float(height))
+
+        func pass(
+            _ pipeline: MTLRenderPipelineState,
+            from source: MTLTexture,
+            to destination: MTLTexture,
+            glow: GlowUniforms
+        ) {
+            let descriptor = MTLRenderPassDescriptor()
+            descriptor.colorAttachments[0].texture = destination
+            descriptor.colorAttachments[0].loadAction = .dontCare
+            descriptor.colorAttachments[0].storeAction = .store
+            guard let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
+            var local = uniforms
+            var settings = glow
+            encoder.setRenderPipelineState(pipeline)
+            encoder.setVertexBytes(&local, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&local, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&settings, length: MemoryLayout<GlowUniforms>.stride, index: 0)
+            encoder.setFragmentTexture(source, index: 0)
+            encoder.setFragmentSamplerState(smoothSampler, index: 0)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            encoder.endEncoding()
+        }
+
+        // How far apart the samples sit. Measured in fractions of the picture, and scaled by the spread
+        // setting rather than by the brightness — the reference implementation ties the two together, so
+        // asking for a brighter glow there gives a wider one and turning it up reads as haze.
+        let spread = Float(model.glowSpread)
+        let acrossStep = SIMD2<Float>(spread / Float(width), 0)
+        let downStep = SIMD2<Float>(0, spread / Float(height))
+        let threshold = Float(model.glowThreshold)
+
+        pass(
+            glowBrightPipeline,
+            from: field,
+            to: first,
+            glow: GlowUniforms(step: .zero, threshold: threshold, strength: 0)
+        )
+        pass(
+            glowBlurPipeline,
+            from: first,
+            to: second,
+            glow: GlowUniforms(step: acrossStep, threshold: threshold, strength: 0)
+        )
+        pass(
+            glowBlurPipeline,
+            from: second,
+            to: first,
+            glow: GlowUniforms(step: downStep, threshold: threshold, strength: 0)
+        )
+        return first
+    }
+
+    /// Draws the background, the field and the glow into the screen's own picture.
+    private func encodeFinalPicture(
+        _ frame: ParticleFieldModel.Frame,
+        field: MTLTexture,
+        glow: MTLTexture?,
+        to drawable: CAMetalDrawable,
+        in buffer: MTLCommandBuffer
+    ) {
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = drawable.texture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].clearColor = clearColor
+        descriptor.colorAttachments[0].storeAction = .store
+        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor) else { return }
+
+        var uniforms = Self.uniforms(for: frame)
+
+        // The background, when there is one. Straight onto the room's own black, which is what stays if
+        // there is not.
+        if frame.background != .none {
+            var settings = BackgroundUniforms(
+                kind: frame.background.shaderIdentifier,
+                time: Float(frame.backgroundTime),
+                strength: Float(frame.backgroundStrength)
+            )
+            encoder.setRenderPipelineState(backgroundPipeline)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(
+                &settings,
+                length: MemoryLayout<BackgroundUniforms>.stride,
+                index: 0
+            )
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+
+        // The field over it.
+        encoder.setRenderPipelineState(fieldOverPipeline)
+        encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+        encoder.setFragmentTexture(field, index: 0)
+        encoder.setFragmentSamplerState(smoothSampler, index: 0)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+
+        // And the glow on top.
+        if let glow {
+            var settings = GlowUniforms(
+                step: .zero,
+                threshold: 0,
+                strength: Float(model.glowStrength)
+            )
+            encoder.setRenderPipelineState(glowAddPipeline)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&settings, length: MemoryLayout<GlowUniforms>.stride, index: 0)
+            encoder.setFragmentTexture(glow, index: 0)
+            encoder.setFragmentSamplerState(smoothSampler, index: 0)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+
+        encoder.endEncoding()
+    }
+
+    /// One of the two small pictures the glow is built in, made or reused.
+    private func glowTexture(
+        _ held: inout MTLTexture?,
+        width: Int,
+        height: Int,
+        device: MTLDevice
+    ) -> MTLTexture? {
+        if let existing = held, existing.width == width, existing.height == height { return existing }
+        let descriptor = MTLTextureDescriptor()
+        descriptor.pixelFormat = colorPixelFormat
+        descriptor.width = width
+        descriptor.height = height
+        descriptor.usage = [.renderTarget, .shaderRead]
+        descriptor.storageMode = .private
+        held = device.makeTexture(descriptor: descriptor)
+        return held
     }
 
     /// The persistent picture, rebuilt when the screen changes size.
@@ -261,19 +514,23 @@ final class FieldView: MTKView {
         accumulation = texture
         accumulationWidth = width
         accumulationHeight = height
-        // Started from the room's own black rather than from whatever the memory held, which would
-        // otherwise show for one frame as noise.
+        // Started empty rather than from whatever the memory held, which would otherwise show for one
+        // frame as noise.
         clearAccumulation(texture)
         return texture
     }
 
-    /// Fills a freshly made picture with the background colour.
+    /// Empties a freshly made picture.
+    ///
+    /// Emptied rather than filled with the room's black, because this picture is now a *layer* — the
+    /// field, on its own, with nothing behind it. Filling it with black would hide whatever background
+    /// is meant to show through, and the field would sit in a box rather than in a scene.
     private func clearAccumulation(_ texture: MTLTexture) {
         guard let buffer = commandQueue.makeCommandBuffer() else { return }
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = texture
         pass.colorAttachments[0].loadAction = .clear
-        pass.colorAttachments[0].clearColor = clearColor
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         pass.colorAttachments[0].storeAction = .store
         buffer.makeRenderCommandEncoder(descriptor: pass)?.endEncoding()
         buffer.commit()
@@ -285,15 +542,17 @@ final class FieldView: MTKView {
         into encoder: MTLRenderCommandEncoder
     ) {
         var uniforms = Self.uniforms(for: frame)
-        // The room's own near-black, at the fraction of itself the reference uses. The engine owns
-        // that figure, alongside everything else about how trails look.
+        // Nothing at all, at the fraction the reference uses. The engine owns that figure, alongside
+        // everything else about how trails look.
+        //
+        // Transparent black rather than the room's near-black, now that this picture is a layer with a
+        // background behind it. Painting near-black over it at a quarter would fade a trail *toward the
+        // room's colour* — which, laid over a starfield, means every trail leaves a dark smear that
+        // slowly blots out the stars behind it. Painting nothing at a quarter instead scales what is
+        // there down to three quarters and leaves the background showing through, which is what a
+        // fading trail should do.
         var fade = FadeUniforms(
-            color: SIMD4<Float>(
-                Float(10.0 / 255.0),
-                Float(10.0 / 255.0),
-                Float(12.0 / 255.0),
-                Float(ParticleOverlayStyle.frameFadeOpacity)
-            )
+            color: SIMD4<Float>(0, 0, 0, Float(ParticleOverlayStyle.frameFadeOpacity))
         )
         encoder.setRenderPipelineState(fadePipeline)
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
