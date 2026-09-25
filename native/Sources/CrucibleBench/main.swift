@@ -409,3 +409,55 @@ print("  at most eight candidates examined per cell. That is about seven nanosec
 print("  which for reads scattered over a megabyte and a half is roughly what the memory can do.")
 print("  Laying the bodies out in visiting order would help perhaps threefold — and would change the")
 print("  order pairs are resolved in, which changes the simulation. It would still not be smooth.")
+
+
+// MARK: - Repainting the swarm from a colour ramp
+//
+// A ramp driven by speed has to repaint every body every frame, because speed changes every frame. A
+// ramp driven by a fixed position per body, or by where a body sits in a still world, does not. The
+// engine tells those two cases apart and only repaints when it must — this is the measurement of what
+// that distinction saves, and of whether the pass that does run is affordable at all.
+//
+// Measured on its own rather than as part of a moment, because a moment is dominated by the physics and
+// a two-millisecond pass would disappear into the noise.
+
+print("")
+print("Repainting the swarm from a colour ramp:")
+print("")
+print("  bodies      one repaint")
+
+for count in [25_000, 100_000, 500_000, 1_000_000] {
+    let field = ParticleEngine(width: 400, height: 700)
+    _ = field.setMaxParticles(1_000_000)
+    field.paletteEnabled = true
+    field.colorMode = .velocity
+    var swarmRng = Mulberry32(seed: 1)
+    field.swarm.spawn(
+        count: count,
+        width: 400,
+        height: 700,
+        color: 0xFFFF_FFFF,
+        budget: 1_000_000,
+        rng: &swarmRng
+    )
+
+    // The table is baked once by the caller in the real path too, so baking is not part of the figure.
+    let table = field.palette.bakeLookup()
+    let rounds = 60
+    let started = now()
+    for _ in 0 ..< rounds { field.recolorSwarm(using: table) }
+    let each = (now() - started) / Double(rounds) * 1000
+
+    print(
+        String(
+            format: "  %-10@  %8.2f ms",
+            count.formattedWithSeparators as NSString,
+            each
+        )
+    )
+}
+
+print("")
+print("  Compare against the right-hand column of the field table above. A repaint is roughly the cost")
+print("  of a moment's physics, so a ramp driven by speed is not free — it is the reason the engine")
+print("  checks whether the ramp actually moves before running it.")

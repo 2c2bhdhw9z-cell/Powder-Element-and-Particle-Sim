@@ -71,6 +71,14 @@ public final class ParticleEngine {
     // MARK: - Presentation and limits
 
     public var colorMode: ParticleColorMode = .native
+    /// Whether ``palette`` replaces the hue arithmetic that ``colorMode`` would otherwise use.
+    ///
+    /// Off by default. The six modes were built as hue sums — speed times twenty subtracted from
+    /// 240, position modulo 360 — which gives six looks and no room for a seventh. A palette keeps
+    /// what each mode *means* and changes which colours say it.
+    public var paletteEnabled: Bool = false
+    /// Which colours the field is drawn in when ``paletteEnabled`` is set.
+    public var palette: ParticlePaletteSpec = .default
     /// Drawn radius for bodies that do not specify one.
     public var particleSize: Double = 2
     /// Upper bound on the whole field, objects and swarm together.
@@ -435,6 +443,13 @@ public final class ParticleEngine {
         }
 
         stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive)
+
+        // Swarm colours are stored per body, so a palette driven by something that moves has to be
+        // reapplied. Only when it actually moves: a fixed position per body, or a position in the
+        // world, does not change as the bodies do, and at a million bodies the difference between
+        // "every frame" and "when something changes" is the entire cost of the feature.
+        if swarmColorsAreDynamic { recolorSwarm() }
+
         onAfterStep?()
     }
 }

@@ -88,3 +88,75 @@ struct SwarmCostTests {
         #expect((-1234).formattedWithSeparators == "-1,234")
     }
 }
+
+
+/// What repainting the crowd from a colour ramp costs, and when to say so.
+struct SwarmRepaintCostTests {
+    @Test("Nothing is said about a ramp that does not move")
+    func stillRampsSaySilent() {
+        // A fixed colour per body, or a colour from where a body sits in a still world, is painted
+        // once. Warning about that would be warning about nothing.
+        #expect(SwarmCost.repaintWarning(bodies: 1_000_000, ramp: true, rampMoves: false) == nil)
+        #expect(SwarmCost.repaintWarning(bodies: 1_000_000, ramp: false, rampMoves: true) == nil)
+        #expect(SwarmCost.repaintWarning(bodies: 1_000_000, ramp: false, rampMoves: false) == nil)
+    }
+
+    @Test("Nothing is said about a small crowd")
+    func smallCrowdsSaySilent() {
+        #expect(SwarmCost.repaintWarning(bodies: 25_000, ramp: true, rampMoves: true) == nil)
+        #expect(
+            SwarmCost.repaintWarning(bodies: SwarmCost.repaintBudget, ramp: true, rampMoves: true) == nil
+        )
+    }
+
+    @Test("A moving ramp over a large crowd says what it costs, with the number")
+    func largeCrowdsSayTheCost() {
+        let warning = SwarmCost.repaintWarning(bodies: 1_000_000, ramp: true, rampMoves: true)
+        let text = try? #require(warning)
+        #expect(text?.contains("1,000,000") == true, "the crowd size belongs in the warning")
+        #expect(text?.contains("6.4ms") == true, "so does the measured cost")
+        #expect(text?.contains("Place") == true, "and what to switch to instead")
+    }
+
+    @Test("The estimate matches what was actually measured")
+    func estimateIsAccurate() {
+        // Measured on the test machine: 0.17ms at 25k, 0.66 at 100k, 3.24 at 500k, 6.42 at 1M. The
+        // pass is one sweep of three arrays with a table lookup, so it is linear and a straight line
+        // is the right model — this checks the line still passes through the measurements.
+        let measured: [(bodies: Int, ms: Double)] = [
+            (25_000, 0.17), (100_000, 0.66), (500_000, 3.24), (1_000_000, 6.42),
+        ]
+        for point in measured {
+            let estimate = SwarmCost.repaintMilliseconds(bodies: point.bodies)
+            let gap = abs(estimate - point.ms)
+            #expect(gap < 0.25, "\(point.bodies): estimate \(estimate) against measured \(point.ms)")
+        }
+        #expect(SwarmCost.repaintMilliseconds(bodies: 0) == 0)
+        #expect(SwarmCost.repaintMilliseconds(bodies: -5) == 0)
+    }
+
+    @Test("A repaint is cheap against pushing bodies apart, and that is the point")
+    func repaintIsCheaperThanCollisions() {
+        // Both are per-body passes over the same crowd, and one is two hundred times the other. Worth
+        // asserting so the two warnings are never confused for being about the same scale of problem.
+        for bodies in [50_000, 200_000, 500_000] {
+            let repaint = SwarmCost.repaintMilliseconds(bodies: bodies)
+            let collide = SwarmCost.estimatedMilliseconds(bodies: bodies, collisions: true)
+            #expect(repaint < collide / 20, "\(bodies): repaint \(repaint), collide \(collide)")
+        }
+    }
+
+    @Test("A number written to one decimal place reads as one")
+    func tenthsFormatting() {
+        // Plain interpolation of 6.42 rounded gives 6.4000000000000004, which is not a number anybody
+        // wants to read in a warning.
+        #expect(String(tenths: 6.42) == "6.4")
+        #expect(String(tenths: 6.45) == "6.5")
+        #expect(String(tenths: 0) == "0.0")
+        #expect(String(tenths: 0.04) == "0.0")
+        #expect(String(tenths: 12) == "12.0")
+        #expect(String(tenths: -3.27) == "-3.3")
+        #expect(String(tenths: .nan) == "0.0")
+        #expect(String(tenths: .infinity) == "0.0")
+    }
+}

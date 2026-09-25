@@ -69,7 +69,60 @@ final class ParticleFieldModel {
     /// What decides each body's colour.
     var colorMode: ParticleColorMode {
         get { observeEngine(); return engine.colorMode }
-        set { engine.colorMode = newValue; engineDidChange() }
+        set {
+            engine.colorMode = newValue
+            repaintSwarmIfNeeded()
+            engineDidChange()
+        }
+    }
+
+    /// Whether a colour ramp replaces the hue arithmetic.
+    var paletteEnabled: Bool {
+        get { observeEngine(); return engine.paletteEnabled }
+        set {
+            engine.paletteEnabled = newValue
+            repaintSwarmIfNeeded()
+            engineDidChange()
+        }
+    }
+
+    /// Which ramp the field is drawn in.
+    var palette: ParticlePalette {
+        get { observeEngine(); return engine.palette.palette }
+        set {
+            engine.palette.palette = newValue
+            repaintSwarmIfNeeded()
+            engineDidChange()
+        }
+    }
+
+    /// The whole colour description, for the parts of the interface that edit more than the ramp.
+    var paletteSpec: ParticlePaletteSpec {
+        get { observeEngine(); return engine.palette }
+        set {
+            engine.palette = newValue
+            repaintSwarmIfNeeded()
+            engineDidChange()
+        }
+    }
+
+    /// Whether the chosen ramp has to be reapplied every frame.
+    ///
+    /// Read by the warning in the dock, so it can say what a moving ramp costs at a large crowd.
+    var paletteRampMoves: Bool {
+        observeEngine()
+        return engine.swarmColorsAreDynamic
+    }
+
+    /// Repaints the swarm after a colour change that the tick will not pick up on its own.
+    ///
+    /// Swarm colours are stored per body. When the ramp is driven by something that moves, the tick
+    /// repaints them every frame anyway; when it is driven by a fixed position per body or by where
+    /// a body sits, nothing would repaint them and the swarm would keep the colours it was spawned
+    /// with — so changing the ramp would appear to do nothing at all while the field was paused.
+    private func repaintSwarmIfNeeded() {
+        guard engine.paletteEnabled, !engine.swarmColorsAreDynamic else { return }
+        engine.recolorSwarm()
     }
 
     /// What a touch does.

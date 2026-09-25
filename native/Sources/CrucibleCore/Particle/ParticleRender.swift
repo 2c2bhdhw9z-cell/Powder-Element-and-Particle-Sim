@@ -72,6 +72,14 @@ extension ParticleEngine {
 
     /// What colour a body should be drawn in, under the current mode.
     public func renderColor(of body: ParticleObject, density: ParticleDensityGrid?) -> PackedColor {
+        // A palette, when one is switched on, replaces the hue arithmetic below but keeps the
+        // meaning: the mode still decides *what* the colour says, the palette decides which
+        // colours say it. Off by default, so the comparison against the reference implementation
+        // still measures the original six looks.
+        if paletteEnabled {
+            return palette.sample(paletteMetric(of: body, density: density))
+        }
+
         switch colorMode {
         case .native:
             return body.color

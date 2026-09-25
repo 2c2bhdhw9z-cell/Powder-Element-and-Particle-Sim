@@ -227,4 +227,63 @@ struct ParticlePersistenceTests {
             #expect(spring.b < state.particles.count)
         }
     }
+
+    @Test("A colour ramp comes back exactly, including a hand-made gradient")
+    func paletteSurvivesASave() throws {
+        let source = ParticleEngine(width: 400, height: 300, seed: 3)
+        source.colorMode = .velocity
+        source.paletteEnabled = true
+        source.palette = ParticlePaletteSpec(
+            palette: .aurora,
+            stops: [
+                ParticleGradientStop(position: 0, color: PackedColor(r: 12, g: 200, b: 90)),
+                ParticleGradientStop(position: 0.45, color: PackedColor(r: 250, g: 240, b: 30)),
+                ParticleGradientStop(position: 1, color: PackedColor(r: 90, g: 20, b: 200)),
+            ],
+            tint: PackedColor(r: 240, g: 220, b: 255)
+        )
+        source.addParticle(x: 10, y: 20, velocityX: 1, velocityY: 2, radius: 2, charge: 0)
+
+        let bytes = try JSONEncoder().encode(source.captureState())
+        let state = try JSONDecoder().decode(ParticleState.self, from: bytes)
+        let loaded = ParticleEngine(width: 100, height: 100, seed: 9)
+        #expect(loaded.apply(state))
+
+        #expect(loaded.colorMode == .velocity)
+        #expect(loaded.paletteEnabled)
+        #expect(loaded.palette == source.palette, "the gradient must come back, not a nearest ramp")
+        #expect(loaded.palette.stops.count == 3)
+    }
+
+    @Test("A file written before ramps existed loads with ramps off")
+    func olderFilesStillLoad() throws {
+        // The three new fields are optional for this reason. A saved scene from an earlier build has
+        // no opinion about ramps, and the right reading of no opinion is the original look.
+        let source = ParticleEngine(width: 400, height: 300, seed: 3)
+        source.addParticle(x: 10, y: 20, velocityX: 0, velocityY: 0, radius: 2, charge: 0)
+        var state = source.captureState()
+        state.colorMode = nil
+        state.paletteEnabled = nil
+        state.palette = nil
+
+        let loaded = ParticleEngine(width: 100, height: 100, seed: 9)
+        loaded.colorMode = .lifespan
+        loaded.paletteEnabled = true
+        #expect(loaded.apply(state))
+        #expect(!loaded.paletteEnabled, "no opinion in the file means the original look")
+        #expect(loaded.colorMode == .lifespan, "an absent mode leaves the current one alone")
+    }
+
+    @Test("A colour mode this build does not know about is ignored, not guessed at")
+    func unknownColourModeIsIgnored() {
+        let source = ParticleEngine(width: 400, height: 300, seed: 3)
+        source.addParticle(x: 10, y: 20, velocityX: 0, velocityY: 0, radius: 2, charge: 0)
+        var state = source.captureState()
+        state.colorMode = "something-from-a-later-build"
+
+        let loaded = ParticleEngine(width: 100, height: 100, seed: 9)
+        loaded.colorMode = .rainbow
+        #expect(loaded.apply(state))
+        #expect(loaded.colorMode == .rainbow, "a setting that cannot be expressed is lost, not applied")
+    }
 }

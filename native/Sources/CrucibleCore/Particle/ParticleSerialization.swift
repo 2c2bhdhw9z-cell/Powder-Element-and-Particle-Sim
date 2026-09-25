@@ -85,6 +85,13 @@ public struct ParticleState: Codable, Sendable {
     public var flockEnabled: Bool?
     public var nbodyEnabled: Bool?
     public var fluidEnabled: Bool?
+    /// How the bodies are coloured. Optional, so files written before palettes existed still load.
+    public var colorMode: String?
+    /// Whether a colour ramp replaces the hue arithmetic.
+    public var paletteEnabled: Bool?
+    /// Which ramp, gradient or fade. Carried in full, including a hand-made gradient's stops —
+    /// somebody who built one by hand should get it back, not a nearest named ramp.
+    public var palette: ParticlePaletteSpec?
     public var swarm: SwarmRecord?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
@@ -117,6 +124,9 @@ extension ParticleEngine {
             flockEnabled: flockEnabled,
             nbodyEnabled: nbodyEnabled,
             fluidEnabled: fluidEnabled,
+            colorMode: colorMode.rawValue,
+            paletteEnabled: paletteEnabled,
+            palette: palette,
             swarm: swarm.count > 0 ? swarmRecord(limit: Self.saveSwarmLimit) : nil,
             // Only springs whose two ends both survived the cap, since a position past the
             // end of what was written is exactly the stale index that makes a reloaded
@@ -195,6 +205,14 @@ extension ParticleEngine {
         maxSpeed = usable(state.maxSpeed, maxSpeed)
         boundaryMode = ParticleBoundaryMode(rawValue: state.boundaryMode) ?? .bounce
         collisionsEnabled = state.collisionsEnabled
+        // A colour mode this build does not recognise leaves the current one alone rather than
+        // resetting to the body's own colour — a file from a later build should lose the setting it
+        // cannot express, not quietly repaint the scene.
+        if let saved = state.colorMode, let mode = ParticleColorMode(rawValue: saved) {
+            colorMode = mode
+        }
+        paletteEnabled = state.paletteEnabled ?? false
+        if let saved = state.palette { palette = saved }
         flockEnabled = state.flockEnabled ?? false
         nbodyEnabled = state.nbodyEnabled ?? false
         fluidEnabled = state.fluidEnabled ?? false

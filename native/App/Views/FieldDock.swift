@@ -362,6 +362,7 @@ struct FieldDock: View {
             .tint(Palette.primary)
 
             colourModes
+            colourRamps
         }
     }
 
@@ -384,7 +385,13 @@ struct FieldDock: View {
     /// quietly grinding to five frames a second and leaving somebody to conclude the app is broken.
     @ViewBuilder
     private var costWarning: some View {
-        if let warning = SwarmCost.warning(bodies: model.bodyCount, collisions: model.collisionsEnabled) {
+        if let warning = SwarmCost.warning(bodies: model.bodyCount, collisions: model.collisionsEnabled)
+            ?? SwarmCost.repaintWarning(
+                bodies: model.bodyCount,
+                ramp: model.paletteEnabled,
+                rampMoves: model.paletteRampMoves
+            )
+        {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -461,6 +468,84 @@ struct FieldDock: View {
         (.density, "Crowd"),
         (.lifespan, "Life"),
     ]
+
+    /// Which colours the row above is drawn in.
+    ///
+    /// Two rows rather than one long list of combinations, because they answer different questions.
+    /// The row above says what the colour *means* — speed, place, age. This row says which colours
+    /// say it. Six meanings and seven ramps as one list would be forty-two chips.
+    ///
+    /// Each ramp is shown as the ramp itself. A row of words reading "Ember, Ice, Aurora" tells
+    /// nobody what they are choosing between, and these are pictures, not settings.
+    private var colourRamps: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Toggle(isOn: Binding(
+                get: { model.paletteEnabled },
+                set: { model.paletteEnabled = $0 }
+            )) {
+                Text("Use a colour ramp")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
+            }
+            .tint(Palette.primary)
+
+            if model.paletteEnabled {
+                LabFlow(spacing: 6) {
+                    ForEach(ParticlePalette.allCases, id: \.self) { ramp in
+                        let selected = model.palette == ramp
+                        Button {
+                            model.palette = ramp
+                        } label: {
+                            VStack(spacing: 4) {
+                                Capsule()
+                                    .fill(Self.rampGradient(ramp))
+                                    .frame(width: 58, height: 12)
+                                Text(ramp.displayName)
+                                    .font(.labBody(10, selected ? .semiBold : .regular))
+                                    .foregroundStyle(
+                                        selected ? Palette.foreground : Palette.subtleForeground
+                                    )
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                                    .fill(selected ? Color.white.opacity(0.14) : Color.white.opacity(0.05))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                                    .stroke(
+                                        selected ? Palette.primary : Color.clear,
+                                        lineWidth: 1.5
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(ramp.displayName) colour ramp")
+                        .accessibilityAddTraits(selected ? [.isSelected] : [])
+                    }
+                }
+            }
+        }
+    }
+
+    /// A ramp drawn as a gradient, sampled from the same colours the field will use.
+    ///
+    /// Sampled rather than handed the stop list directly, so the swatch goes through exactly the
+    /// arithmetic the particles do. A swatch that flatters a ramp the field then draws differently
+    /// is worse than no swatch.
+    private static func rampGradient(_ ramp: ParticlePalette) -> LinearGradient {
+        let steps = 12
+        let colors = (0 ..< steps).map { step -> Color in
+            let sampled = ramp.sample(Double(step) / Double(steps - 1))
+            return Color(
+                red: Double(sampled.r) / 255,
+                green: Double(sampled.g) / 255,
+                blue: Double(sampled.b) / 255
+            )
+        }
+        return LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing)
+    }
 
     private var toolStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {

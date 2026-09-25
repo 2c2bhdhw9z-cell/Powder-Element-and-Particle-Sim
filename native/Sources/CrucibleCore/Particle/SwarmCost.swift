@@ -76,6 +76,59 @@ public enum SwarmCost {
             + "about \(Int(cost.rounded()))ms — roughly \(frames) frames a second. Switching Collide off "
             + "brings that under a millisecond and changes nothing else."
     }
+
+    // MARK: - Repainting from a colour ramp
+
+    /// Where repainting the whole crowd every frame stops being free.
+    ///
+    /// Two hundred thousand, which measures at about 1.3 milliseconds — noticeable against a frame
+    /// budget of 8.3 but not fatal. Below it the pass disappears into the noise; above it the figures
+    /// climb steadily to 6.4 milliseconds at a million, which is most of a frame spent on colour.
+    public static let repaintBudget = 200_000
+
+    /// Roughly what one repaint costs, in milliseconds.
+    ///
+    /// Measured: 0.17ms at twenty-five thousand, 0.66 at a hundred thousand, 3.24 at five hundred
+    /// thousand, 6.42 at a million. That is about 6.4 microseconds per thousand bodies and it stays
+    /// linear, because the pass is one sweep of three arrays with a table lookup — nothing about it
+    /// depends on how the bodies are arranged.
+    public static func repaintMilliseconds(bodies: Int) -> Double {
+        guard bodies > 0 else { return 0 }
+        return Double(bodies) / 1000 * 0.0064
+    }
+
+    /// What to say about a colour ramp that has to be reapplied every frame, or `nil`.
+    ///
+    /// Only for the ramps that actually move. Speed and crowding change from frame to frame, so every
+    /// body has to be looked at again; a fixed colour per body, or a colour from where a body sits in a
+    /// still world, is painted once and left alone. The engine already makes that distinction — this is
+    /// how it gets said out loud, because a whole frame of colour work at a million bodies is exactly
+    /// the sort of cost that otherwise gets discovered as "it went slow when I changed the colours".
+    public static func repaintWarning(bodies: Int, ramp: Bool, rampMoves: Bool) -> String? {
+        guard ramp, rampMoves, bodies > repaintBudget else { return nil }
+        let cost = repaintMilliseconds(bodies: bodies)
+        return "A ramp driven by speed or crowding has to repaint all "
+            + "\(bodies.formattedWithSeparators) bodies every frame, which costs about "
+            + "\(String(tenths: cost))ms on its own. Colouring by Own, Place, Charge or Life is painted "
+            + "once and costs nothing after that."
+    }
+}
+
+extension String {
+    /// A number written to one decimal place.
+    ///
+    /// By hand, because the engine has no Foundation and so no formatter. Rounded first so that 6.44
+    /// reads as 6.4 rather than as 6.4000000000000004, which is what plain interpolation gives.
+    init(tenths value: Double) {
+        guard value.isFinite else {
+            self = "0.0"
+            return
+        }
+        let scaled = Int((value * 10).rounded())
+        let whole = abs(scaled) / 10
+        let fraction = abs(scaled) % 10
+        self = (scaled < 0 ? "-" : "") + "\(whole).\(fraction)"
+    }
 }
 
 extension Int {
