@@ -96,7 +96,6 @@ struct PerformanceSheet: View {
     let field: ParticleFieldModel
     let chamber: Chamber
     let unit: TemperatureUnit
-    let glass: GlassLevel
 
     /// A frame at the display's full rate, and at half it.
     private static let fastFrame = 1000.0 / 120
@@ -105,8 +104,7 @@ struct PerformanceSheet: View {
     var body: some View {
         LabSheet(
             title: "Performance",
-            subtitle: "The last two minutes",
-            glass: glass
+            subtitle: "The last two minutes"
         ) {
             hero
             switch chamber {

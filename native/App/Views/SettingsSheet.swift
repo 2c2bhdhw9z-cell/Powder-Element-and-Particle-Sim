@@ -7,10 +7,9 @@ import SwiftUI
 ///
 /// Built from the lab's own pieces rather than the system's grouped list. That list is quick to write
 /// and looks like the Settings app — inset grey rows on a lighter grey — which is a different product
-/// from a near-black room full of translucent glass.
+/// from a near-black room.
 struct SettingsSheet: View {
     let model: SimulationModel
-    @Binding var glass: GlassLevel
     @Binding var showDebugOverlay: Bool
     @Binding var soundEnabled: Bool
     @Binding var bothChambersRun: Bool
@@ -32,11 +31,10 @@ struct SettingsSheet: View {
     @AppStorage(DebugSettings.graphicsOverlayKey) private var graphicsOverlay = false
 
     var body: some View {
-        LabSheet(title: "Lab", subtitle: "How it looks and how it behaves", glass: glass) {
+        LabSheet(title: "Lab", subtitle: "How it looks and how it behaves") {
             help
             room
             detail
-            appearance
             view
             world
             events
@@ -129,21 +127,6 @@ struct SettingsSheet: View {
         if model.ticksPerSecond >= 100 { return Palette.ok }
         if model.ticksPerSecond >= 50 { return Palette.warn }
         return Palette.danger
-    }
-
-    // MARK: Appearance
-
-    private var appearance: some View {
-        LabGroup("Appearance", footnote: glass.explanation) {
-            // Named for the thing it controls, in the words somebody would use for it. "Glass" was the
-            // label and Flat / Subtle / Glass were the choices, so the row read "Glass: Glass" and offered
-            // no way to say no.
-            LabChoice(
-                label: "Apple glass",
-                selection: $glass,
-                options: GlassLevel.allCases.map { (value: $0, title: $0.title) }
-            )
-        }
     }
 
     private var view: some View {

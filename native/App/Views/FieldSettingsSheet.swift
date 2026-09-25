@@ -10,10 +10,9 @@ import SwiftUI
 /// spelled out, rather than hidden behind separate panels.
 struct FieldSettingsSheet: View {
     let model: ParticleFieldModel
-    let glass: GlassLevel
 
     var body: some View {
-        LabSheet(title: "Field", subtitle: "Forces, edges and touch", glass: glass) {
+        LabSheet(title: "Field", subtitle: "Forces, edges and touch") {
             gravity
             forces
             liquid

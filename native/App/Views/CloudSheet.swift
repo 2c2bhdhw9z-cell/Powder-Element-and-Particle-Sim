@@ -18,7 +18,6 @@ struct CloudSheet: View {
     let powder: SimulationModel
     let field: ParticleFieldModel
     let chamber: Chamber
-    let glass: GlassLevel
     let onOpenWorkshop: () -> Void
 
     @State private var addressDraft = ""
@@ -31,7 +30,7 @@ struct CloudSheet: View {
     @FocusState private var addressFocused: Bool
 
     var body: some View {
-        LabSheet(title: "Your worlds", subtitle: subtitle, glass: glass) {
+        LabSheet(title: "Your worlds", subtitle: subtitle) {
             if let problem = account.problem {
                 CloudNotice(message: problem, tone: .warn) { account.dismissProblem() }
             }

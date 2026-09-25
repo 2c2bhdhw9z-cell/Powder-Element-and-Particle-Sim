@@ -44,7 +44,6 @@ enum TemperatureUnit: String, CaseIterable, Identifiable, Codable {
 struct InspectChip: View {
     let model: SimulationModel
     let unit: TemperatureUnit
-    let glass: GlassLevel
     let onOpenCard: (ElementID) -> Void
 
     var body: some View {
@@ -82,7 +81,7 @@ struct InspectChip: View {
                 .frame(height: 28)
             }
             .buttonStyle(.plain)
-            .glassPanel(glass, in: Capsule())
+            .solidPanel(in: Capsule())
             .accessibilityLabel("\(found.name), \(unit.format(celsius: found.celsius))")
             .accessibilityHint("Opens what this material does")
         }

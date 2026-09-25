@@ -8,7 +8,6 @@ import SwiftUI
 /// drawing; opened it shows the full element set and the world's settings.
 struct ElementDock: View {
     let model: SimulationModel
-    let glass: GlassLevel
     @Binding var isOpen: Bool
     let onShowScenes: () -> Void
     let onShowSettings: () -> Void
@@ -63,8 +62,10 @@ struct ElementDock: View {
                 .fill(Palette.border)
                 .frame(height: 1)
         }
-        .glassPanel(glass, in: Rectangle())
-        .shadow(color: .black.opacity(0.55), radius: 18, y: -6)
+        // No soft shadow under it any more. A shadow of that size is a blur pass of its own — the
+        // compositor filtering a band of the screen every frame — and the hairline above already says the
+        // dock is in front of the world rather than printed on it.
+        .solidPanel(in: Rectangle())
     }
 
     private var handle: some View {
@@ -193,7 +194,7 @@ struct ElementDock: View {
         .frame(minHeight: 220, maxHeight: 380)
         // No rubber-banding when it all fits, so a short tray does not feel broken.
         .scrollBounceBehavior(.basedOnSize)
-        .labScrollEdges(glass)
+        .labScrollEdges()
     }
 
     /// How a touch paints, and the eyedropper.
@@ -321,7 +322,7 @@ struct ElementDock: View {
                     }
                 }
             }
-            .labScrollEdges(glass)
+            .labScrollEdges()
         }
     }
 
@@ -389,7 +390,7 @@ struct ElementDock: View {
             .padding(.horizontal, 16)
         }
         .frame(height: 38)
-        .labScrollEdges(glass)
+        .labScrollEdges()
     }
 
     private var transport: some View {

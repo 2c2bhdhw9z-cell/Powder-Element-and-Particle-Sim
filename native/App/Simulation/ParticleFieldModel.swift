@@ -1015,11 +1015,20 @@ final class ParticleFieldModel {
         let sampledAt = CFAbsoluteTimeGetCurrent()
         let elapsed = sampledAt - lastSampleTime
         if elapsed >= 1 {
-            ticksPerSecond = Int((Double(ticksSinceSample) / elapsed).rounded())
-            millisecondsPerTick = ticksSinceSample > 0
+            // Written only when the answer has changed.
+            //
+            // These are read from the interface, and writing an observed property tells everything
+            // watching it to rebuild whether or not the value moved. The frame counter sitting steady at a
+            // hundred and twenty used to rebuild the header, both chambers, the tool cluster and the whole
+            // dock once a second for no reason at all — the value was identical each time.
+            let rate = Int((Double(ticksSinceSample) / elapsed).rounded())
+            if ticksPerSecond != rate { ticksPerSecond = rate }
+            let cost = ticksSinceSample > 0
                 ? simulationSeconds / Double(ticksSinceSample) * 1000
                 : 0
-            bodyCount = engine.bodyCount
+            if millisecondsPerTick != cost { millisecondsPerTick = cost }
+            let bodies = engine.bodyCount
+            if bodyCount != bodies { bodyCount = bodies }
 
             rateHistory.record(Double(ticksPerSecond))
             costHistory.record(millisecondsPerTick)
@@ -1664,7 +1673,31 @@ final class ParticleFieldModel {
     /// trail behind a body becomes a streak across the screen that has nothing to do with any body.
     private func cameraDidChange() {
         trailHistoryIsStale = true
+        // Not while a finger is moving the view.
+        //
+        // The dock shows a few camera numbers — how much room there is, the tilt, whether there is
+        // anything to reset — so it does have to be told. But telling it goes through the one revision
+        // count every control in the dock watches, so each touch sample was several hundred controls
+        // reassembled on the main thread, in the middle of a gesture, for readouts nobody looks at
+        // mid-drag. That is felt as the drag itself stuttering. They catch up the moment it ends.
+        guard !isAdjustingCamera else { return }
         engineDidChange()
+    }
+
+    /// Whether a camera gesture is in progress.
+    ///
+    /// Kept out of observation deliberately: it exists to *stop* rebuilds, so it must not cause any.
+    @ObservationIgnored private var isAdjustingCamera = false
+
+    /// A camera gesture has started. Readouts hold still until it finishes.
+    func beginCameraGesture() {
+        isAdjustingCamera = true
+    }
+
+    /// A camera gesture has finished. Everything watching catches up now, once.
+    func endCameraGesture() {
+        isAdjustingCamera = false
+        cameraDidChange()
     }
 
     /// Set when the camera moves, cleared once the renderer has wiped the leftover picture.

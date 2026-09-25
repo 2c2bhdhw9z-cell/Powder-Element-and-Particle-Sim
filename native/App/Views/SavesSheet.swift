@@ -10,7 +10,6 @@ struct SavesSheet: View {
     let powder: SimulationModel
     let field: ParticleFieldModel
     let store: SceneStore
-    let glass: GlassLevel
 
     @Environment(\.dismiss) private var dismiss
 
@@ -21,7 +20,7 @@ struct SavesSheet: View {
     @State private var note: String?
 
     var body: some View {
-        LabSheet(title: "Your work", subtitle: "Kept here, and shared elsewhere", glass: glass) {
+        LabSheet(title: "Your work", subtitle: "Kept here, and shared elsewhere") {
             saving
             list
             transfer

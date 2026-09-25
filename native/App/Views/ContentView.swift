@@ -83,7 +83,6 @@ struct ContentView: View {
     /// Remembered between launches. All three are preferences rather than state: coming back to
     /// the chamber you were in, the interface you chose, and the readout you left on.
     @AppStorage("chamber") private var chamberRaw = Chamber.powder.rawValue
-    @AppStorage("glassLevel") private var glassRaw = GlassLevel.full.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
     @AppStorage("soundEnabled") private var soundEnabled = true
     /// Whether the chamber you are not looking at keeps running. Off by default, matching the
@@ -106,7 +105,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     private var chamber: Chamber { Chamber(rawValue: chamberRaw) ?? .powder }
-    private var glass: GlassLevel { GlassLevel(rawValue: glassRaw) ?? .full }
     private var temperatureUnit: TemperatureUnit {
         TemperatureUnit(rawValue: temperatureUnitRaw) ?? .celsius
     }
@@ -153,10 +151,9 @@ struct ContentView: View {
         // So the world is full-bleed at the top now and the bar sits over it. Two consequences, both
         // deliberate:
         //
-        //   - The world runs *behind* the bar as well as above it. That cannot be avoided — filling the
-        //     strip means reaching past where the bar is — and it is the better half of the trade: at
-        //     the default setting the bar is glass, so the simulation is visible through it rather than
-        //     lost under it.
+        //   - The world runs *behind* the bar as well as above it. That cannot be avoided: filling the
+        //     strip means reaching past where the bar is. The bar is solid, so those ninety-six points
+        //     are not visible — the gain is the strip above it, and a world that is no longer boxed in.
         //   - The floating tools have to be pushed clear of the bar by hand, since they are no longer
         //     laid out below it. ``LabHeader/height`` is what they are pushed by, which is why that is a
         //     stated constant rather than whatever the bar's rows happen to add up to.
@@ -200,7 +197,6 @@ struct ContentView: View {
                     chamber: chamber,
                     isRunning: isRunning,
                     framesPerSecond: framesPerSecond,
-                    glass: glass,
                     onToggleRunning: toggleRunning,
                     onSelectChamber: select,
                     onShowMenu: { showingSettings = true },
@@ -276,13 +272,13 @@ struct ContentView: View {
             audio.isEnabled = wanted
         }
         .sheet(isPresented: $showingScenes) {
-            ScenePicker(glass: glass) { recipe in
+            ScenePicker() { recipe in
                 powder.loadScene(recipe)
                 showingScenes = false
             }
         }
         .sheet(isPresented: $showingPresets) {
-            FieldPresetPicker(glass: glass) { preset in
+            FieldPresetPicker() { preset in
                 field.loadPreset(preset)
                 showingPresets = false
             }
@@ -290,7 +286,6 @@ struct ContentView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsSheet(
                 model: powder,
-                glass: Binding(get: { glass }, set: { glassRaw = $0.rawValue }),
                 showDebugOverlay: $showDebugOverlay,
                 soundEnabled: $soundEnabled,
                 bothChambersRun: $bothChambersRun,
@@ -323,7 +318,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingRoom) {
             if let room {
-                RoomSheet(bridge: room, glass: glass)
+                RoomSheet(bridge: room)
             }
         }
         .sheet(isPresented: $showingCloud) {
@@ -332,7 +327,6 @@ struct ContentView: View {
                 powder: powder,
                 field: field,
                 chamber: chamber,
-                glass: glass,
                 onOpenWorkshop: {
                     // Closed first: a sheet cannot sensibly present another on top of itself.
                     showingCloud = false
@@ -341,40 +335,39 @@ struct ContentView: View {
             )
         }
         .sheet(isPresented: $showingWorkshop) {
-            WorkshopSheet(account: account, powder: powder, glass: glass)
+            WorkshopSheet(account: account, powder: powder)
         }
         .sheet(isPresented: $showingDiagnostics) {
-            DiagnosticsSheet(model: powder, glass: glass, unit: temperatureUnit)
+            DiagnosticsSheet(model: powder, unit: temperatureUnit)
         }
         .sheet(isPresented: $showingHelp) {
-            HelpSheet(glass: glass)
+            HelpSheet()
         }
         .sheet(isPresented: $showingPerformance) {
             PerformanceSheet(
                 powder: powder,
                 field: field,
                 chamber: chamber,
-                unit: temperatureUnit,
-                glass: glass
+                unit: temperatureUnit
             )
         }
         .sheet(isPresented: $showingPeriodic) {
-            PeriodicSheet(model: powder, glass: glass) { id in
+            PeriodicSheet(model: powder) { id in
                 powder.brushElement = id
                 showingPeriodic = false
             }
         }
         .sheet(item: $infoElement) { target in
-            ElementInfoSheet(model: powder, elementID: target.id, glass: glass)
+            ElementInfoSheet(model: powder, elementID: target.id)
         }
         .sheet(isPresented: $showingSaves) {
-            SavesSheet(powder: powder, field: field, store: store, glass: glass)
+            SavesSheet(powder: powder, field: field, store: store)
         }
         .sheet(isPresented: $showingEditor) {
-            ElementEditorSheet(model: powder, glass: glass) { paletteVersion += 1 }
+            ElementEditorSheet(model: powder) { paletteVersion += 1 }
         }
         .sheet(isPresented: $showingFieldSettings) {
-            FieldSettingsSheet(model: field, glass: glass)
+            FieldSettingsSheet(model: field)
         }
         // Driven straight off the recorder, which publishes the preview already wrapped. The binding
         // writes nothing back except a dismissal, so the cover and the recorder cannot disagree about
@@ -457,8 +450,7 @@ struct ContentView: View {
                         Spacer(minLength: 0)
                         InspectChip(
                             model: powder,
-                            unit: temperatureUnit,
-                            glass: glass
+                            unit: temperatureUnit
                         ) { id in
                             infoElement = ElementInfoTarget(id: id)
                         }
@@ -627,20 +619,40 @@ struct ContentView: View {
     private func surface(_ which: Chamber, size: CGSize) -> some View {
         switch which {
         case .powder:
-            SimulationSurface(model: powder)
-                // The whole surface jolts when something goes off. Only the simulation moves — the dock
-                // and the tools stay put, because chrome that shakes reads as the app glitching rather
-                // than as the world being hit.
-                .offset(x: powder.screenShakeOffset.width, y: powder.screenShakeOffset.height)
-                .onAppear { powder.resize(toViewSize: size, scale: UIScreen.main.scale) }
-                .onChange(of: size) { _, new in
-                    powder.resize(toViewSize: new, scale: UIScreen.main.scale)
-                }
+            ShakenPowderSurface(model: powder, size: size)
         case .field:
             FieldSurface(model: field)
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
                     field.resize(toViewSize: new, scale: UIScreen.main.scale)
+                }
+        }
+    }
+
+    /// The powder world, jolted when something goes off.
+    ///
+    /// ## Why this is its own view rather than three lines in `surface`
+    ///
+    /// Because of where the shake offset is *read*. It changes every frame for the length of a shake, and
+    /// read from inside `ContentView.body` it made the whole screen rebuild every frame for as long as the
+    /// jolt lasted — the header, both chambers, the tool cluster and the several hundred controls in the
+    /// dock, sixty or a hundred and twenty times a second, because a rectangle needed moving four points.
+    ///
+    /// Read in here, the rebuild reaches this view and stops. The thing inside is a wrapper round a Metal
+    /// view, so rebuilding it costs a struct and an offset.
+    ///
+    /// Only the simulation moves. The dock and the tools stay put, because chrome that shakes reads as the
+    /// app glitching rather than as the world being hit.
+    private struct ShakenPowderSurface: View {
+        let model: SimulationModel
+        let size: CGSize
+
+        var body: some View {
+            SimulationSurface(model: model)
+                .offset(x: model.screenShakeOffset.width, y: model.screenShakeOffset.height)
+                .onAppear { model.resize(toViewSize: size, scale: UIScreen.main.scale) }
+                .onChange(of: size) { _, new in
+                    model.resize(toViewSize: new, scale: UIScreen.main.scale)
                 }
         }
     }
@@ -653,7 +665,6 @@ struct ContentView: View {
                 model: powder,
                 tilt: tilt,
                 recorder: recorder,
-                glass: glass,
                 shareTarget: $shareTarget
             )
         case .field:
@@ -661,7 +672,6 @@ struct ContentView: View {
                 model: field,
                 tilt: tilt,
                 recorder: recorder,
-                glass: glass,
                 shareTarget: $shareTarget
             )
         }
@@ -670,8 +680,8 @@ struct ContentView: View {
     @ViewBuilder
     private var debugReadout: some View {
         switch chamber {
-        case .powder: DebugOverlay(model: powder, glass: glass)
-        case .field: FieldDebugOverlay(model: field, glass: glass)
+        case .powder: DebugOverlay(model: powder)
+        case .field: FieldDebugOverlay(model: field)
         }
     }
 
@@ -681,7 +691,6 @@ struct ContentView: View {
         case .powder:
             ElementDock(
                 model: powder,
-                glass: glass,
                 isOpen: $isDockOpen,
                 onShowScenes: { showingScenes = true },
                 onShowSettings: { showingSettings = true },
@@ -695,7 +704,6 @@ struct ContentView: View {
         case .field:
             FieldDock(
                 model: field,
-                glass: glass,
                 isOpen: $isDockOpen,
                 onShowPresets: { showingPresets = true },
                 // Its own sheet, not the powder world's. Almost nothing carries over between them —
@@ -715,14 +723,12 @@ struct ContentView: View {
 /// way, and none of them leads anywhere — each one just loads, so a chevron promising a further
 /// screen is a small lie.
 struct ScenePicker: View {
-    let glass: GlassLevel
     let onSelect: (PowderRecipe) -> Void
 
     var body: some View {
         LabSheet(
             title: "Scenes",
-            subtitle: "Thirteen worlds to start from",
-            glass: glass
+            subtitle: "Thirteen worlds to start from"
         ) {
             LabGroup(footnote: "Loading a scene replaces the world. Undo brings it back.") {
                 LabFlow(spacing: 6) {
@@ -749,7 +755,6 @@ struct FieldToolCluster: View {
     let model: ParticleFieldModel
     let tilt: TiltSensor
     let recorder: ScreenRecorder
-    let glass: GlassLevel
     @Binding var shareTarget: ShareTarget?
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
@@ -757,46 +762,44 @@ struct FieldToolCluster: View {
     /// Two rows, for the same reason as the powder chamber's. See the note on `ToolCluster`: on one row
     /// this came to more than a phone is wide, so the tilt button sat on the screen's edge or past it.
     var body: some View {
-        GlassGroup(level: glass) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 0) {
+                button("arrow.uturn.backward", "Undo", enabled: model.canUndo) { model.undo() }
+                button("arrow.uturn.forward", "Redo", enabled: model.canRedo) { model.redo() }
+                button("camera", "Take a picture", enabled: true) {
+                    // Asked of the Metal view, because the field is geometry the GPU assembles
+                    // and none of it exists anywhere the processor can see.
+                    guard let image = model.snapshot(),
+                          let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
+                    else { return }
+                    shareTarget = ShareTarget(url: url)
+                }
+                RecordButton(recorder: recorder)
+            }
+            .solidPanel()
+
+            HStack(spacing: 6) {
+                // One width for every step, and padding inside the pill. See the note on
+                // `ToolCluster.speedDial` for why both.
                 HStack(spacing: 0) {
-                    button("arrow.uturn.backward", "Undo", enabled: model.canUndo) { model.undo() }
-                    button("arrow.uturn.forward", "Redo", enabled: model.canRedo) { model.redo() }
-                    button("camera", "Take a picture", enabled: true) {
-                        // Asked of the Metal view, because the field is geometry the GPU assembles
-                        // and none of it exists anywhere the processor can see.
-                        guard let image = model.snapshot(),
-                              let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
-                        else { return }
-                        shareTarget = ShareTarget(url: url)
-                    }
-                    RecordButton(recorder: recorder)
-                }
-                .glassPanel(glass)
-
-                HStack(spacing: 6) {
-                    // One width for every step, and padding inside the pill. See the note on
-                    // `ToolCluster.speedDial` for why both.
-                    HStack(spacing: 0) {
-                        ForEach(Self.speeds, id: \.self) { value in
-                            Button {
-                                model.speed = value
-                            } label: {
-                                Text(ToolClusterLabels.speed(value))
-                                    .font(.labNumeric(11))
-                                    .foregroundStyle(
-                                        model.speed == value ? Palette.foreground : Palette.muted
-                                    )
-                                    .frame(width: 42, height: 40)
-                            }
-                            .buttonStyle(.plain)
+                    ForEach(Self.speeds, id: \.self) { value in
+                        Button {
+                            model.speed = value
+                        } label: {
+                            Text(ToolClusterLabels.speed(value))
+                                .font(.labNumeric(11))
+                                .foregroundStyle(
+                                    model.speed == value ? Palette.foreground : Palette.muted
+                                )
+                                .frame(width: 42, height: 40)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 5)
-                    .glassPanel(glass)
-
-                    TiltButton(tilt: tilt, glass: glass)
                 }
+                .padding(.horizontal, 5)
+                .solidPanel()
+
+                TiltButton(tilt: tilt)
             }
         }
     }
@@ -823,7 +826,6 @@ struct FieldToolCluster: View {
 /// The performance readout for the particle chamber.
 struct FieldDebugOverlay: View {
     let model: ParticleFieldModel
-    let glass: GlassLevel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -835,7 +837,7 @@ struct FieldDebugOverlay: View {
         .font(.labNumeric(10))
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .glassPanel(glass, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+        .solidPanel(in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .fixedSize()
     }
 

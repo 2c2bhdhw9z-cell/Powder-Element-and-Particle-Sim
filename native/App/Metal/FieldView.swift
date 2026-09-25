@@ -251,9 +251,15 @@ final class FieldView: MTKView {
         super.init(frame: .zero, device: device)
 
         colorPixelFormat = .bgra8Unorm
-        // The finished picture is copied in from the field's own texture rather than drawn straight
-        // into the drawable, and a drawable that is framebuffer-only cannot be copied into.
-        framebufferOnly = false
+        // Framebuffer-only, which lets the driver keep the drawable in its most efficient arrangement
+        // and compress it losslessly on the way to the screen.
+        //
+        // This was off, with a note saying the finished picture is copied into the drawable and a
+        // framebuffer-only drawable cannot be copied into. That was true once and is not now: the
+        // drawable is only ever a render pass's colour attachment (see `encodeFinalPicture`), which is
+        // exactly what framebuffer-only permits. The one copy left in this file reads the field's own
+        // texture for a photograph, never the screen's. So the flag was paying for a copy nobody makes.
+        framebufferOnly = true
         isOpaque = true
         depthStencilPixelFormat = .invalid
         sampleCount = 1

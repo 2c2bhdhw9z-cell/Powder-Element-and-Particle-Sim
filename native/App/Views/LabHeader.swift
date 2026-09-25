@@ -22,7 +22,6 @@ struct LabHeader: View {
     let chamber: Chamber
     let isRunning: Bool
     let framesPerSecond: Int
-    let glass: GlassLevel
 
     let onToggleRunning: () -> Void
     let onSelectChamber: (Chamber) -> Void
@@ -193,7 +192,7 @@ struct LabHeader: View {
     /// Not the shared panel treatment, because that outlines all four sides and this is a bar with one
     /// edge — but no longer its own copy of the switch either. One place decides what each level means.
     private var headerBackground: some View {
-        GlassSurface(level: glass, solid: Palette.background, tint: 0.4)
+        Palette.background
     }
 
     private func roundButton(

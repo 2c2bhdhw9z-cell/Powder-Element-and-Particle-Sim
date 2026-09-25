@@ -11,7 +11,6 @@ import SwiftUI
 /// says so and does nothing, rather than one that looks live and silently fails.
 struct TiltButton: View {
     let tilt: TiltSensor
-    let glass: GlassLevel
 
     var body: some View {
         Button {
@@ -28,7 +27,7 @@ struct TiltButton: View {
             .frame(minHeight: 40)
         }
         .buttonStyle(.plain)
-        .glassPanel(glass, in: Capsule())
+        .solidPanel(in: Capsule())
         .disabled(!isAvailable)
         .opacity(isAvailable ? 1 : 0.4)
         .accessibilityLabel(accessibilityLabel)

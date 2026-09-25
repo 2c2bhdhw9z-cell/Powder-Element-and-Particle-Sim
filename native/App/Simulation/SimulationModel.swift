@@ -484,13 +484,19 @@ final class SimulationModel {
         let now = CFAbsoluteTimeGetCurrent()
         let elapsed = now - lastSampleTime
         if elapsed >= 1 {
-            ticksPerSecond = Int((Double(ticksSinceSample) / elapsed).rounded())
-            millisecondsPerTick = ticksSinceSample > 0
+            // Written only when the answer has changed — see the matching note in the field's tick. An
+            // observed property tells its readers to rebuild whether or not the value moved, and a steady
+            // frame counter was rebuilding the whole screen once a second to say the same number again.
+            let rate = Int((Double(ticksSinceSample) / elapsed).rounded())
+            if ticksPerSecond != rate { ticksPerSecond = rate }
+            let cost = ticksSinceSample > 0
                 ? simulationSeconds / Double(ticksSinceSample) * 1000
                 : 0
+            if millisecondsPerTick != cost { millisecondsPerTick = cost }
             // Counting occupied cells is a full pass over the grid, so it is sampled at the
             // same rate as the frame counter rather than every frame.
-            activeCells = engine.activeParticleCount
+            let occupied = engine.activeParticleCount
+            if activeCells != occupied { activeCells = occupied }
 
             rateHistory.record(Double(ticksPerSecond))
             costHistory.record(millisecondsPerTick)

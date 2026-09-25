@@ -7,7 +7,7 @@ import SwiftUI
 /// The app's panels were built out of `NavigationStack` and `Form`, which is the quickest way to get
 /// something that works and looks like the iOS Settings app: inset grey rows on a lighter grey
 /// background, a bar with a title. Crucible does not look like that. It is a near-black room, and its
-/// panels are translucent black glass with a grab handle and a rounded top, sitting over the world
+/// panels are solid black with a grab handle and a rounded top, sitting over the world
 /// rather than replacing it.
 ///
 /// So this is the reference implementation's sheet, measured from its stylesheet:
@@ -26,7 +26,6 @@ struct LabSheet<Content: View>: View {
     let title: String
     /// A line under the title, where one helps.
     var subtitle: String?
-    let glass: GlassLevel
     @ViewBuilder var content: Content
 
     @Environment(\.dismiss) private var dismiss
@@ -47,7 +46,7 @@ struct LabSheet<Content: View>: View {
                 .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .labScrollEdges(glass)
+            .labScrollEdges()
         }
         .background(panelBackground)
         .overlay(alignment: .top) {
@@ -76,17 +75,9 @@ struct LabSheet<Content: View>: View {
         // What sits behind the panel, which is not the panel itself: the corners the rounded top leaves
         // uncovered, and whatever the system would otherwise put there.
         //
-        // Clear used to be unconditional, and that was one of the ways "off" failed to mean off. The
-        // system fills a clear presentation background with glass of its own, so somebody who had turned
-        // every blur in this app off was still looking at one — in the very sheet holding the setting,
-        // which is about the worst place for it.
-        .presentationBackground {
-            if glass.blursAnything {
-                Color.clear
-            } else {
-                Palette.background
-            }
-        }
+        // Solid. Handed a clear presentation background, the system fills it with frosted glass of its
+        // own — a blur this app did not ask for, over the simulation, every frame the sheet is open.
+        .presentationBackground(Palette.background)
         .tint(Palette.primary)
         .preferredColorScheme(.dark)
     }
@@ -136,7 +127,7 @@ struct LabSheet<Content: View>: View {
     }
 
     private var panelBackground: some View {
-        GlassSurface(level: glass, solid: Palette.elevated, tint: 0.7)
+        Palette.elevated
     }
 }
 

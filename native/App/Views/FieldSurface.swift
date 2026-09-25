@@ -124,7 +124,34 @@ struct FieldSurface: UIViewRepresentable {
             }
         }
 
+        /// How many of the three camera gestures are running.
+        ///
+        /// Counted rather than a single flag, because all three are deliberately allowed to run at once —
+        /// see the delegate below. One finishing while another continues must not be read as the whole
+        /// motion being over.
+        private var cameraGesturesRunning = 0
+
+        /// Tells the model when a camera motion starts and when the last of it finishes.
+        ///
+        /// What this buys: while a finger is moving the view, the dock's readouts hold still instead of
+        /// several hundred controls being reassembled on every touch sample. They catch up once, at the
+        /// end. UIKit guarantees a recogniser that begins also ends, cancels or fails, so the count
+        /// cannot be left stranded.
+        private func track(_ gesture: UIGestureRecognizer) {
+            switch gesture.state {
+            case .began:
+                cameraGesturesRunning += 1
+                model.beginCameraGesture()
+            case .ended, .cancelled, .failed:
+                cameraGesturesRunning = max(0, cameraGesturesRunning - 1)
+                if cameraGesturesRunning == 0 { model.endCameraGesture() }
+            default:
+                break
+            }
+        }
+
         @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            track(gesture)
             // The scale is reported cumulatively from the start of the gesture, so it is reset to one
             // after each reading and what gets applied is the change since the last. Applying the
             // cumulative value directly would fight the clamp: once the zoom hit its limit, pinching
@@ -135,6 +162,7 @@ struct FieldSurface: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+            track(gesture)
             guard let view = gesture.view else { return }
             guard gesture.state == .changed || gesture.state == .began else { return }
             let movement = gesture.translation(in: view)
@@ -143,6 +171,7 @@ struct FieldSurface: UIViewRepresentable {
         }
 
         @objc private func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            track(gesture)
             guard gesture.state == .changed || gesture.state == .began else { return }
             model.rotateCamera(byRadians: Double(gesture.rotation))
             gesture.rotation = 0

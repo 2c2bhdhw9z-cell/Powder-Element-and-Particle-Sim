@@ -14,7 +14,6 @@ import SwiftUI
 /// simulation, which Apple's cannot see.
 struct DebugOverlay: View {
     let model: SimulationModel
-    let glass: GlassLevel
 
     /// A 120Hz frame in milliseconds, and a 60Hz one, so the figures have something to mean.
     private static let fastFrameBudget = 1000.0 / 120
@@ -64,7 +63,7 @@ struct DebugOverlay: View {
         .font(.labNumeric(10))
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .glassPanel(glass, in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
+        .solidPanel(in: RoundedRectangle(cornerRadius: Radius.medium, style: .continuous))
         .fixedSize()
     }
 

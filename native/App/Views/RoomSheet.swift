@@ -19,7 +19,6 @@ import UIKit
 /// is running things.
 struct RoomSheet: View {
     let bridge: RoomBridge
-    let glass: GlassLevel
 
     @State private var typedCode = ""
     @FocusState private var codeFieldFocused: Bool
@@ -27,7 +26,7 @@ struct RoomSheet: View {
     private var room: RoomSession { bridge.session }
 
     var body: some View {
-        LabSheet(title: "Shared room", subtitle: subtitle, glass: glass) {
+        LabSheet(title: "Shared room", subtitle: subtitle) {
             if let problem = room.problem {
                 notice(problem)
             }

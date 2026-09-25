@@ -11,7 +11,6 @@ struct ToolCluster: View {
     let model: SimulationModel
     let tilt: TiltSensor
     let recorder: ScreenRecorder
-    let glass: GlassLevel
     /// Somewhere to send a picture once one has been taken.
     @Binding var shareTarget: ShareTarget?
 
@@ -28,13 +27,11 @@ struct ToolCluster: View {
     /// Split this way the widest row is about 240, which leaves the readout its corner on every phone
     /// rather than only on the largest one.
     var body: some View {
-        GlassGroup(level: glass) {
-            VStack(alignment: .leading, spacing: 6) {
-                actions
-                HStack(spacing: 6) {
-                    speedDial
-                    TiltButton(tilt: tilt, glass: glass)
-                }
+        VStack(alignment: .leading, spacing: 6) {
+            actions
+            HStack(spacing: 6) {
+                speedDial
+                TiltButton(tilt: tilt)
             }
         }
     }
@@ -61,7 +58,7 @@ struct ToolCluster: View {
             }
             RecordButton(recorder: recorder)
         }
-        .glassPanel(glass)
+        .solidPanel()
     }
 
     /// The five speeds.
@@ -92,7 +89,7 @@ struct ToolCluster: View {
             }
         }
         .padding(.horizontal, 5)
-        .glassPanel(glass)
+        .solidPanel()
     }
 
     private static func label(for value: Double) -> String {

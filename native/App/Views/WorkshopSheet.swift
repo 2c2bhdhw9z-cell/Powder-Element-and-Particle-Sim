@@ -12,7 +12,6 @@ import SwiftUI
 struct WorkshopSheet: View {
     let account: CloudAccount
     let powder: SimulationModel
-    let glass: GlassLevel
 
     @State private var maps: [CloudMapSummary] = []
     @State private var failure: CloudFailure?
@@ -30,7 +29,7 @@ struct WorkshopSheet: View {
     @State private var tags = ""
 
     var body: some View {
-        LabSheet(title: "Workshop", subtitle: subtitle, glass: glass) {
+        LabSheet(title: "Workshop", subtitle: subtitle) {
             if let problem = account.problem {
                 CloudNotice(message: problem, tone: .warn) { account.dismissProblem() }
             }

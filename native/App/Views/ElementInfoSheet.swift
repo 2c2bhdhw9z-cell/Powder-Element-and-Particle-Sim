@@ -20,7 +20,6 @@ struct ElementInfoTarget: Identifiable {
 struct ElementInfoSheet: View {
     let model: SimulationModel
     let elementID: ElementID
-    let glass: GlassLevel
 
     private var definition: ElementDefinition {
         model.definition(of: elementID)
@@ -31,7 +30,7 @@ struct ElementInfoSheet: View {
     }
 
     var body: some View {
-        LabSheet(title: definition.name, subtitle: definition.category.rawValue, glass: glass) {
+        LabSheet(title: definition.name, subtitle: definition.category.rawValue) {
             heading
             description
             facts
@@ -149,7 +148,6 @@ struct ElementInfoSheet: View {
 /// distinction the physics does not make.
 struct PeriodicSheet: View {
     let model: SimulationModel
-    let glass: GlassLevel
     let onPick: (ElementID) -> Void
 
     private let columns = [GridItem(.adaptive(minimum: 84), spacing: 8)]
@@ -157,8 +155,7 @@ struct PeriodicSheet: View {
     var body: some View {
         LabSheet(
             title: "Periodic",
-            subtitle: "Real substances, mapped onto what the lab can simulate",
-            glass: glass
+            subtitle: "Real substances, mapped onto what the lab can simulate"
         ) {
             section("Elements", PeriodicTable.elements)
             section("Compounds", PeriodicTable.compounds)

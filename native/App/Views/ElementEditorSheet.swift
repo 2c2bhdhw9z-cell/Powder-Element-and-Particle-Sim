@@ -16,7 +16,6 @@ import SwiftUI
 /// powder.
 struct ElementEditorSheet: View {
     let model: SimulationModel
-    let glass: GlassLevel
     /// Called after the set of materials changes, so the palette redraws.
     let onChange: () -> Void
 
@@ -48,8 +47,7 @@ struct ElementEditorSheet: View {
     var body: some View {
         LabSheet(
             title: "Invent a material",
-            subtitle: "Fifty slots, and they are yours",
-            glass: glass
+            subtitle: "Fifty slots, and they are yours"
         ) {
             starters
             basics

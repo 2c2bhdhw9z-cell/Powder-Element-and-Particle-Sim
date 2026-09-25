@@ -16,10 +16,9 @@ import SwiftUI
 /// screen from the reference implementation's and end up promising a feature that was never ported,
 /// which is worse than saying nothing.
 struct HelpSheet: View {
-    let glass: GlassLevel
 
     var body: some View {
-        LabSheet(title: "How to use this", subtitle: "Two chambers, and what they do", glass: glass) {
+        LabSheet(title: "How to use this", subtitle: "Two chambers, and what they do") {
             chambers
             powder
             field

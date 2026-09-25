@@ -8,7 +8,6 @@ import SwiftUI
 /// a force — so the row of things is a row of *tools* rather than of materials.
 struct FieldDock: View {
     let model: ParticleFieldModel
-    let glass: GlassLevel
     @Binding var isOpen: Bool
     let onShowPresets: () -> Void
     let onShowSettings: () -> Void
@@ -46,8 +45,10 @@ struct FieldDock: View {
         .background(alignment: .top) {
             Rectangle().fill(Palette.border).frame(height: 1)
         }
-        .glassPanel(glass, in: Rectangle())
-        .shadow(color: .black.opacity(0.55), radius: 18, y: -6)
+        // No soft shadow under it any more. A shadow of that size is a blur pass of its own — the
+        // compositor filtering a band of the screen every frame — and the hairline above already says the
+        // dock is in front of the world rather than printed on it.
+        .solidPanel(in: Rectangle())
     }
 
     private var handle: some View {
@@ -372,7 +373,7 @@ struct FieldDock: View {
         }
         .frame(minHeight: 220, maxHeight: 380)
         .scrollBounceBehavior(.basedOnSize)
-        .labScrollEdges(glass)
+        .labScrollEdges()
     }
 
     private var expandedContents: some View {
@@ -1227,7 +1228,7 @@ struct FieldDock: View {
             .padding(.horizontal, 16)
         }
         .frame(height: 38)
-        .labScrollEdges(glass)
+        .labScrollEdges()
     }
 
     private var transport: some View {
@@ -1310,14 +1311,12 @@ struct FieldDock: View {
 
 /// Picks one of the field presets.
 struct FieldPresetPicker: View {
-    let glass: GlassLevel
     let onSelect: (String) -> Void
 
     var body: some View {
         LabSheet(
             title: "Presets",
-            subtitle: "Arrangements to start from",
-            glass: glass
+            subtitle: "Arrangements to start from"
         ) {
             LabGroup(footnote: "Loading a preset replaces the field. Undo brings it back.") {
                 LabFlow(spacing: 6) {

@@ -29,12 +29,11 @@ struct DiagnosticsSheet: View {
     @State private var report: PowderDiagnostics?
     @State private var lastRepair: String?
 
-    let glass: GlassLevel
     /// The scale the reader prefers, so the health report agrees with the chip on the canvas.
     let unit: TemperatureUnit
 
     var body: some View {
-        LabSheet(title: "Health", subtitle: "What the world looks like from inside", glass: glass) {
+        LabSheet(title: "Health", subtitle: "What the world looks like from inside") {
             if let report {
                 verdict(report)
                 world(report)
