@@ -307,6 +307,10 @@ extension ParticleEngine {
                             bodies[i].color = PackedColor(r: 0xF4, g: 0x3F, b: 0x5E)
                         case .emitter:
                             break
+                        case .current, .wall:
+                            // These change the world rather than the bodies. Nothing happens under the
+                            // finger; the bodies notice the painted wind and the walls on the next tick.
+                            break
                         }
                     }
                 }
@@ -568,6 +572,10 @@ extension ParticleEngine {
             return (true, true)
         case .repel, .hyperDrive:
             return (true, false)
+        case .current, .wall:
+            // These change the world rather than the bodies. The bodies notice on the next tick, through the
+            // painted wind and the walls — not through a force under the finger.
+            return (false, false)
         case .vortex, .emitter, .painter, .freeze:
             // Nothing sensible to do to a million positions, so the swarm is left alone
             // rather than shoved by a tool that means something else.
@@ -600,6 +608,15 @@ extension ParticleEngine {
         if flowEnabled {
             flow.step(swarm: swarm, settings: flowSettings, time: elapsedSeconds)
         }
+        if !storedCurrent.isEmpty {
+            SwarmDrawnWorld.applyCurrent(
+                storedCurrent,
+                to: swarm,
+                settings: currentSettings,
+                width: width,
+                height: height
+            )
+        }
         if !writtenForceAcross.isEmpty || !writtenForceDown.isEmpty {
             writtenForce.step(
                 swarm: swarm,
@@ -631,5 +648,42 @@ extension ParticleEngine {
             attract: effect.attract,
             contact: contactSettings.sanitized
         ))
+
+        // After the move, because a wall is about where something has got to rather than where it was
+        // going — and after the crowd has pushed itself apart, so a body shoved into a wall by its
+        // neighbours is put back rather than left inside it until the next tick.
+        if !storedWalls.isEmpty {
+            previousSwarmPositions.withUnsafeBufferPointer { previous in
+                SwarmDrawnWorld.applyWalls(
+                    storedWalls,
+                    to: swarm,
+                    previousPositions: previous.count >= swarm.count * 2 ? previous.baseAddress : nil,
+                    settings: wallSettings,
+                    width: width,
+                    height: height
+                )
+            }
+        }
+    }
+
+    /// Remembers where every swarm body is, so a wall can tell which side it came from.
+    ///
+    /// Only when there are walls. At a million bodies this is eight megabytes, and copying it every tick for
+    /// a field with no walls in it would be eight megabytes of work for nothing.
+    func rememberSwarmPositions() {
+        guard !storedWalls.isEmpty, swarm.count > 0 else {
+            if !previousSwarmPositions.isEmpty { previousSwarmPositions.removeAll(keepingCapacity: true) }
+            return
+        }
+        let needed = swarm.count * 2
+        if previousSwarmPositions.count < needed {
+            previousSwarmPositions.append(
+                contentsOf: repeatElement(0, count: needed - previousSwarmPositions.count)
+            )
+        }
+        previousSwarmPositions.withUnsafeMutableBufferPointer { out in
+            guard let base = out.baseAddress else { return }
+            base.update(from: swarm.positions, count: needed)
+        }
     }
 }

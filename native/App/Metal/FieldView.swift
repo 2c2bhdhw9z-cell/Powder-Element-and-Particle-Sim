@@ -121,6 +121,9 @@ final class FieldView: MTKView {
     private var swarmColors: [UInt32] = []
     private var trailPositions: [Float] = []
     private var trailColors: [UInt32] = []
+    /// The walls and the painted wind, as lines.
+    private var guidePositions: [Float] = []
+    private var guideColors: [UInt32] = []
 
     /// The GPU-side copies. Reallocated only when they are too small.
     private var positionBuffer: MTLBuffer?
@@ -130,6 +133,8 @@ final class FieldView: MTKView {
     private var swarmColorBuffer: MTLBuffer?
     private var trailPositionBuffer: MTLBuffer?
     private var trailColorBuffer: MTLBuffer?
+    private var guidePositionBuffer: MTLBuffer?
+    private var guideColorBuffer: MTLBuffer?
 
     init?(model: ParticleFieldModel) {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -640,7 +645,9 @@ final class FieldView: MTKView {
             swarmPositions: &swarmPositions,
             swarmColors: &swarmColors,
             trailPositions: &trailPositions,
-            trailColors: &trailColors
+            trailColors: &trailColors,
+            guidePositions: &guidePositions,
+            guideColors: &guideColors
         )
 
         upload(&positionBuffer, from: positions, count: frame.bodyCount * 2, device: device)
@@ -650,6 +657,8 @@ final class FieldView: MTKView {
         upload(&swarmColorBuffer, from: swarmColors, count: frame.swarmCount, device: device)
         upload(&trailPositionBuffer, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
         upload(&trailColorBuffer, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
+        upload(&guidePositionBuffer, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
+        upload(&guideColorBuffer, from: guideColors, count: frame.guideSegmentCount * 2, device: device)
 
         return frame
     }
@@ -722,6 +731,21 @@ final class FieldView: MTKView {
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
+        }
+
+        // The walls and the painted wind, over the bodies. They are things somebody drew rather than part of
+        // the simulation, so they belong in front of it — a wall hidden behind a dense crowd is a wall
+        // somebody cannot tell they have drawn.
+        if frame.guideSegmentCount > 0, let guidePositionBuffer, let guideColorBuffer {
+            encoder.setRenderPipelineState(trailPipeline)
+            encoder.setVertexBuffer(guidePositionBuffer, offset: 0, index: 0)
+            encoder.setVertexBuffer(guideColorBuffer, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.drawPrimitives(
+                type: .line,
+                vertexStart: 0,
+                vertexCount: frame.guideSegmentCount * 2
+            )
         }
 
         // The ring last, over everything, because it is a statement about what your finger is doing

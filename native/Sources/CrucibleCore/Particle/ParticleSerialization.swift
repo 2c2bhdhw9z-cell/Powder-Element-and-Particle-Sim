@@ -91,6 +91,14 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// Wind painted into the world.
+    public var current: ParticleCurrentField?
+    /// How hard it pushes.
+    public var currentSettings: CurrentSettings?
+    /// Walls drawn into the world.
+    public var walls: [ParticleWall]?
+    /// How they behave.
+    public var wallSettings: WallSettings?
     /// How bodies steer by their neighbours.
     public var flockSettings: FlockSettings?
     /// How motion trails behave.
@@ -164,6 +172,12 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             fluidSettings: fluidSettings,
             bodyGravitySettings: bodyGravitySettings,
+            // Only written when there is something to write, so a scene with nothing drawn into it does not
+            // carry a few thousand zeroes around.
+            current: current.isEmpty ? nil : current,
+            currentSettings: currentSettings,
+            walls: walls.isEmpty ? nil : walls,
+            wallSettings: wallSettings,
             flockSettings: flockSettings,
             trailSettings: trailSettings,
             contactSettings: contactSettings,
@@ -277,6 +291,11 @@ extension ParticleEngine {
         if let saved = state.palette { palette = saved }
         // Rebuilt through its own initialiser rather than assigned, so a hand-edited file's keyframes are
         // put in order and pulled into range on the way in.
+        if let saved = state.current { storedCurrent = saved }
+        if let saved = state.currentSettings { currentSettings = saved }
+        // Through the setter, so a hand-edited file's walls are filtered and capped on the way in.
+        if let saved = state.walls { walls = saved }
+        if let saved = state.wallSettings { wallSettings = saved }
         if let saved = state.flockSettings { flockSettings = saved }
         if let saved = state.trailSettings { trailSettings = saved }
         if let saved = state.contactSettings { contactSettings = saved }

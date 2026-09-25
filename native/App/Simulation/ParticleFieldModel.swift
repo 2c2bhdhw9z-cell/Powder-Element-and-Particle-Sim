@@ -956,6 +956,11 @@ final class ParticleFieldModel {
         var swarmCount: Int
         /// How many line segments of trail there are to draw. Two points and two colours each.
         var trailSegmentCount: Int
+        /// How many line segments of drawn walls and painted wind there are.
+        ///
+        /// Drawn as lines in the same way the trails are, and for the same reason: they are structure rather
+        /// than substance, and a line is the cheapest honest way to show a direction.
+        var guideSegmentCount: Int
         /// Where the ring should be drawn, or nothing while no finger is down.
         var touchRing: TouchRing?
     }
@@ -992,7 +997,9 @@ final class ParticleFieldModel {
         swarmPositions: inout [Float],
         swarmColors: inout [UInt32],
         trailPositions: inout [Float],
-        trailColors: inout [UInt32]
+        trailColors: inout [UInt32],
+        guidePositions: inout [Float],
+        guideColors: inout [UInt32]
     ) -> Frame {
         let bodies = engine.particles
 
@@ -1066,8 +1073,84 @@ final class ParticleFieldModel {
             pointSize: max(1, engine.particleSize * 2),
             swarmCount: swarmCount,
             trailSegmentCount: trailSegments,
+            guideSegmentCount: fillGuides(positions: &guidePositions, colors: &guideColors),
             touchRing: currentTouchRing()
         )
+    }
+
+    /// Turns the walls and the painted wind into line segments.
+    ///
+    /// Both are invisible otherwise, and an invisible control is not a control — somebody painting wind needs
+    /// to see where they have painted, and somebody who has drawn twelve walls needs to see the twelve.
+    private func fillGuides(positions: inout [Float], colors: inout [UInt32]) -> Int {
+        let walls = engine.walls
+        let current = engine.current
+        let showCurrent = !current.isEmpty
+        let arrowCount = showCurrent ? current.resolution * current.resolution : 0
+        let needed = (walls.count + arrowCount) * 4
+        guard needed > 0 else { return 0 }
+
+        if positions.count < needed {
+            positions.append(contentsOf: repeatElement(0, count: needed - positions.count))
+        }
+        let neededColors = (walls.count + arrowCount) * 2
+        if colors.count < neededColors {
+            colors.append(contentsOf: repeatElement(0, count: neededColors - colors.count))
+        }
+
+        var segments = 0
+
+        /// One line, in world coordinates, with a colour at each end.
+        func line(_ fromX: Double, _ fromY: Double, _ toX: Double, _ toY: Double, _ colour: UInt32) {
+            let at = segments * 4
+            positions[at] = Float(fromX)
+            positions[at + 1] = Float(fromY)
+            positions[at + 2] = Float(toX)
+            positions[at + 3] = Float(toY)
+            colors[segments * 2] = colour
+            colors[segments * 2 + 1] = colour
+            segments += 1
+        }
+
+        // The wind first, so a wall drawn across it reads as being in front.
+        if showCurrent {
+            // Long enough to see, short enough that a full field of them does not become a solid block.
+            let reach = min(engine.width, engine.height) / Double(current.resolution) * 0.42
+            let arrowColour = PackedColor(r: 0x38, g: 0xBD, b: 0xF8, a: 0x8C).packedRGBA
+            for row in 0 ..< current.resolution {
+                for column in 0 ..< current.resolution {
+                    let acrossFraction = (Double(column) + 0.5) / Double(current.resolution)
+                    let downFraction = (Double(row) + 0.5) / Double(current.resolution)
+                    let push = current.sample(atFractionX: acrossFraction, y: downFraction)
+                    let length = (push.x * push.x + push.y * push.y).squareRoot()
+                    // Unpainted squares are skipped rather than drawn as dots, so the picture shows where the
+                    // wind is and not where the grid is.
+                    guard length > 0.04 else { continue }
+                    let atX = acrossFraction * engine.width
+                    let atY = downFraction * engine.height
+                    line(
+                        atX - push.x * reach * 0.5,
+                        atY - push.y * reach * 0.5,
+                        atX + push.x * reach * 0.5,
+                        atY + push.y * reach * 0.5,
+                        arrowColour
+                    )
+                }
+            }
+        }
+
+        let wallColour = PackedColor(r: 0xFB, g: 0xBF, b: 0x24, a: 0xD9).packedRGBA
+        for wall in walls {
+            line(
+                wall.fromX * engine.width,
+                wall.fromY * engine.height,
+                wall.toX * engine.width,
+                wall.toY * engine.height,
+                wallColour
+            )
+        }
+
+        return segments
     }
 
     /// Turns each body's remembered positions into line segments.
@@ -1172,8 +1255,14 @@ final class ParticleFieldModel {
 
     // MARK: - Touch
 
+    /// Where the finger was last, for the tools that draw a stroke rather than apply a force.
+    private var strokeFromX: Double?
+    private var strokeFromY: Double?
+
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
         recordUndoPoint()
+        strokeFromX = nil
+        strokeFromY = nil
         updateTouch(atFractionX: fx, fractionY: fy)
     }
 
@@ -1191,11 +1280,132 @@ final class ParticleFieldModel {
         )
         touchX = place.x
         touchY = place.y
+
+        // The two drawing tools change the world rather than pushing the bodies, so they are handled here
+        // and the force machinery is left switched off — otherwise drawing a wall would also drag every body
+        // near the line along with it.
+        if engine.mouseMode.drawsIntoTheWorld {
+            touchActive = false
+            continueStroke(toX: place.x, y: place.y)
+            return
+        }
         touchActive = true
+    }
+
+    /// Carries a drawn stroke on from wherever it was.
+    ///
+    /// A stroke needs two points — a direction to paint, or two ends for a wall — so the first touch of a
+    /// drag only records where it started. That is why nothing happens until the finger moves, which is
+    /// correct for these two and would be wrong for a force.
+    private func continueStroke(toX x: Double, y: Double) {
+        defer {
+            strokeFromX = x
+            strokeFromY = y
+        }
+        guard let fromX = strokeFromX, let fromY = strokeFromY else { return }
+        let dx = x - fromX
+        let dy = y - fromY
+        // A minimum length, so a finger resting still does not paint the same square a hundred times a
+        // second — which with a brush that moves toward what is asked for would saturate it instantly, and
+        // for walls would fill the list with slivers.
+        guard (dx * dx + dy * dy).squareRoot() > 6 else { return }
+
+        switch engine.mouseMode {
+        case .current:
+            engine.paintCurrent(atX: x, y: y, directionX: dx, directionY: dy)
+        case .wall:
+            guard engine.width > 0, engine.height > 0 else { return }
+            engine.addWall(
+                fromFractionX: fromX / engine.width,
+                y: fromY / engine.height,
+                toFractionX: x / engine.width,
+                y: y / engine.height
+            )
+        default:
+            break
+        }
+        engineDidChange()
     }
 
     func endTouch() {
         touchActive = false
+        strokeFromX = nil
+        strokeFromY = nil
+    }
+
+    // MARK: - What has been drawn
+
+    /// How hard the painted wind pushes.
+    var currentStrength: Double {
+        get { observeEngine(); return engine.currentSettings.strength }
+        set { engine.currentSettings.strength = newValue; engineDidChange() }
+    }
+
+    /// How wide a stroke of it is.
+    var currentBrushRadius: Double {
+        get { observeEngine(); return engine.currentSettings.brushRadius }
+        set { engine.currentSettings.brushRadius = newValue; engineDidChange() }
+    }
+
+    /// How strongly one stroke paints.
+    var currentBrushStrength: Double {
+        get { observeEngine(); return engine.currentSettings.brushStrength }
+        set { engine.currentSettings.brushStrength = newValue; engineDidChange() }
+    }
+
+    /// How finely the wind is painted.
+    var currentResolution: Double {
+        get { observeEngine(); return Double(engine.current.resolution) }
+        set {
+            var field = engine.current
+            field.setResolution(Int(newValue.rounded()))
+            engine.current = field
+            engineDidChange()
+        }
+    }
+
+    /// Whether any wind has been painted.
+    var hasPaintedCurrent: Bool {
+        observeEngine()
+        return !engine.current.isEmpty
+    }
+
+    /// Wipes the painted wind.
+    func clearCurrent() {
+        recordUndoPoint()
+        engine.clearCurrent()
+        engineDidChange()
+    }
+
+    /// How bouncy the walls are.
+    var wallBounciness: Double {
+        get { observeEngine(); return engine.wallSettings.bounciness }
+        set { engine.wallSettings.bounciness = newValue; engineDidChange() }
+    }
+
+    /// How much a wall slows something sliding along it.
+    var wallFriction: Double {
+        get { observeEngine(); return engine.wallSettings.friction }
+        set { engine.wallSettings.friction = newValue; engineDidChange() }
+    }
+
+    /// How thick the walls are.
+    var wallThickness: Double {
+        get { observeEngine(); return engine.wallSettings.thickness }
+        set { engine.wallSettings.thickness = newValue; engineDidChange() }
+    }
+
+    /// How many walls have been drawn.
+    var wallCount: Int {
+        observeEngine()
+        return engine.walls.count
+    }
+
+    /// Removes every wall.
+    func clearWalls() {
+        recordUndoPoint()
+        engine.clearWalls()
+        engineDidChange()
     }
 
     // MARK: - The camera

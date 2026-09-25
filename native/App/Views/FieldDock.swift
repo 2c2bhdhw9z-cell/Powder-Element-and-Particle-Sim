@@ -28,6 +28,10 @@ struct FieldDock: View {
         (.painter, "Paint", "paintbrush.pointed"),
         (.hawk, "Hawk", "bird"),
         (.hyperDrive, "Hyper", "bolt.fill"),
+        // The two that change the world rather than pushing the bodies. Last, because they are a different
+        // kind of thing and grouping them apart is the only hint the strip can give about that.
+        (.current, "Wind", "wind"),
+        (.wall, "Wall", "line.diagonal"),
     ]
 
     var body: some View {
@@ -445,6 +449,45 @@ struct FieldDock: View {
                 }
             }
 
+            // The two drawn things. Shown whenever there is something drawn, or the tool is in hand —
+            // otherwise the numbers for a wall would be hidden precisely when somebody was drawing one.
+            if model.mouseMode == .current || model.hasPaintedCurrent {
+                drawnSection(
+                    "Painted wind",
+                    detail: model.hasPaintedCurrent
+                        ? "Drag across the field to paint which way the crowd should go."
+                        : "Drag across the field to paint. Nothing is painted yet.",
+                    clearTitle: "Wipe the wind",
+                    canClear: model.hasPaintedCurrent,
+                    clear: { model.clearCurrent() }
+                ) {
+                    inlineSlider("How hard it pushes", \.currentStrength, 0 ... 6, step: 0.05)
+                    inlineSlider("Brush width", \.currentBrushRadius, 0.02 ... 0.6, step: 0.01)
+                    inlineSlider("Brush strength", \.currentBrushStrength, 0.02 ... 1, step: 0.02)
+                    inlineSlider("How finely", \.currentResolution, 4 ... 64, step: 4) {
+                        "\(Int($0)) across"
+                    }
+                }
+            }
+
+            if model.mouseMode == .wall || model.wallCount > 0 {
+                drawnSection(
+                    "Walls",
+                    detail: model.wallCount > 0
+                        ? "\(model.wallCount) drawn. Drag across the field to add another."
+                        : "Drag across the field to draw one.",
+                    clearTitle: "Remove them all",
+                    canClear: model.wallCount > 0,
+                    clear: { model.clearWalls() }
+                ) {
+                    inlineSlider("Bounciness", \.wallBounciness, 0 ... 1, step: 0.02)
+                    inlineSlider("Friction", \.wallFriction, 0 ... 1, step: 0.02)
+                    inlineSlider("Thickness", \.wallThickness, 1 ... 20, step: 0.5) {
+                        "\($0.formatted(.number.precision(.fractionLength(1)))) px"
+                    }
+                }
+            }
+
             switchAndNumbers(
                 "Wind — eddies and channels filling the field",
                 isOn: Binding(get: { model.flowEnabled }, set: { model.flowEnabled = $0 })
@@ -454,6 +497,55 @@ struct FieldDock: View {
                 inlineSlider("How fast it changes", \.flowDrift, 0 ... 1, step: 0.02) {
                     $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(2)))
                 }
+            }
+        }
+    }
+
+    /// A drawn thing: what it is, how much of it there is, its numbers, and a way to remove it.
+    ///
+    /// No switch, because these are not switched on — they exist because somebody drew them, and the only
+    /// two questions are how they behave and how to get rid of them.
+    @ViewBuilder
+    private func drawnSection(
+        _ title: String,
+        detail: String,
+        clearTitle: String,
+        canClear: Bool,
+        clear: @escaping () -> Void,
+        @ViewBuilder numbers: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.foreground)
+                    Text(detail)
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                if canClear {
+                    Button(action: clear) {
+                        Text(clearTitle)
+                            .font(.labBody(10, .semiBold))
+                            .foregroundStyle(Palette.warn)
+                            .padding(.horizontal, 9)
+                            .frame(height: 26)
+                            .background(Capsule().fill(Palette.warn.opacity(0.14)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                numbers()
+            }
+            .padding(.leading, 10)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(Palette.primary.opacity(0.35))
+                    .frame(width: 1.5)
             }
         }
     }

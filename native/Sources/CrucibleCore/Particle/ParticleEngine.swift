@@ -126,6 +126,21 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// Wind painted into the world. Reached through ``current``.
+    var storedCurrent = ParticleCurrentField()
+    /// How hard it pushes. Reached through ``currentSettings``.
+    var storedCurrentSettings: CurrentSettings = .default
+    /// Walls drawn into the world. Reached through ``walls``.
+    var storedWalls: [ParticleWall] = []
+    /// How they behave. Reached through ``wallSettings``.
+    var storedWallSettings: WallSettings = .default
+
+    /// Where every swarm body was before the last move, for catching a body that has crossed a wall.
+    ///
+    /// Only kept when there are walls to check against. At a million bodies this is eight megabytes, and
+    /// carrying it for a field with no walls in it would be eight megabytes copied every tick for nothing.
+    var previousSwarmPositions: [Float] = []
+
     /// How bodies steer by their neighbours. Reached through ``flockSettings``.
     var storedFlockSettings: FlockSettings = .default
     /// How motion trails behave. Reached through ``trailSettings``.
@@ -261,6 +276,10 @@ public final class ParticleEngine {
         particles.removeAll(keepingCapacity: true)
         springs.removeAll(keepingCapacity: true)
         swarm.removeAll()
+        // Both of these are things somebody drew, so clearing the field has to clear them too — a wall left
+        // behind across an empty world is the kind of thing that reads as a fault rather than as a leftover.
+        storedWalls = []
+        storedCurrent.clear()
         flockEnabled = false
         nbodyEnabled = false
         fluidEnabled = false
@@ -553,6 +572,8 @@ public final class ParticleEngine {
             if flockEnabled { stepFlock() }
         }
 
+        // Before the swarm moves, so the walls can tell which side of themselves each body came from.
+        rememberSwarmPositions()
         stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive)
 
         // Swarm colours are stored per body, so a palette driven by something that moves has to be

@@ -51,6 +51,26 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     case freeze
     case hawk
     case hyperDrive = "hyper_drive"
+    /// Paints wind into the world.
+    ///
+    /// Unlike every mode above it, this one does not touch the bodies at all — it changes the *world*, and
+    /// the bodies notice on the next tick. That is the whole reason it is worth having: everything else in
+    /// the field applies everywhere at once, and this makes one part of it behave differently from another.
+    case current
+    /// Draws a wall the crowd cannot pass through.
+    case wall
+
+    /// Whether this mode alters the world rather than pushing the bodies.
+    ///
+    /// The two are handled quite differently — a force is applied every tick for as long as a finger is
+    /// down, where a stroke is recorded as it is drawn and then stays — so the distinction is worth naming
+    /// rather than leaving as two cases somebody has to remember.
+    public var drawsIntoTheWorld: Bool {
+        switch self {
+        case .current, .wall: return true
+        default: return false
+        }
+    }
 }
 
 /// A short history of where a particle has been, for drawing motion trails.
