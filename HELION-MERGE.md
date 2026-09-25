@@ -2874,7 +2874,7 @@ a new fixture.
 
 ## Scenes described and not built
 
-**All done in build-68 except text.** Slice D documents all twenty-six of the reference's generators. Twelve
+**All done.** Slice D documents all twenty-six of the reference's generators. Twelve
 were ported in the first pass, twelve already had a near-equivalent, and these five had neither:
 
 - **Fire** and **Smoke** — **done.** Both place a source as well as a body of particles, because what makes
@@ -2885,9 +2885,10 @@ were ported in the first pass, twelve already had a near-equivalent, and these f
 - **Water** — **done.** Switches the fluid on and lays the pool out in a honeycomb at exactly the spacing the
   fluid is set to keep, so it starts settled. A square grid at rest spacing is unstable — the fluid
   rearranges it into a honeycomb anyway, with a visible shudder — so starting where it wants to be skips that.
-- **Text** — **still absent.** Words as particles. The reference draws the letters to an offscreen picture and
-  reads the pixels back, which needs the drawing system and therefore belongs in the app layer rather than the
-  engine. That is the only reason, and it is still not a good enough one.
+- **Text** — **done**, build-70. Words as particles. Drawing the letters needs fonts, which the engine cannot
+  reach for — that was the reason it went unbuilt, and it was never a good enough one. Split instead: the
+  sampling decisions in the engine, the drawing in a small `CrucibleText` library built on CoreText so it is
+  tested rather than merely written. See "Words as particles" above for the three faults the tests found.
 
 ## Already declared, listed again so the two lists are not confused
 
