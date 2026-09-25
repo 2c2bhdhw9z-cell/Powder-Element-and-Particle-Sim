@@ -16,26 +16,35 @@ import Testing
 /// top than the bottom in every typeface there has ever been; an L is heavier at the bottom, and its top half
 /// sits to the left. Between them they pin down both directions.
 struct TextRasterizerTests {
-    /// How much ink there is in a part of the picture, as a share of all of it.
-    private func ink(
+    /// What share of the picture's ink lies in one region, counting only the ink in another.
+    ///
+    /// The second region is the whole point and the first version of this went without it, which made one of
+    /// the tests below ask a question nobody wanted the answer to. "Is the top of an L on its left" has to be
+    /// measured against *the ink in the top of the L* — measured against the whole letter it comes out at a
+    /// quarter whether the picture is mirrored or not, because the top of an L is only a quarter of it.
+    ///
+    /// - Parameters:
+    ///   - inside: whether a point counts, given how far across and how far down it is, nought to one.
+    ///   - outOf: which ink is being divided by. Everything, unless said otherwise.
+    private func inkShare(
         _ picture: TextRasterizer.Picture,
-        columns: Range<Double>,
-        rows: Range<Double>
+        inside: (Double, Double) -> Bool,
+        outOf: (Double, Double) -> Bool = { _, _ in true }
     ) -> Double {
-        var inside = 0.0
-        var all = 0.0
+        var counted = 0.0
+        var total = 0.0
         for row in 0 ..< picture.height {
-            let downThrough = (Double(row) + 0.5) / Double(picture.height)
+            let down = (Double(row) + 0.5) / Double(picture.height)
             for column in 0 ..< picture.width {
-                let value = picture.coverage[row * picture.width + column]
-                guard value > 0.35 else { continue }
-                all += 1
-                let acrossThrough = (Double(column) + 0.5) / Double(picture.width)
-                if columns.contains(acrossThrough), rows.contains(downThrough) { inside += 1 }
+                guard picture.coverage[row * picture.width + column] > 0.35 else { continue }
+                let across = (Double(column) + 0.5) / Double(picture.width)
+                guard outOf(across, down) else { continue }
+                total += 1
+                if inside(across, down) { counted += 1 }
             }
         }
-        guard all > 0 else { return 0 }
-        return inside / all
+        guard total > 0 else { return 0 }
+        return counted / total
     }
 
     /// The box the ink sits in, in fractions of the picture.
@@ -68,7 +77,7 @@ struct TextRasterizerTests {
         let picture = try #require(TextRasterizer.picture(of: "T"))
         let box = try #require(inkBox(picture))
         let middle = (box.top + box.bottom) / 2
-        let upper = ink(picture, columns: 0 ..< 1, rows: 0 ..< middle)
+        let upper = inkShare(picture, inside: { _, down in down < middle })
         #expect(
             upper > 0.62,
             "only \(Int(upper * 100))% of a T's ink is in its top half — the picture is upside down"
@@ -80,7 +89,7 @@ struct TextRasterizerTests {
         let picture = try #require(TextRasterizer.picture(of: "L"))
         let box = try #require(inkBox(picture))
         let middle = (box.top + box.bottom) / 2
-        let lower = ink(picture, columns: 0 ..< 1, rows: middle ..< 1)
+        let lower = inkShare(picture, inside: { _, down in down >= middle })
         #expect(
             lower > 0.55,
             "only \(Int(lower * 100))% of an L's ink is in its bottom half — the picture is upside down"
@@ -94,21 +103,29 @@ struct TextRasterizerTests {
         let picture = try #require(TextRasterizer.picture(of: "L"))
         let box = try #require(inkBox(picture))
         let middle = (box.left + box.right) / 2
-        let topThird = box.top ..< (box.top + (box.bottom - box.top) / 3)
-        let onTheLeft = ink(picture, columns: 0 ..< middle, rows: topThird)
+        let topThird = box.top + (box.bottom - box.top) / 3
+        // Of the ink in the top third of the letter, how much is on its left. All of it, for an L: the top of
+        // an L is nothing but the upright. Mirrored, it would be none of it.
+        let onTheLeft = inkShare(
+            picture,
+            inside: { across, _ in across < middle },
+            outOf: { _, down in down < topThird }
+        )
         #expect(
             onTheLeft > 0.8,
             "only \(Int(onTheLeft * 100))% of the top of an L is on its left — the picture is mirrored"
         )
     }
 
-    @Test("Two words in a row read left to right, not right to left")
+    @Test("Two marks in a row read left to right, not right to left")
     func readsLeftToRight() throws {
-        // A full stop is a small mark at one end. Put at the end of the word it must come out on the right.
+        // A full stop is a small mark at one end. Put at the end of the word it must come out on the right,
+        // which leaves the great majority of the ink — the upright — on the left.
         let picture = try #require(TextRasterizer.picture(of: "I."))
         let box = try #require(inkBox(picture))
-        let stem = ink(picture, columns: 0 ..< ((box.left + box.right) / 2), rows: 0 ..< 1)
-        #expect(stem > 0.7, "the upright of ‘I.’ is not on the left — the word is back to front")
+        let middle = (box.left + box.right) / 2
+        let stem = inkShare(picture, inside: { across, _ in across < middle })
+        #expect(stem > 0.7, "only \(Int(stem * 100))% of ‘I.’ is on the left — the word is back to front")
     }
 
     // MARK: - Shape and size
