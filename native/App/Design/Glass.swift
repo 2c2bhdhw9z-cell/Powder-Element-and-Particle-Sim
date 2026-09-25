@@ -18,21 +18,33 @@ enum GlassLevel: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
+    /// What the choice is called on screen.
+    ///
+    /// **"Off" rather than "Flat".** The three rungs used to read Flat / Subtle / Glass, and somebody
+    /// looking for a way to turn the glass off found no such words — picked the middle one, which still
+    /// blurs, and reasonably concluded the setting did nothing. A control named for the *look it produces*
+    /// is no use to somebody who wants the look gone; the bottom rung has to say so.
     var title: String {
         switch self {
-        case .flat: "Flat"
-        case .subtle: "Subtle"
-        case .full: "Glass"
+        case .flat: "Off"
+        case .subtle: "Light"
+        case .full: "Apple glass"
         }
     }
 
     var explanation: String {
         switch self {
-        case .flat: "No blur at all. Fastest, and the easiest to read."
-        case .subtle: "One thin blur behind each panel."
-        case .full: "Refracting glass that picks up what is behind it."
+        case .flat: "No blur anywhere. Every panel is solid. Fastest, and the easiest to read."
+        case .subtle: "One thin blur behind each panel. Things behind still show through, faintly."
+        case .full: "Apple's own glass, which bends and picks up whatever is behind it."
         }
     }
+
+    /// Whether anything is blurred at all at this level.
+    ///
+    /// The question every surface in the app is really asking, and worth a name of its own so that a
+    /// surface which cannot use the shared treatments still has one obvious thing to check.
+    var blursAnything: Bool { self != .flat }
 }
 
 /// Applies the chosen glass treatment to a panel.
@@ -112,6 +124,36 @@ extension View {
     /// almost every floating control in this interface uses.
     func glassPanel(_ level: GlassLevel) -> some View {
         modifier(GlassBackground(level: level, shape: Capsule()))
+    }
+}
+
+/// A backdrop for a surface that is not a panel.
+///
+/// A bar has one edge and a sheet has two, so neither can use ``GlassBackground`` — it outlines all four.
+/// They used to carry their own copy of the same three-way switch instead, which meant the app decided what
+/// glass means in three separate places. They agreed, but nothing made them agree, and "turn the glass off"
+/// is exactly the kind of promise that gets broken by the copy somebody forgot.
+///
+/// - Parameters:
+///   - solid: what is painted when there is no blur to paint.
+///   - tint: how dark the wash over the blur is, when there is one. A bar wants less than a sheet: a sheet
+///     is something you read, and a bar sits over a moving simulation all the time.
+struct GlassSurface: View {
+    let level: GlassLevel
+    let solid: Color
+    let tint: Double
+
+    var body: some View {
+        switch level {
+        case .flat:
+            // Flat means opaque. Not a very dark translucency — that still composites the simulation
+            // behind it every frame, which is both the cost and the look this setting exists to remove.
+            solid
+        case .subtle:
+            Color.black.opacity(tint).background(.ultraThinMaterial)
+        case .full:
+            Color.black.opacity(tint).background(.regularMaterial)
+        }
     }
 }
 

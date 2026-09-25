@@ -73,7 +73,20 @@ struct LabSheet<Content: View>: View {
         )
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.hidden)
-        .presentationBackground(.clear)
+        // What sits behind the panel, which is not the panel itself: the corners the rounded top leaves
+        // uncovered, and whatever the system would otherwise put there.
+        //
+        // Clear used to be unconditional, and that was one of the ways "off" failed to mean off. The
+        // system fills a clear presentation background with glass of its own, so somebody who had turned
+        // every blur in this app off was still looking at one — in the very sheet holding the setting,
+        // which is about the worst place for it.
+        .presentationBackground {
+            if glass.blursAnything {
+                Color.clear
+            } else {
+                Palette.background
+            }
+        }
         .tint(Palette.primary)
         .preferredColorScheme(.dark)
     }
@@ -122,16 +135,8 @@ struct LabSheet<Content: View>: View {
         .padding(.bottom, 8)
     }
 
-    @ViewBuilder
     private var panelBackground: some View {
-        switch glass {
-        case .flat:
-            Palette.elevated
-        case .subtle:
-            Color.black.opacity(0.7).background(.ultraThinMaterial)
-        case .full:
-            Color.black.opacity(0.7).background(.regularMaterial)
-        }
+        GlassSurface(level: glass, solid: Palette.elevated, tint: 0.7)
     }
 }
 

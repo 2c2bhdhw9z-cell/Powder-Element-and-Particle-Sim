@@ -135,8 +135,11 @@ struct SettingsSheet: View {
 
     private var appearance: some View {
         LabGroup("Appearance", footnote: glass.explanation) {
+            // Named for the thing it controls, in the words somebody would use for it. "Glass" was the
+            // label and Flat / Subtle / Glass were the choices, so the row read "Glass: Glass" and offered
+            // no way to say no.
             LabChoice(
-                label: "Glass",
+                label: "Apple glass",
                 selection: $glass,
                 options: GlassLevel.allCases.map { (value: $0, title: $0.title) }
             )

@@ -140,55 +140,91 @@ struct ContentView: View {
     }
 
     var body: some View {
-        // Header, world, dock — stacked, the way the reference arranges them. The world used to fill
-        // the whole screen with the controls floating over it, which reads as a utility with things
-        // stuck on it rather than as a place with a name.
-        VStack(spacing: 0) {
-            LabHeader(
-                chamber: chamber,
-                isRunning: isRunning,
-                framesPerSecond: framesPerSecond,
-                glass: glass,
-                onToggleRunning: toggleRunning,
-                onSelectChamber: select,
-                onShowMenu: { showingSettings = true },
-                onShowPerformance: { showingPerformance = true },
-                isSplit: isSplit,
-                onToggleSplit: {
-                    isSplit.toggle()
-                    // The tray is closed on the way in and out: half a screen with an open tray leaves
-                    // almost no world visible, which defeats the point of looking at both.
-                    isDockOpen = false
-                    updateCompanionStepping()
-                }
-            )
-
-            if isSplit {
-                // Stacked rather than side by side, because on a phone held upright two tall thin
-                // chambers are far worse than two short wide ones. The reference does the same — its
-                // side-by-side layout only applies from tablet widths up.
-                VStack(spacing: 0) {
-                    chamberPane(.powder)
-                    Rectangle()
-                        .fill(Palette.borderStrong)
-                        .frame(height: 1)
-                    chamberPane(.field)
-                }
-                .background(Palette.background)
-            } else {
-                chamberPane(chamber)
-                    .background(Palette.background)
-            }
-
-            dock
-        }
-        // The background fills the whole screen; the *content* does not.
+        // The world reaches the top of the screen; the bar floats over it.
         //
-        // This used to ignore the bottom safe area so the dock's backdrop reached under the home
-        // indicator, and it took the dock's controls down there with it. The play button and the
-        // clear button ended up sitting inside the home-indicator strip, where they are both clipped
-        // and half-unusable — iOS takes the upward swipe from that band, so pressing them is a
-        // gamble. Anything you can press has to stay above it.
+        // ## Why this is not a stack of three any more
+        //
+        // It was, and the band above the title was the price. Keeping every piece of content inside the
+        // safe area left the strip beside the sensor housing painted flat black and holding nothing at
+        // all — on a tall phone that is a sixteenth of the screen doing no work, directly above a
+        // simulation that wants every pixel it can get. The status bar is switched off in Info.plist, so
+        // there was not even a clock up there to justify it.
+        //
+        // So the world is full-bleed at the top now and the bar sits over it. Two consequences, both
+        // deliberate:
+        //
+        //   - The world runs *behind* the bar as well as above it. That cannot be avoided — filling the
+        //     strip means reaching past where the bar is — and it is the better half of the trade: at
+        //     the default setting the bar is glass, so the simulation is visible through it rather than
+        //     lost under it.
+        //   - The floating tools have to be pushed clear of the bar by hand, since they are no longer
+        //     laid out below it. ``LabHeader/height`` is what they are pushed by, which is why that is a
+        //     stated constant rather than whatever the bar's rows happen to add up to.
+        //
+        // The bottom is untouched. Anything pressable still stays above the home indicator.
+        GeometryReader { screen in
+            // How far down the floating controls have to start to clear the bar: the strip the bar sits
+            // in, the bar itself, and the eight points everything floating uses as its margin.
+            let clearance = screen.safeAreaInsets.top + LabHeader.height + 8
+
+            // The whole stack reaches the top, and the bar is put back down by hand.
+            //
+            // Rather than letting only the world ignore the strip and leaving the bar to work out where it
+            // belongs: a stack holding one child that ignores the safe area and one that does not has to
+            // decide how big it is, and the answer is not obvious enough to rely on. A number does not have
+            // that problem.
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    if isSplit {
+                        // Stacked rather than side by side, because on a phone held upright two tall thin
+                        // chambers are far worse than two short wide ones. The reference does the same —
+                        // its side-by-side layout only applies from tablet widths up.
+                        VStack(spacing: 0) {
+                            // Only the upper pane is under the bar, so only the upper pane's tools move.
+                            chamberPane(.powder, topClearance: clearance)
+                            Rectangle()
+                                .fill(Palette.borderStrong)
+                                .frame(height: 1)
+                            chamberPane(.field, topClearance: 8)
+                        }
+                        .background(Palette.background)
+                    } else {
+                        chamberPane(chamber, topClearance: clearance)
+                            .background(Palette.background)
+                    }
+
+                    dock
+                }
+
+                LabHeader(
+                    chamber: chamber,
+                    isRunning: isRunning,
+                    framesPerSecond: framesPerSecond,
+                    glass: glass,
+                    onToggleRunning: toggleRunning,
+                    onSelectChamber: select,
+                    onShowMenu: { showingSettings = true },
+                    onShowPerformance: { showingPerformance = true },
+                    isSplit: isSplit,
+                    onToggleSplit: {
+                        isSplit.toggle()
+                        // The tray is closed on the way in and out: half a screen with an open tray
+                        // leaves almost no world visible, which defeats the point of looking at both.
+                        isDockOpen = false
+                        updateCompanionStepping()
+                    }
+                )
+                // Down by exactly the strip the stack just reached up into, so the bar ends up where it
+                // has always been while the world beneath it does not.
+                .padding(.top, screen.safeAreaInsets.top)
+            }
+            // Upward only. This used to ignore the bottom safe area too, and it took the dock's controls
+            // down with it: the play button and the clear button ended up inside the home-indicator strip,
+            // where iOS takes the upward swipe and pressing them is a gamble.
+            .ignoresSafeArea(edges: .top)
+        }
+        // Behind everything, including the strip at the top and the one at the bottom, so that nothing
+        // the world does not reach is ever left showing through to white.
         .background(Palette.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(Palette.primary)
@@ -391,8 +427,11 @@ struct ContentView: View {
     ///
     /// The same view whether it is filling the screen or sharing it, so the two layouts cannot drift
     /// apart — and so that a chamber sharing the screen is a real chamber rather than a preview of one.
+    /// - Parameter topClearance: how far down the floating controls must start so the bar does not cover
+    ///   them. The world itself ignores this and fills the pane, which is the whole point of the pane
+    ///   reaching the top of the screen.
     @ViewBuilder
-    private func chamberPane(_ which: Chamber) -> some View {
+    private func chamberPane(_ which: Chamber, topClearance: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 surface(which, size: geometry.size)
@@ -405,7 +444,7 @@ struct ContentView: View {
                         if showDebugOverlay { debugReadout }
                     }
                     .padding(.leading, 8)
-                    .padding(.top, 8)
+                    .padding(.top, topClearance)
                 }
 
                 // The opposite corner from the tools. That used to be described here as meaning the two
@@ -425,7 +464,9 @@ struct ContentView: View {
                         }
                     }
                     .padding(.trailing, 8)
-                    .padding(.top, 8)
+                    // The same clearance as the tools. It is in the same layer over the same world, so
+                    // the bar would cover it just as thoroughly.
+                    .padding(.top, topClearance)
                 }
             }
             // Tapping the other half moves focus to it, which is how the dock and the tools follow

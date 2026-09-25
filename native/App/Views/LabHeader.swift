@@ -31,11 +31,23 @@ struct LabHeader: View {
     let isSplit: Bool
     let onToggleSplit: () -> Void
 
+    /// How tall the bar is.
+    ///
+    /// Fixed, and stated here rather than left to come out of the layout, because the bar now floats over
+    /// a world that reaches the top of the screen — so the floating controls underneath it have to be
+    /// pushed clear of it, and something has to know by how much. Enforced below rather than merely
+    /// believed: the rows add up to this, and the frame makes it so even if they ever stop.
+    ///
+    /// Forty-eight and forty-eight. The title row is a forty-four point button with four points under it,
+    /// and the chamber row a forty point pill with eight.
+    static let height: CGFloat = 96
+
     var body: some View {
         VStack(spacing: 0) {
             titleRow
             chamberRow
         }
+        .frame(height: Self.height)
         .background(headerBackground)
         .overlay(alignment: .bottom) {
             // Twelve percent, deliberately weaker than the fifteen the floating panels use, so the
@@ -178,19 +190,10 @@ struct LabHeader: View {
 
     /// The bar's own backdrop.
     ///
-    /// Not routed through the shared panel treatment, because that draws an outline on all four
-    /// sides and this is a bar with one edge. It still honours the glass setting: turned all the way
-    /// down there is no blur here either, which is the point of that setting.
-    @ViewBuilder
+    /// Not the shared panel treatment, because that outlines all four sides and this is a bar with one
+    /// edge — but no longer its own copy of the switch either. One place decides what each level means.
     private var headerBackground: some View {
-        switch glass {
-        case .flat:
-            Palette.background
-        case .subtle:
-            Color.black.opacity(0.4).background(.ultraThinMaterial)
-        case .full:
-            Color.black.opacity(0.4).background(.regularMaterial)
-        }
+        GlassSurface(level: glass, solid: Palette.background, tint: 0.4)
     }
 
     private func roundButton(
