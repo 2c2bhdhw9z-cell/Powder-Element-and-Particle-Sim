@@ -37,6 +37,23 @@ public final class Swarm {
     public private(set) var velocities: UnsafeMutablePointer<Float>
     /// One packed colour per body.
     public private(set) var colors: UnsafeMutablePointer<UInt32>
+    /// How heavy each body is.
+    ///
+    /// One for every body until something sets otherwise, and the arithmetic is arranged so that equal
+    /// weights give exactly the answer the crowd gave before weights existed — which is what lets the
+    /// recorded comparison against the reference implementation stay exact.
+    public private(set) var masses: UnsafeMutablePointer<Float>
+    /// How many moments each body has left. Negative means it never expires.
+    public private(set) var lives: UnsafeMutablePointer<Float>
+    /// How many it started with, for fading and for colouring by age.
+    public private(set) var maxLives: UnsafeMutablePointer<Float>
+
+    /// Whether any body will ever expire.
+    ///
+    /// Tracked rather than scanned for, because it decides whether three whole passes run at all — ageing,
+    /// removing the dead, and sending the lifetimes to the graphics card. At a million bodies that last one
+    /// alone is four megabytes a frame, and almost every scene is made of bodies that live forever.
+    public private(set) var hasMortalBodies = false
 
     /// Bumped whenever the contents change in a way a renderer needs to notice.
     ///
@@ -63,9 +80,15 @@ public final class Swarm {
         self.positions = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.velocities = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.colors = UnsafeMutablePointer<UInt32>.allocate(capacity: 1)
+        self.masses = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.lives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.maxLives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.positions.initialize(repeating: 0, count: 1)
         self.velocities.initialize(repeating: 0, count: 1)
         self.colors.initialize(repeating: 0, count: 1)
+        self.masses.initialize(repeating: 1, count: 1)
+        self.lives.initialize(repeating: -1, count: 1)
+        self.maxLives.initialize(repeating: 1, count: 1)
     }
 
     deinit {
@@ -76,6 +99,12 @@ public final class Swarm {
         velocities.deallocate()
         colors.deinitialize(count: allocated)
         colors.deallocate()
+        masses.deinitialize(count: allocated)
+        masses.deallocate()
+        lives.deinitialize(count: allocated)
+        lives.deallocate()
+        maxLives.deinitialize(count: allocated)
+        maxLives.deallocate()
         if let bucketHead {
             bucketHead.deinitialize(count: bucketHeadCount)
             bucketHead.deallocate()
@@ -114,14 +143,25 @@ public final class Swarm {
         let newPositions = UnsafeMutablePointer<Float>.allocate(capacity: target * 2)
         let newVelocities = UnsafeMutablePointer<Float>.allocate(capacity: target * 2)
         let newColors = UnsafeMutablePointer<UInt32>.allocate(capacity: target)
+        let newMasses = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        let newLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        let newMaxLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
         newPositions.initialize(repeating: 0, count: target * 2)
         newVelocities.initialize(repeating: 0, count: target * 2)
         newColors.initialize(repeating: 0, count: target)
+        // A body nobody has said anything about weighs one and lives forever, so that is what fresh room
+        // holds — otherwise a body written without those set would weigh nothing and be dead on arrival.
+        newMasses.initialize(repeating: 1, count: target)
+        newLives.initialize(repeating: -1, count: target)
+        newMaxLives.initialize(repeating: 1, count: target)
 
         if count > 0 {
             newPositions.update(from: positions, count: count * 2)
             newVelocities.update(from: velocities, count: count * 2)
             newColors.update(from: colors, count: count)
+            newMasses.update(from: masses, count: count)
+            newLives.update(from: lives, count: count)
+            newMaxLives.update(from: maxLives, count: count)
         }
 
         let previous = max(1, capacity)
@@ -131,10 +171,19 @@ public final class Swarm {
         velocities.deallocate()
         colors.deinitialize(count: previous)
         colors.deallocate()
+        masses.deinitialize(count: previous)
+        masses.deallocate()
+        lives.deinitialize(count: previous)
+        lives.deallocate()
+        maxLives.deinitialize(count: previous)
+        maxLives.deallocate()
 
         positions = newPositions
         velocities = newVelocities
         colors = newColors
+        masses = newMasses
+        lives = newLives
+        maxLives = newMaxLives
         capacity = target
     }
 
@@ -179,6 +228,9 @@ public final class Swarm {
             velocities[pair + 1] = JS.toFloat32((rng.next() - 0.5) * 6)
             // `!= 0`, not truthiness: a deliberately black or transparent colour is a
             // legitimate request that the web version silently replaced.
+            masses[i] = 1
+            lives[i] = -1
+            maxLives[i] = 1
             colors[i] = color != 0
                 ? color
                 : 0xFF00_0000 | UInt32((i * 97) & 255)
@@ -222,7 +274,9 @@ public final class Swarm {
         velocityX: Double,
         velocityY: Double,
         color: UInt32,
-        budget: Int
+        budget: Int,
+        mass: Double = 1,
+        life: Double = -1
     ) -> Bool {
         guard count < min(Self.maximumCount, budget) else { return false }
         reserve(count + 1)
@@ -235,9 +289,110 @@ public final class Swarm {
         velocities[pair] = JS.toFloat32(velocityX)
         velocities[pair + 1] = JS.toFloat32(velocityY)
         colors[index] = color
+        masses[index] = JS.toFloat32(mass.isFinite ? max(0.01, mass) : 1)
+        let usableLife = life.isFinite ? life : -1
+        lives[index] = JS.toFloat32(usableLife)
+        // Never nought: it divides the remaining life to work out how faded a body should be.
+        maxLives[index] = JS.toFloat32(usableLife > 0 ? usableLife : 1)
+        if usableLife > 0 { hasMortalBodies = true }
         count = index + 1
         generation += 1
         return true
+    }
+
+    /// Sets one body's weight.
+    public func setMass(_ mass: Double, at index: Int) {
+        guard index >= 0, index < count else { return }
+        masses[index] = JS.toFloat32(mass.isFinite ? max(0.01, mass) : 1)
+    }
+
+    /// Sets how long one body has left.
+    public func setLife(_ life: Double, at index: Int) {
+        guard index >= 0, index < count else { return }
+        let usable = life.isFinite ? life : -1
+        lives[index] = JS.toFloat32(usable)
+        maxLives[index] = JS.toFloat32(usable > 0 ? usable : 1)
+        if usable > 0 { hasMortalBodies = true }
+    }
+
+    /// How faded a body should be drawn, from nought when it is about to go to one when it is new.
+    ///
+    /// A body that never expires is fully solid, which is the only sensible answer for something with no age
+    /// to be part of the way through.
+    public func fade(at index: Int) -> Double {
+        guard index >= 0, index < count else { return 1 }
+        let left = Double(lives[index])
+        guard left >= 0 else { return 1 }
+        let started = Double(maxLives[index])
+        guard started > 0 else { return 0 }
+        return max(0, min(1, left / started))
+    }
+
+    /// Ages every body, and removes the ones that have run out.
+    ///
+    /// - Returns: how many were removed.
+    ///
+    /// Does nothing at all when nothing can expire, which is almost every scene — so the cost of having
+    /// lifetimes is nought until something uses one.
+    @discardableResult
+    public func age(by moments: Double = 1) -> Int {
+        guard hasMortalBodies, count > 0 else { return 0 }
+        let step = Float(moments.isFinite ? max(0, moments) : 0)
+        guard step > 0 else { return 0 }
+
+        var anyMortal = false
+        for index in 0 ..< count where lives[index] >= 0 {
+            lives[index] = max(0, lives[index] - step)
+            if lives[index] > 0 { anyMortal = true }
+        }
+        hasMortalBodies = anyMortal
+        return removeExpired()
+    }
+
+    /// Removes every body whose life has run out, and every one marked for removal.
+    ///
+    /// Swap-with-last, which is the only way to remove from the middle of a packed list without moving
+    /// everything after it. The consequence is that the order changes, which nothing here depends on — the
+    /// crowd carries no springs and nothing holds a position in it between ticks.
+    @discardableResult
+    public func removeExpired() -> Int {
+        guard count > 0 else { return 0 }
+        var removed = 0
+        var index = 0
+        while index < count {
+            if lives[index] == 0 {
+                let last = count - 1
+                if index != last {
+                    let here = index * 2
+                    let there = last * 2
+                    positions[here] = positions[there]
+                    positions[here + 1] = positions[there + 1]
+                    velocities[here] = velocities[there]
+                    velocities[here + 1] = velocities[there + 1]
+                    colors[index] = colors[last]
+                    masses[index] = masses[last]
+                    lives[index] = lives[last]
+                    maxLives[index] = maxLives[last]
+                }
+                count = last
+                removed += 1
+                // Deliberately not advancing: whatever was moved into this place has not been looked at.
+                continue
+            }
+            index += 1
+        }
+        if removed > 0 { generation += 1 }
+        return removed
+    }
+
+    /// Marks a body to be removed by the next sweep.
+    ///
+    /// Marked rather than removed at once, because this is called from inside the loop that is walking the
+    /// bodies — and removing one there would move an unvisited body into a place already passed.
+    func markForRemoval(at index: Int) {
+        guard index >= 0, index < count else { return }
+        lives[index] = 0
+        hasMortalBodies = true
     }
 
     // MARK: - Stepping
@@ -380,9 +535,18 @@ public final class Swarm {
                 continue
             }
 
-            // Void has no meaning for a fixed buffer with no per-body lifetime, so it
-            // falls back to bouncing rather than leaking bodies outside the world where
-            // nothing would ever bring them back.
+            // Vanishing used to fall back to bouncing here, because there was no per-body lifetime and a
+            // body left outside the world would never come back. There is one now, so it works: a body that
+            // has left is marked, and the sweep after the loop removes it.
+            if options.boundaryMode == .void {
+                let x = positions[pair].asDouble
+                let y = positions[pair + 1].asDouble
+                if x < -10 || x > width + 10 || y < -10 || y > height + 10 {
+                    markForRemoval(at: i)
+                    continue
+                }
+            }
+
             if positions[pair].asDouble < 1 {
                 positions[pair] = 1
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
@@ -398,6 +562,10 @@ public final class Swarm {
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             }
         }
+
+        // Ageing before the contact pass, so a body that has expired is gone rather than spending its last
+        // moment shoving its neighbours about.
+        if hasMortalBodies { age(by: 1) } else { removeExpired() }
 
         if options.collide, count > 1 {
             // More than once, because moving one pair apart pushes each of them into somebody else — one
@@ -511,15 +679,26 @@ public final class Swarm {
                                 let normalX = dx / distance
                                 let normalY = dy / distance
                                 let overlap = diameter - distance
-                                posX += normalX * overlap * 0.5
-                                posY += normalY * overlap * 0.5
+                                // Shared by weight, so a heavy body barely moves and a light one is shoved.
+                                // At equal weights this is exactly a half each, which is what the crowd did
+                                // before weights existed — so the recorded comparison stays exact.
+                                let ownMass = masses[i].asDouble
+                                let otherMass = masses[other].asDouble
+                                let totalMass = ownMass + otherMass
+                                let ownShare = totalMass > 0 ? otherMass / totalMass : 0.5
+                                posX += normalX * overlap * ownShare
+                                posY += normalY * overlap * ownShare
+                                // And the same for how much of the bounce this body takes. Twice the other
+                                // body's share, so that equal weights give one — again, exactly the old
+                                // behaviour.
+                                let takenShare = totalMass > 0 ? 2 * otherMass / totalMass : 1
 
                                 let otherVelX = velocities[otherPair].asDouble
                                 let otherVelY = velocities[otherPair + 1].asDouble
                                 let closing = (velX - otherVelX) * normalX + (velY - otherVelY) * normalY
                                 if closing < 0 {
-                                    velX -= normalX * closing * contact.bounciness
-                                    velY -= normalY * closing * contact.bounciness
+                                    velX -= normalX * closing * contact.bounciness * takenShare
+                                    velY -= normalY * closing * contact.bounciness * takenShare
                                 }
                                 // Friction along the contact.
                                 let relativeX = velX - otherVelX
@@ -527,8 +706,8 @@ public final class Swarm {
                                 let alongNormal = relativeX * normalX + relativeY * normalY
                                 let tangentX = relativeX - normalX * alongNormal
                                 let tangentY = relativeY - normalY * alongNormal
-                                velX -= tangentX * contact.friction
-                                velY -= tangentY * contact.friction
+                                velX -= tangentX * contact.friction * takenShare
+                                velY -= tangentY * contact.friction * takenShare
                             }
                         }
                         other = Int(next[other])
@@ -569,16 +748,28 @@ public final class Swarm {
         public var positions: [Float]
         public var velocities: [Float]
         public var colors: [UInt32]
+        /// Weights, left empty when every body weighs one — which is almost always, and is four megabytes a
+        /// save file at a million bodies.
+        public var masses: [Float] = []
+        /// Lifetimes, left empty when nothing expires.
+        public var lives: [Float] = []
         public var count: Int { colors.count }
     }
 
     /// Copies out at most `limit` bodies.
     public func snapshot(limit: Int = .max) -> Snapshot {
         let taken = max(0, min(count, limit))
+        var anyWeighted = false
+        for index in 0 ..< taken where masses[index] != 1 {
+            anyWeighted = true
+            break
+        }
         return Snapshot(
             positions: Array(UnsafeBufferPointer(start: positions, count: taken * 2)),
             velocities: Array(UnsafeBufferPointer(start: velocities, count: taken * 2)),
-            colors: Array(UnsafeBufferPointer(start: colors, count: taken))
+            colors: Array(UnsafeBufferPointer(start: colors, count: taken)),
+            masses: anyWeighted ? Array(UnsafeBufferPointer(start: masses, count: taken)) : [],
+            lives: hasMortalBodies ? Array(UnsafeBufferPointer(start: lives, count: taken)) : []
         )
     }
 
@@ -606,6 +797,28 @@ public final class Swarm {
         }
         snapshot.colors.withUnsafeBufferPointer { source in
             colors.update(from: source.baseAddress!, count: min(actual, source.count))
+        }
+        // Absent means the plain answer — everything weighs one and lives forever — which is what the fresh
+        // room was filled with, so there is nothing to do in that case.
+        if !snapshot.masses.isEmpty {
+            snapshot.masses.withUnsafeBufferPointer { source in
+                masses.update(from: source.baseAddress!, count: min(actual, source.count))
+            }
+        } else {
+            masses.update(repeating: 1, count: actual)
+        }
+        hasMortalBodies = false
+        if !snapshot.lives.isEmpty {
+            snapshot.lives.withUnsafeBufferPointer { source in
+                lives.update(from: source.baseAddress!, count: min(actual, source.count))
+            }
+            for index in 0 ..< actual {
+                maxLives[index] = max(1, lives[index])
+                if lives[index] > 0 { hasMortalBodies = true }
+            }
+        } else {
+            lives.update(repeating: -1, count: actual)
+            maxLives.update(repeating: 1, count: actual)
         }
         count = actual
         generation += 1

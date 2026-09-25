@@ -796,3 +796,231 @@ extension ParticleEngine {
         }
     }
 }
+
+
+// MARK: - The last four from the reference
+
+/// The scenes the read documented and the first pass did not build.
+///
+/// Two of them — fire and smoke — are continuous rather than arrangements: what makes a fire a fire is that
+/// it keeps burning. So they place a *source* as well as a body of particles, which is why they had to wait
+/// for sources to exist. See the gap audit in `HELION-MERGE.md`.
+extension ParticleEngine {
+    /// A tilted ring.
+    ///
+    /// The smallest of the four and the one that shows off the camera's tilt: a ring seen from straight on is
+    /// a circle, and leaning the plane over turns it into a proper ellipse with the near side drawn larger.
+    public func spawnRing(count requested: Int = 3_200) {
+        pushUndo()
+        let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
+        guard total > 0 else { return }
+
+        let radius = 0.32 * patternSpan
+        let band = 0.07 * radius
+        let centreX = width * 0.5
+        let centreY = height * 0.5
+        // Squashed, so it already reads as a ring seen at an angle before the camera is touched at all.
+        let squash = 0.86
+
+        for index in 0 ..< total {
+            // One body per slice of the circle with a little jitter inside its own slice, rather than a free
+            // scatter — a scatter leaves visible gaps and clumps, and a ring is a thing whose evenness is the
+            // whole of its appeal.
+            let around = (Double(index) + between(0, 1)) / Double(total) * 6.283185307179586
+            let outward = radius + between(-band, band)
+            let orbit = (max(0.2, vortexForce == 0 ? 1.35 : abs(vortexForce))).squareRoot() * 0.35
+
+            guard place(
+                centreX + jsCos(around) * outward,
+                centreY + jsSin(around) * outward * squash,
+                velocityX: -jsSin(around) * orbit,
+                velocityY: jsCos(around) * orbit * squash,
+                hue: (around / 6.283185307179586 * 360).truncatingRemainder(dividingBy: 360),
+                saturation: 0.8,
+                lightness: 0.64
+            ) else { return }
+        }
+    }
+
+    /// A standing pool of water with something pouring into it.
+    ///
+    /// Switches the fluid on, because without it this is a rectangle of dots. It is also the one scene whose
+    /// spacing has a right answer: the bodies are laid out at exactly the spacing the fluid is set to keep,
+    /// so the pool starts settled instead of exploding outward on the first moment.
+    ///
+    /// Laid out in a honeycomb rather than on a square grid. A square grid at rest spacing is unstable — every
+    /// body has four neighbours at the spacing and four more at the diagonal, so the fluid immediately
+    /// rearranges it into a honeycomb anyway, with a visible shudder. Starting where it wants to be skips that.
+    public func spawnWaterPool(count requested: Int = 6_000) {
+        pushUndo()
+        let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
+        guard total > 0 else { return }
+
+        fluidEnabled = true
+        collisionsEnabled = false
+        if gravityY <= 0 { gravityY = 0.35 }
+
+        let spacing = (1 / max(1e-6, fluidSettings.sanitized.restDensity)).squareRoot()
+        // Four fifths of the budget in the pool, the rest falling into it.
+        let poolBudget = Int(Double(total) * 0.8)
+
+        let left = 0.08 * width
+        let right = 0.92 * width
+        let bottom = 0.96 * height
+        let top = 0.52 * height
+        var placed = 0
+        var y = bottom
+        var row = 0
+        while y > top, placed < poolBudget {
+            // Odd rows offset by half a spacing, and rows themselves separated by the height of an
+            // equilateral triangle — which is what makes it a honeycomb rather than bricks.
+            let offset = row.isMultiple(of: 2) ? 0 : spacing * 0.5
+            var x = left + offset
+            while x < right, placed < poolBudget {
+                guard place(
+                    x + between(-spacing * 0.08, spacing * 0.08),
+                    y + between(-spacing * 0.08, spacing * 0.08),
+                    velocityX: between(-0.05, 0.05),
+                    velocityY: between(-0.05, 0.05),
+                    hue: 198 + between(-6, 6),
+                    saturation: 0.72,
+                    lightness: 0.55
+                ) else { return }
+                placed += 1
+                x += spacing
+            }
+            y -= spacing * 0.866_025_403_784_438_6
+            row += 1
+        }
+
+        // And an inlet pouring in, which is what makes it a scene rather than a still life.
+        emitterTemplate = ParticleEmitter(
+            atFractionX: 0.5,
+            atFractionY: 0.06,
+            direction: 1.5707963267948966,
+            rate: 240,
+            spread: 0.12,
+            speed: 2.4,
+            speedVariation: 0.25,
+            lifespan: 0,
+            weight: 1,
+            weightVariation: 0,
+            hue: 196
+        )
+        addEmitter(atX: width * 0.5, y: height * 0.06)
+    }
+
+    /// A fire: a column of embers rising from the floor, and a source keeping it going.
+    ///
+    /// The embers are given lifetimes, which is what makes a flame look like a flame — a body that rises
+    /// forever is a jet, and a body that fades out part of the way up is a flame. That needed the crowd to
+    /// carry lifetimes at all, which until now it did not.
+    public func spawnFire(count requested: Int = 2_400) {
+        pushUndo()
+        let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
+        guard total > 0 else { return }
+
+        // Upward, so gravity has to point the other way. Fire rises because it is hotter than the air round
+        // it, and the cheapest honest way to say that here is negative gravity.
+        if gravityY >= 0 { gravityY = -0.22 }
+        collisionsEnabled = false
+
+        let columnWidth = 0.18 * width
+        for _ in 0 ..< total {
+            let heat = rng.next()
+            let life = between(30, 110)
+            guard placeMortal(
+                width * 0.5 + between(-columnWidth, columnWidth),
+                between(0.78, 0.98) * height,
+                velocityX: between(-0.7, 0.7),
+                velocityY: -between(1.2, 3.4),
+                life: life,
+                // Hottest at the bottom, cooling as it goes: deep orange through to pale yellow.
+                hue: 8 + heat * 44,
+                saturation: 0.96,
+                lightness: 0.46 + heat * 0.3
+            ) else { return }
+        }
+
+        emitterTemplate = ParticleEmitter(
+            atFractionX: 0.5,
+            atFractionY: 0.95,
+            // A quarter turn the other way is straight up.
+            direction: -1.5707963267948966,
+            rate: 420,
+            spread: 0.42,
+            speed: 2.6,
+            speedVariation: 0.45,
+            lifespan: 80,
+            weight: 0.6,
+            weightVariation: 0.3,
+            hue: 24
+        )
+        addEmitter(atX: width * 0.5, y: height * 0.95)
+    }
+
+    /// Smoke: slower, wider and lighter than fire, and lasting far longer.
+    public func spawnSmoke(count requested: Int = 2_400) {
+        pushUndo()
+        let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
+        guard total > 0 else { return }
+
+        if gravityY >= 0 { gravityY = -0.1 }
+        collisionsEnabled = false
+
+        let columnWidth = 0.12 * width
+        for _ in 0 ..< total {
+            guard placeMortal(
+                width * 0.5 + between(-columnWidth, columnWidth),
+                between(0.72, 0.96) * height,
+                velocityX: between(-0.35, 0.35),
+                velocityY: -between(0.4, 1.2),
+                life: between(140, 320),
+                // Barely coloured at all. Smoke that is a colour reads as gas; smoke that is nearly grey
+                // reads as smoke.
+                hue: 220 + between(-20, 20),
+                saturation: 0.12,
+                lightness: 0.34 + rng.next() * 0.22
+            ) else { return }
+        }
+
+        emitterTemplate = ParticleEmitter(
+            atFractionX: 0.5,
+            atFractionY: 0.94,
+            direction: -1.5707963267948966,
+            rate: 180,
+            spread: 0.62,
+            speed: 1.1,
+            speedVariation: 0.5,
+            lifespan: 240,
+            weight: 0.3,
+            weightVariation: 0.4,
+            hue: 222
+        )
+        addEmitter(atX: width * 0.5, y: height * 0.94)
+    }
+
+    /// Puts one body into the crowd with a lifetime, and says whether to keep going.
+    @discardableResult
+    private func placeMortal(
+        _ x: Double,
+        _ y: Double,
+        velocityX: Double,
+        velocityY: Double,
+        life: Double,
+        hue: Double,
+        saturation: Double,
+        lightness: Double
+    ) -> Bool {
+        swarm.append(
+            x: x,
+            y: y,
+            velocityX: velocityX,
+            velocityY: velocityY,
+            color: PackedColor(hue: hue, saturation: saturation, lightness: lightness).packedRGBA,
+            budget: maxParticles - particles.count,
+            mass: 1,
+            life: life
+        )
+    }
+}

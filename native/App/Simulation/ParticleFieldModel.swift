@@ -378,6 +378,112 @@ final class ParticleFieldModel {
         set { engine.trailSettings.width = newValue; engineDidChange() }
     }
 
+    /// How far a body is stretched along its own motion. Nought draws it as a dot.
+    var streakLength: Double {
+        get { observeEngine(); return engine.trailSettings.streak }
+        set { engine.trailSettings.streak = newValue; engineDidChange() }
+    }
+
+    // MARK: - Sources
+
+    /// How many sources are pouring.
+    var emitterCount: Int {
+        observeEngine()
+        return engine.emitters.count
+    }
+
+    /// A short description of each source, for the list.
+    var emitterSummaries: [String] {
+        observeEngine()
+        return engine.emitters.enumerated().map { index, emitter in
+            "\(index + 1). \(emitter.summary)\(emitter.isRunning ? "" : " — stopped")"
+        }
+    }
+
+    /// How fast a newly placed source pours.
+    var sourceRate: Double {
+        get { observeEngine(); return engine.emitterTemplate.rate }
+        set { setOnEveryEmitter { $0.rate = newValue } }
+    }
+
+    /// How wide a fan it sprays.
+    var sourceSpread: Double {
+        get { observeEngine(); return engine.emitterTemplate.spread }
+        set { setOnEveryEmitter { $0.spread = newValue } }
+    }
+
+    /// How fast the bodies leave.
+    var sourceSpeed: Double {
+        get { observeEngine(); return engine.emitterTemplate.speed }
+        set { setOnEveryEmitter { $0.speed = newValue } }
+    }
+
+    /// How much that speed varies.
+    var sourceSpeedVariation: Double {
+        get { observeEngine(); return engine.emitterTemplate.speedVariation }
+        set { setOnEveryEmitter { $0.speedVariation = newValue } }
+    }
+
+    /// How long each body lasts. Nought means forever.
+    var sourceLifespan: Double {
+        get { observeEngine(); return engine.emitterTemplate.lifespan }
+        set { setOnEveryEmitter { $0.lifespan = newValue } }
+    }
+
+    /// How heavy each body is.
+    var sourceWeight: Double {
+        get { observeEngine(); return engine.emitterTemplate.weight }
+        set { setOnEveryEmitter { $0.weight = newValue } }
+    }
+
+    /// What colour, as a hue. Negative takes a random one per body.
+    var sourceHue: Double {
+        get { observeEngine(); return engine.emitterTemplate.hue }
+        set { setOnEveryEmitter { $0.hue = newValue } }
+    }
+
+    /// Changes one number on the template *and* on every source already placed.
+    ///
+    /// Both, because a slider that only affected the next source somebody placed would be useless for the
+    /// one they are looking at — and finding it in a list to change it there is exactly the friction the
+    /// template was meant to remove.
+    private func setOnEveryEmitter(_ change: (inout ParticleEmitter) -> Void) {
+        var template = engine.emitterTemplate
+        change(&template)
+        engine.emitterTemplate = template.sanitized
+
+        var placed = engine.emitters
+        for index in placed.indices {
+            change(&placed[index])
+            placed[index] = placed[index].sanitized
+        }
+        engine.emitters = placed
+        engineDidChange()
+    }
+
+    /// Stops or starts one source.
+    func setEmitterRunning(_ running: Bool, at index: Int) {
+        var placed = engine.emitters
+        guard index >= 0, index < placed.count else { return }
+        placed[index].isRunning = running
+        engine.emitters = placed
+        engineDidChange()
+    }
+
+    /// Removes one source.
+    func removeEmitter(at index: Int) {
+        recordUndoPoint()
+        engine.removeEmitter(at: index)
+        engineDidChange()
+    }
+
+    /// Removes every source.
+    func clearEmitters() {
+        recordUndoPoint()
+        engine.clearEmitters()
+        engineDidChange()
+    }
+
     // MARK: - Contact
 
     /// How wide a body counts as for touching. Nought means work it out.
@@ -956,6 +1062,12 @@ final class ParticleFieldModel {
         var swarmCount: Int
         /// How many line segments of trail there are to draw. Two points and two colours each.
         var trailSegmentCount: Int
+        /// Whether the crowd is drawn as streaks along its motion rather than as dots.
+        ///
+        /// A trail says where something has been; a streak says how fast it is going now. A field of fast
+        /// bodies drawn as dots reads as a static scatter however quickly it is moving, because a dot has no
+        /// direction.
+        var swarmIsStreaked: Bool
         /// How many line segments of drawn walls and painted wind there are.
         ///
         /// Drawn as lines in the same way the trails are, and for the same reason: they are structure rather
@@ -1045,8 +1157,42 @@ final class ParticleFieldModel {
                 contentsOf: repeatElement(0, count: swarmCount - swarmColors.count)
             )
         }
-        for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
-        for i in 0 ..< swarmCount { swarmColors[i] = engine.swarm.colors[i] }
+        // Drawn as streaks or as dots. A streak is two points per body and two colours, a dot is one of
+        // each, so the buffers are filled differently — and the alternative, always filling two and drawing
+        // one, would double the work of the most expensive upload in the app for nothing.
+        let streak = engine.trailSettings.sanitized.streak
+        let streaked = streak > 0 && swarmCount > 0
+        if streaked {
+            let wanted = swarmCount * 4
+            if swarmPositions.count < wanted {
+                swarmPositions.append(contentsOf: repeatElement(0, count: wanted - swarmPositions.count))
+            }
+            if swarmColors.count < swarmCount * 2 {
+                swarmColors.append(
+                    contentsOf: repeatElement(0, count: swarmCount * 2 - swarmColors.count)
+                )
+            }
+            for index in 0 ..< swarmCount {
+                let pair = index * 2
+                let x = engine.swarm.positions[pair]
+                let y = engine.swarm.positions[pair + 1]
+                // Behind the body, along the way it came, rather than ahead of it. A streak drawn ahead puts
+                // the bright end where the body is not, and the eye follows the wrong end.
+                let tailX = x - engine.swarm.velocities[pair] * Float(streak)
+                let tailY = y - engine.swarm.velocities[pair + 1] * Float(streak)
+                let at = index * 4
+                swarmPositions[at] = tailX.isFinite ? tailX : x
+                swarmPositions[at + 1] = tailY.isFinite ? tailY : y
+                swarmPositions[at + 2] = x
+                swarmPositions[at + 3] = y
+                let colour = engine.swarm.colors[index]
+                swarmColors[index * 2] = colour
+                swarmColors[index * 2 + 1] = colour
+            }
+        } else {
+            for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
+            for i in 0 ..< swarmCount { swarmColors[i] = engine.swarm.colors[i] }
+        }
 
         let trailSegments = fillTrails(
             positions: &trailPositions,
@@ -1072,6 +1218,7 @@ final class ParticleFieldModel {
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
             swarmCount: swarmCount,
+            swarmIsStreaked: streaked,
             trailSegmentCount: trailSegments,
             guideSegmentCount: fillGuides(positions: &guidePositions, colors: &guideColors),
             touchRing: currentTouchRing()
@@ -1258,11 +1405,36 @@ final class ParticleFieldModel {
     /// Where the finger was last, for the tools that draw a stroke rather than apply a force.
     private var strokeFromX: Double?
     private var strokeFromY: Double?
+    /// Whether this drag has already placed a source.
+    ///
+    /// One per drag. Without it, dragging across the field would leave a source every few pixels and reach the
+    /// limit of twelve before the finger had moved an inch.
+    private var placedSourceThisStroke = false
+
+    /// Which way a pair of offsets points, in radians.
+    ///
+    /// By hand, because the engine has no inverse tangent — it imports nothing, not even the C maths library.
+    /// This is the standard rational approximation, good to about a thousandth of a radian, which for aiming a
+    /// source with a fingertip is far finer than the gesture itself.
+    private func jsAtan2Approximate(_ y: Double, _ x: Double) -> Double {
+        guard x.isFinite, y.isFinite, x != 0 || y != 0 else { return 0 }
+        let absX = abs(x)
+        let absY = abs(y)
+        let smallOverLarge = absY < absX ? absY / absX : absX / absY
+        let squared = smallOverLarge * smallOverLarge
+        var angle = ((-0.013_480_47 * squared + 0.057_477_314) * squared - 0.121_239_071) * squared
+        angle = ((angle + 0.195_635_925) * squared - 0.332_994_597) * squared
+        angle = (angle + 0.999_995_630) * smallOverLarge
+        if absY >= absX { angle = 1.570_796_326_794_896_6 - angle }
+        if x < 0 { angle = 3.141_592_653_589_793 - angle }
+        return y < 0 ? -angle : angle
+    }
 
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
         recordUndoPoint()
         strokeFromX = nil
         strokeFromY = nil
+        placedSourceThisStroke = false
         updateTouch(atFractionX: fx, fractionY: fy)
     }
 
@@ -1321,6 +1493,12 @@ final class ParticleFieldModel {
                 toFractionX: x / engine.width,
                 y: y / engine.height
             )
+        case .source:
+            // One per drag, placed where the finger went down and pointing where it was dragged — so the
+            // gesture that creates it is also the gesture that aims it.
+            guard !placedSourceThisStroke else { return }
+            placedSourceThisStroke = true
+            engine.addEmitter(atX: fromX, y: fromY, direction: jsAtan2Approximate(dy, dx))
         default:
             break
         }
@@ -1639,6 +1817,10 @@ final class ParticleFieldModel {
         ("tornado", "Tornado"), ("lightning", "Lightning"), ("aurora", "Aurora"),
         ("supernova", "Supernova"), ("sierpinski", "Sierpinski"), ("fireworks", "Fireworks"),
         ("magma", "Magma"), ("confetti", "Confetti"), ("molecules", "Molecules"),
+        // The last four from the read. Fire and smoke are continuous rather than arrangements — what makes a
+        // fire a fire is that it keeps burning — so they place a source as well, which is why they had to wait
+        // for sources to exist.
+        ("ring", "Ring"), ("water", "Water"), ("fire", "Fire"), ("smoke", "Smoke"),
     ]
 
     /// The limit on how many bodies the field will hold.
@@ -1720,6 +1902,10 @@ final class ParticleFieldModel {
         case "magma": engine.clear(); engine.spawnMagma()
         case "confetti": engine.clear(); engine.spawnConfetti()
         case "molecules": engine.clear(); engine.spawnMolecules()
+        case "ring": engine.clear(); engine.spawnRing()
+        case "water": engine.clear(); engine.spawnWaterPool()
+        case "fire": engine.clear(); engine.spawnFire()
+        case "smoke": engine.clear(); engine.spawnSmoke()
         default: break
         }
         bodyCount = engine.bodyCount

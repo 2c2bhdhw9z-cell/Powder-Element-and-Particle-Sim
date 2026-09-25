@@ -129,6 +129,7 @@ public final class SwarmGravity {
         let bodies = swarm.count
         let positions = swarm.positions
         let velocities = swarm.velocities
+        let masses = swarm.masses
         let strength = settings.strength
         let softeningSquared = settings.softening * settings.softening
 
@@ -146,7 +147,10 @@ public final class SwarmGravity {
                 let dy = Double(positions[otherPair + 1]) - y
                 guard dx.isFinite, dy.isFinite else { continue }
                 let distanceSquared = dx * dx + dy * dy + softeningSquared
-                let scale = strength / (distanceSquared * distanceSquared.squareRoot())
+                // The weight of the body doing the pulling, and only that one. The body being pulled does
+                // not enter into it, which is why heavy and light fall alike.
+                let scale = strength * Double(masses[other])
+                    / (distanceSquared * distanceSquared.squareRoot())
                 pullX += dx * scale
                 pullY += dy * scale
             }
@@ -191,6 +195,7 @@ public final class SwarmGravity {
 
         let positions = swarm.positions
         let velocities = swarm.velocities
+        let masses = swarm.masses
         let strength = settings.strength
         let softeningSquared = settings.softening * settings.softening
         let lastColumn = columns - 1
@@ -218,11 +223,12 @@ public final class SwarmGravity {
                 let column = max(0, min(lastColumn, Int(x / cellWidth)))
                 let row = max(0, min(lastRow, Int(y / cellHeight)))
                 let cell = row * columns + column
-                // Every swarm body weighs the same — the swarm holds no mass of its own — so the total
-                // is a count and the average position is a plain mean.
-                mass[cell] += 1
-                centreX[cell] += x
-                centreY[cell] += y
+                // Weighted, so a cell holding one heavy body pulls as hard as one holding several light
+                // ones — and its centre of mass sits where the weight is rather than where the count is.
+                let weight = Double(masses[index])
+                mass[cell] += weight
+                centreX[cell] += x * weight
+                centreY[cell] += y * weight
             }
 
             for cell in 0 ..< cells where mass[cell] > 0 {
@@ -313,7 +319,8 @@ public final class SwarmGravity {
                             let dx = Double(positions[otherPair]) - x
                             let dy = Double(positions[otherPair + 1]) - y
                             let distanceSquared = dx * dx + dy * dy + softeningSquared
-                            let scale = strength / (distanceSquared * distanceSquared.squareRoot())
+                            let scale = strength * Double(masses[other])
+                                / (distanceSquared * distanceSquared.squareRoot())
                             pullX += dx * scale
                             pullY += dy * scale
                         }

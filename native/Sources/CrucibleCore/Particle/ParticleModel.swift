@@ -28,6 +28,12 @@ public enum ParticleColorMode: String, Sendable, Hashable, CaseIterable, Codable
     case density
     /// Hue from how much life it has left.
     case lifespan
+    /// Hue from how heavy it is.
+    ///
+    /// The one mode here that the reference implementation has and this field did not, because until the
+    /// crowd carried weights there was nothing to colour by. It is also the only way to *see* a mixture of
+    /// heavy and light bodies, which is most of what makes gravity between them interesting.
+    case mass
 }
 
 /// What happens when a particle reaches the edge of the world.
@@ -59,6 +65,8 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     case current
     /// Draws a wall the crowd cannot pass through.
     case wall
+    /// Places a source that keeps pouring after the finger is lifted.
+    case source
 
     /// Whether this mode alters the world rather than pushing the bodies.
     ///
@@ -67,7 +75,7 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     /// rather than leaving as two cases somebody has to remember.
     public var drawsIntoTheWorld: Bool {
         switch self {
-        case .current, .wall: return true
+        case .current, .wall, .source: return true
         default: return false
         }
     }

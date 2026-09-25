@@ -67,6 +67,11 @@ public struct SwarmRecord: Codable, Sendable {
     public var vx: [Float]
     public var vy: [Float]
     public var c: [UInt32]
+    /// Weights. Absent when every body weighs one, which is almost always — and is four megabytes of the
+    /// number one at a million bodies.
+    public var m: [Float]?
+    /// Lifetimes. Absent when nothing expires.
+    public var life: [Float]?
 }
 
 /// A whole particle field, as saved.
@@ -91,6 +96,10 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// Sources pouring into the world.
+    public var emitters: [ParticleEmitter]?
+    /// What a newly placed source will be like.
+    public var emitterTemplate: ParticleEmitter?
     /// Wind painted into the world.
     public var current: ParticleCurrentField?
     /// How hard it pushes.
@@ -174,6 +183,8 @@ extension ParticleEngine {
             bodyGravitySettings: bodyGravitySettings,
             // Only written when there is something to write, so a scene with nothing drawn into it does not
             // carry a few thousand zeroes around.
+            emitters: emitters.isEmpty ? nil : emitters,
+            emitterTemplate: emitterTemplate,
             current: current.isEmpty ? nil : current,
             currentSettings: currentSettings,
             walls: walls.isEmpty ? nil : walls,
@@ -243,7 +254,29 @@ extension ParticleEngine {
             vy[i] = swarm.velocities[pair + 1]
             colors[i] = swarm.colors[i]
         }
-        return SwarmRecord(n: taken, x: x, y: y, vx: vx, vy: vy, c: colors)
+        var masses: [Float] = []
+        var lives: [Float] = []
+        var anyWeighted = false
+        for i in 0 ..< taken where swarm.masses[i] != 1 {
+            anyWeighted = true
+            break
+        }
+        if anyWeighted {
+            masses = (0 ..< taken).map { swarm.masses[$0] }
+        }
+        if swarm.hasMortalBodies {
+            lives = (0 ..< taken).map { swarm.lives[$0] }
+        }
+        return SwarmRecord(
+            n: taken,
+            x: x,
+            y: y,
+            vx: vx,
+            vy: vy,
+            c: colors,
+            m: masses.isEmpty ? nil : masses,
+            life: lives.isEmpty ? nil : lives
+        )
     }
 
     /// Loads a whole field.
@@ -291,6 +324,9 @@ extension ParticleEngine {
         if let saved = state.palette { palette = saved }
         // Rebuilt through its own initialiser rather than assigned, so a hand-edited file's keyframes are
         // put in order and pulled into range on the way in.
+        // Through the setter, so a hand-edited file's sources are capped on the way in.
+        if let saved = state.emitters { emitters = saved.map(\.sanitized) }
+        if let saved = state.emitterTemplate { emitterTemplate = saved.sanitized }
         if let saved = state.current { storedCurrent = saved }
         if let saved = state.currentSettings { currentSettings = saved }
         // Through the setter, so a hand-edited file's walls are filtered and capped on the way in.
@@ -388,6 +424,22 @@ extension ParticleEngine {
             snapshot.velocities.append(record.vx[i].isFinite ? record.vx[i] : 0)
             snapshot.velocities.append(record.vy[i].isFinite ? record.vy[i] : 0)
             snapshot.colors.append(i < record.c.count ? record.c[i] : 0xFFD4_C8C8)
+        }
+        // Absent means the plain answer — everything weighs one and lives forever — so nothing is built in
+        // that case rather than a list of ones being made to say so.
+        if let masses = record.m, !masses.isEmpty {
+            snapshot.masses.reserveCapacity(taken)
+            for i in 0 ..< taken {
+                let weight = i < masses.count ? masses[i] : 1
+                snapshot.masses.append(weight.isFinite && weight > 0 ? weight : 1)
+            }
+        }
+        if let lives = record.life, !lives.isEmpty {
+            snapshot.lives.reserveCapacity(taken)
+            for i in 0 ..< taken {
+                let left = i < lives.count ? lives[i] : -1
+                snapshot.lives.append(left.isFinite ? left : -1)
+            }
         }
         swarm.restore(from: snapshot, budget: max(0, maxParticles - particles.count))
     }

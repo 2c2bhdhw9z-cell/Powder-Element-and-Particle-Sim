@@ -307,9 +307,9 @@ extension ParticleEngine {
                             bodies[i].color = PackedColor(r: 0xF4, g: 0x3F, b: 0x5E)
                         case .emitter:
                             break
-                        case .current, .wall:
+                        case .current, .wall, .source:
                             // These change the world rather than the bodies. Nothing happens under the
-                            // finger; the bodies notice the painted wind and the walls on the next tick.
+                            // finger; the bodies notice the wind, the walls and the sources next tick.
                             break
                         }
                     }
@@ -572,9 +572,9 @@ extension ParticleEngine {
             return (true, true)
         case .repel, .hyperDrive:
             return (true, false)
-        case .current, .wall:
+        case .current, .wall, .source:
             // These change the world rather than the bodies. The bodies notice on the next tick, through the
-            // painted wind and the walls — not through a force under the finger.
+            // painted wind, the walls and the sources — not through a force under the finger.
             return (false, false)
         case .vortex, .emitter, .painter, .freeze:
             // Nothing sensible to do to a million positions, so the swarm is left alone

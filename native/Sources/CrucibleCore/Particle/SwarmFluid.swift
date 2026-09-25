@@ -191,6 +191,7 @@ public final class SwarmFluid {
 
         let positions = swarm.positions
         let velocities = swarm.velocities
+        let masses = swarm.masses
 
         // MARK: How crowded each body is
 
@@ -211,7 +212,9 @@ public final class SwarmFluid {
                     // full value, so this is one whole unit of mass in the place the body actually is —
                     // leaving it out would make an isolated body read as having no crowding at all, and
                     // then dividing by that crowding would be dividing by nothing.
-                    var crowding = weightScale
+                    // A body counts its own weight, not one — crowding is mass per unit area, so a heavy
+                    // body genuinely makes its surroundings denser.
+                    var crowding = weightScale * Double(masses[index])
                     let (ownColumn, ownRow) = cells.cell(atX: x, y: y)
                     var scanRow = max(0, ownRow - 1)
                     let lastRow = min(cells.rows - 1, ownRow + 1)
@@ -235,7 +238,7 @@ public final class SwarmFluid {
                                 let distanceSquared = dx * dx + dy * dy
                                 guard distanceSquared < reachSquared else { continue }
                                 let falloff = 1 - distanceSquared.squareRoot() / reach
-                                crowding += weightScale * falloff * falloff
+                                crowding += weightScale * falloff * falloff * Double(masses[other])
                             }
                             scanColumn += 1
                         }

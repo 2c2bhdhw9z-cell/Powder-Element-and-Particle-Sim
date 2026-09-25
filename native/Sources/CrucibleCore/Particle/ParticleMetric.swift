@@ -25,6 +25,12 @@ extension ParticleEngine {
     /// the range and the mode stopped distinguishing anything. Forty spreads it out.
     public static let paletteCrowdingCeiling = 40.0
 
+    /// The weight at which the weight metric reaches the end of the ramp.
+    ///
+    /// Three times the ordinary weight, which is where the reference implementation puts it and is about the
+    /// range the scenes actually use — the heavy bodies in an n-body cloud are a couple of times the rest.
+    public static let paletteWeightCeiling = 3.0
+
     /// Where along the ramp a body sits, under the current mode.
     public func paletteMetric(of body: ParticleObject, density: ParticleDensityGrid?) -> Double {
         switch colorMode {
@@ -64,6 +70,10 @@ extension ParticleEngine {
 
         case .lifespan:
             return Self.lifespanRatio(of: body)
+
+        case .mass:
+            guard body.mass.isFinite else { return 0 }
+            return max(0, min(1, body.mass / Self.paletteWeightCeiling))
         }
     }
 
@@ -100,7 +110,10 @@ extension ParticleEngine {
         guard paletteEnabled else { return false }
         switch colorMode {
         case .velocity, .density: return true
-        case .native, .charge, .rainbow, .lifespan: return false
+        // Weight and age do change, but only when something sets them — and the pass that does the setting
+        // can repaint at the same time. A crowd of fixed weights would otherwise be repainted every frame
+        // to produce exactly the same picture.
+        case .native, .charge, .rainbow, .lifespan, .mass: return false
         }
     }
 
@@ -166,10 +179,26 @@ extension ParticleEngine {
                     colors[i] = entry(1 - min(1, (vx * vx + vy * vy).squareRoot() / ceiling))
                 }
 
-            case .native, .charge, .lifespan:
-                // No charge, no lifetime, and no colour of its own worth reading — so all three
-                // become a fixed position per body, which is what those modes would show for a
-                // swarm anyway, every body being identical in all three respects.
+            case .mass:
+                let ceiling = Float(Self.paletteWeightCeiling)
+                let masses = swarm.masses
+                for i in 0 ..< bodies {
+                    colors[i] = entry(masses[i] / ceiling)
+                }
+
+            case .lifespan:
+                let lives = swarm.lives
+                let maxLives = swarm.maxLives
+                for i in 0 ..< bodies {
+                    // A body that never expires reads as brand new, which is the only sensible answer for
+                    // something with no age to be part of the way through.
+                    colors[i] = entry(lives[i] < 0 ? 1 : lives[i] / max(1e-4, maxLives[i]))
+                }
+
+            case .native, .charge:
+                // No charge, and no colour of its own worth reading — so both become a fixed
+                // position per body, which is what those two modes would show for a crowd anyway,
+                // every body in it being identical in both respects.
                 for i in 0 ..< bodies {
                     colors[i] = entry(Float(Self.stablePhase(forIdentifier: i)))
                 }

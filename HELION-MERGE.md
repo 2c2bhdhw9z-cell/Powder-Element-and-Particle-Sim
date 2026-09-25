@@ -2769,14 +2769,15 @@ ported. That is not a decision, it is an omission, and calling it one is the poi
 These are the ones that matter most, because they are the reason the merge was wanted: they are things
 the person using the app would *do*, not settings they would adjust.
 
-**Three of the four are now done.** What is left is the emitter.
+**All four are done.** Zooming out for room and the switch numbers in build-66; painted wind and drawn walls
+in build-67; sources with real controls in build-68.
 
 | what it is | where it was written down | state |
 | --- | --- | --- |
 | **Zoom out for more room** — pulling back grows the world instead of shrinking the picture | Slice A, "Zoom is two different products on one slider" | **done**, build-66 |
 | **Painted wind** — drag a finger to paint a current into the world, and the crowd follows it | Slice C, §C6, in full — grid size, bilinear sampling, the saturating paint stroke | **done**, build-67 |
 | **Walls** — draw lines the crowd collides with, catching a fast body that would cross between frames | Slice B and C | **done**, build-67 |
-| **Emitters with real controls** — a source that pours continuously at a rate, spread, speed and direction you set | Slice B, §B4, where the rate accumulator is called "the right way and worth copying exactly" | **still absent.** The field has an emitter tool, but it is a fixed six bodies a frame with nothing adjustable. |
+| **Sources with real controls** — pours continuously at a rate, spread, speed, direction, weight, lifetime and colour you set, and stays where it is put | Slice B, §B4, where the rate accumulator is called "the right way and worth copying exactly" | **done**, build-68 |
 
 ## Settings that were switches
 
@@ -2794,21 +2795,25 @@ numbers that arrive somewhere else are the same fault wearing a different hat.
 
 | what it is | where | state |
 | --- | --- | --- |
-| **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | still absent. The field has trails as short lines and as a fading picture, but a body is always round. |
-| **Fade in and out over a lifetime** | Slice A, §A3 and Slice E | absent |
-| **Colour by weight** | Slice A, §A3 | absent, and cannot be done until the crowd carries weights — see below |
-| **Detail settings for the field** tied to the real pixel density | first-pass table | absent. The powder half has them; the field does not. |
+| **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | **done**, build-68 |
+| **Fade over a lifetime** | Slice A, §A3 and Slice E | **done**, build-68 — the crowd carries lifetimes now |
+| **Colour by weight** | Slice A, §A3 | **done**, build-68 |
+| **Detail settings for the field** tied to the real pixel density | first-pass table | still absent. The powder half has them; the field does not. The one thing left on this list. |
 
 ## Omissions in the crowd itself
 
-One root cause, and it is worth stating on its own because four of the gaps above and below all come back
+**Done in build-68.** The crowd now carries weight, how long it has left, and how long it started with —
+twelve more bytes a body, twelve more megabytes at a million, against the sixty-two the reference spends. The
+account of why it mattered is kept below because the consequences are worth remembering.
+
+One root cause, and it is worth stating on its own because four of the gaps above and below all came back
 to it.
 
-**The crowd carries three things per body: where it is, how fast it is going, and what colour it is.** The
-reference carries sixteen — including weight, how long it has left to live, how long it started with, and a
+**The crowd used to carry three things per body: where it is, how fast it is going, and what colour it is.**
+The reference carries sixteen — including weight, how long it has left to live, how long it started with, and a
 fixed random number per body. Slice B lists all sixteen.
 
-That single difference is why:
+That single difference was why:
 
 - gravity between bodies treats every body as weighing the same;
 - there is no colour-by-weight;
@@ -2818,22 +2823,27 @@ That single difference is why:
 - and a crowd cannot be made of a mixture of heavy and light things, which is most of what makes an
   n-body scene interesting.
 
-Adding weight and lifetime is eight more bytes a body — eight more megabytes at a million, against the
-sixty-two the reference spends. It is the highest-leverage thing left on this list.
+All five are fixed. The arithmetic was arranged so that a crowd of equal weights gives *exactly* the answer
+it gave before weights existed — at equal weights the contact share works out to a half each and the bounce
+factor to one — which is what let the recorded comparison against the reference stay exact rather than needing
+a new fixture.
 
 ## Scenes described and not built
 
-Slice D documents all twenty-six of the reference's generators. Twelve were ported, twelve already had
-a near-equivalent, and these had neither:
+**All done in build-68 except text.** Slice D documents all twenty-six of the reference's generators. Twelve
+were ported in the first pass, twelve already had a near-equivalent, and these five had neither:
 
-- **Fire** and **Smoke** — a rising column and a slow wide plume. Both are continuous sources rather than
-  one-off arrangements, which is why they want the emitter work above.
-- **Ring** — a single tilted annulus. Small, and the one scene that shows off the camera's tilt.
-- **Water** — a hexagonally packed standing pool with an inlet pouring into it. Worth revisiting now that
-  the field actually has a fluid, which it did not when the read was written.
-- **Text** — words as particles. The reference does this by drawing the letters to an offscreen picture and
-  reading the pixels back, which needs the drawing system and therefore belongs in the app layer rather
-  than the engine. That is the only reason it was not done, and it is not a good enough one.
+- **Fire** and **Smoke** — **done.** Both place a source as well as a body of particles, because what makes
+  a fire a fire is that it keeps burning. Both give their bodies lifetimes, which is what makes a flame read
+  as a flame rather than as a jet — and which needed the crowd to carry lifetimes at all.
+- **Ring** — **done.** Squashed from the start, so it reads as a ring seen at an angle before the camera is
+  touched.
+- **Water** — **done.** Switches the fluid on and lays the pool out in a honeycomb at exactly the spacing the
+  fluid is set to keep, so it starts settled. A square grid at rest spacing is unstable — the fluid
+  rearranges it into a honeycomb anyway, with a visible shudder — so starting where it wants to be skips that.
+- **Text** — **still absent.** Words as particles. The reference draws the letters to an offscreen picture and
+  reads the pixels back, which needs the drawing system and therefore belongs in the app layer rather than the
+  engine. That is the only reason, and it is still not a good enough one.
 
 ## Already declared, listed again so the two lists are not confused
 

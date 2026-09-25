@@ -117,10 +117,20 @@ struct ParticleRenderGoldenTests {
         }
     }
 
-    @Test("Every colour mode is covered")
+    @Test("Every colour mode the reference implementation had is covered")
     func coverageIsComplete() {
-        let modes = Set(Self.fixture.frames.map(\.mode))
-        #expect(modes == Set(ParticleColorMode.allCases.map(\.rawValue)))
+        // The fixture records what the web engine drew, so it can only cover the modes that engine had. This
+        // field now has one more — colouring by weight, which the web engine offered and this one could not
+        // until the crowd carried weights — and there is nothing recorded to compare that against.
+        //
+        // So the claim is containment rather than equality: every recorded mode must still exist and still
+        // be compared, and any mode this field has beyond them is checked by the distinctness test below
+        // instead. Asserting equality would mean the fixture had to be regenerated to add a mode, and the
+        // web half is reference material that must not be edited — see PORT-STATUS.md.
+        let recorded = Set(Self.fixture.frames.map(\.mode))
+        let mine = Set(ParticleColorMode.allCases.map(\.rawValue))
+        #expect(recorded.isSubset(of: mine), "the fixture names a mode this field does not have")
+        #expect(recorded.count >= 6, "the fixture should still cover the six the web engine had")
     }
 
     @Test("No two colour modes draw the same thing")

@@ -32,6 +32,7 @@ struct FieldDock: View {
         // kind of thing and grouping them apart is the only hint the strip can give about that.
         (.current, "Wind", "wind"),
         (.wall, "Wall", "line.diagonal"),
+        (.source, "Source", "drop.circle"),
     ]
 
     var body: some View {
@@ -394,6 +395,12 @@ struct FieldDock: View {
                 }
                 inlineSlider("How solid", \.trailOpacity, 0.02 ... 1, step: 0.02)
                 inlineSlider("How thick", \.trailWidth, 0.1 ... 3, step: 0.1)
+                // A different thing from the trail behind a body: a trail says where it has been, a streak
+                // says how fast it is going now. A field of fast bodies drawn as dots reads as a static
+                // scatter however quickly it is moving, because a dot has no direction.
+                inlineSlider("Stretch with speed", \.streakLength, 0 ... 16, step: 0.5) {
+                    $0 == 0 ? "round dots" : "\($0.formatted(.number.precision(.fractionLength(1)))) moments"
+                }
             }
 
             switchAndNumbers(
@@ -466,6 +473,76 @@ struct FieldDock: View {
                     inlineSlider("Brush strength", \.currentBrushStrength, 0.02 ... 1, step: 0.02)
                     inlineSlider("How finely", \.currentResolution, 4 ... 64, step: 4) {
                         "\(Int($0)) across"
+                    }
+                }
+            }
+
+            if model.mouseMode == .source || model.emitterCount > 0 {
+                drawnSection(
+                    "Sources",
+                    detail: model.emitterCount > 0
+                        ? "\(model.emitterCount) pouring. Drag on the field to place another, aimed the way "
+                            + "you drag."
+                        : "Drag on the field to place one, aimed the way you drag. It keeps pouring after you "
+                            + "let go.",
+                    clearTitle: "Remove them all",
+                    canClear: model.emitterCount > 0,
+                    clear: { model.clearEmitters() }
+                ) {
+                    inlineSlider("How fast it pours", \.sourceRate, 0 ... 1_200, step: 10) {
+                        "\(Int($0))/s"
+                    }
+                    inlineSlider("How wide a fan", \.sourceSpread, 0 ... 3.14, step: 0.02) {
+                        "\(Int($0 * 57.2958))°"
+                    }
+                    inlineSlider("How fast they leave", \.sourceSpeed, 0 ... 30, step: 0.5)
+                    inlineSlider("Speed varies by", \.sourceSpeedVariation, 0 ... 1, step: 0.02)
+                    inlineSlider("How long they last", \.sourceLifespan, 0 ... 600, step: 10) {
+                        $0 <= 0 ? "forever" : "\(Int($0)) moments"
+                    }
+                    inlineSlider("How heavy", \.sourceWeight, 0.05 ... 12, step: 0.05)
+                    inlineSlider("Colour", \.sourceHue, -1 ... 359, step: 1) {
+                        $0 < 0 ? "a mixture" : "\(Int($0))°"
+                    }
+
+                    // One row per source, so a stray one can be stopped or removed without clearing them all.
+                    if model.emitterCount > 0 {
+                        ForEach(Array(model.emitterSummaries.enumerated()), id: \.offset) { entry in
+                            HStack(spacing: 8) {
+                                Text(entry.element)
+                                    .font(.labBody(10))
+                                    .foregroundStyle(Palette.subtleForeground)
+                                Spacer(minLength: 8)
+                                Button {
+                                    model.setEmitterRunning(
+                                        entry.element.hasSuffix("stopped"),
+                                        at: entry.offset
+                                    )
+                                } label: {
+                                    Image(
+                                        systemName: entry.element.hasSuffix("stopped")
+                                            ? "play.fill"
+                                            : "pause.fill"
+                                    )
+                                    .font(.labBody(10, .semiBold))
+                                    .foregroundStyle(Palette.muted)
+                                    .frame(width: 24, height: 24)
+                                    .background(Circle().fill(Color.white.opacity(0.08)))
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    model.removeEmitter(at: entry.offset)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.labBody(10, .semiBold))
+                                        .foregroundStyle(Palette.muted)
+                                        .frame(width: 24, height: 24)
+                                        .background(Circle().fill(Color.white.opacity(0.08)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 1)
+                        }
                     }
                 }
             }
@@ -917,6 +994,8 @@ struct FieldDock: View {
         (.rainbow, "Place"),
         (.density, "Crowd"),
         (.lifespan, "Life"),
+        // The one the web engine had and this field could not, until the crowd carried weights.
+        (.mass, "Weight"),
     ]
 
     /// Which colours the row above is drawn in.

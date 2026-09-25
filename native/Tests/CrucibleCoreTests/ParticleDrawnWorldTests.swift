@@ -382,12 +382,14 @@ struct ParticleDrawnWorldTests {
 
     // MARK: - Joined up with the engine
 
-    @Test("Both drawing tools change the world rather than pushing the bodies")
+    @Test("The drawing tools change the world rather than pushing the bodies")
     func drawingToolsDoNotApplyForces() {
         // Otherwise drawing a wall would also drag every body near the line along with it.
-        #expect(ParticleMouseMode.current.drawsIntoTheWorld)
-        #expect(ParticleMouseMode.wall.drawsIntoTheWorld)
-        for mode in ParticleMouseMode.allCases where mode != .current && mode != .wall {
+        let drawing: Set<ParticleMouseMode> = [.current, .wall, .source]
+        for mode in drawing {
+            #expect(mode.drawsIntoTheWorld, "\(mode.rawValue) should draw into the world")
+        }
+        for mode in ParticleMouseMode.allCases where !drawing.contains(mode) {
             #expect(!mode.drawsIntoTheWorld, "\(mode.rawValue) should not draw into the world")
         }
     }

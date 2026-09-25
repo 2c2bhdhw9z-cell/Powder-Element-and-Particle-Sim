@@ -126,6 +126,11 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// Sources pouring into the world. Reached through ``emitters``.
+    var storedEmitters: [ParticleEmitter] = []
+    /// What a newly placed source will be like. Reached through ``emitterTemplate``.
+    var storedEmitterTemplate = ParticleEmitter(atFractionX: 0.5, atFractionY: 0.15)
+
     /// Wind painted into the world. Reached through ``current``.
     var storedCurrent = ParticleCurrentField()
     /// How hard it pushes. Reached through ``currentSettings``.
@@ -280,6 +285,7 @@ public final class ParticleEngine {
         // behind across an empty world is the kind of thing that reads as a fault rather than as a leftover.
         storedWalls = []
         storedCurrent.clear()
+        storedEmitters.removeAll()
         flockEnabled = false
         nbodyEnabled = false
         fluidEnabled = false
@@ -571,6 +577,10 @@ public final class ParticleEngine {
             stepSprings()
             if flockEnabled { stepFlock() }
         }
+
+        // Before the crowd moves, so a body poured this moment is carried along by this moment's forces
+        // rather than sitting still for one frame and then starting.
+        stepEmitters()
 
         // Before the swarm moves, so the walls can tell which side of themselves each body came from.
         rememberSwarmPositions()

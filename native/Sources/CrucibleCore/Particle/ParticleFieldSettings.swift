@@ -102,6 +102,15 @@ public struct TrailSettings: Sendable, Hashable, Codable {
     public var opacity: Double = 0.3
     /// How thick that line is, relative to the body.
     public var width: Double = 0.8
+    /// How far a body is stretched along its own direction of travel. Nought draws it as a dot.
+    ///
+    /// A different thing from the trail behind it, and worth having as well: a trail says where something has
+    /// been, a streak says how fast it is going *now*. A field of fast bodies drawn as dots reads as a static
+    /// scatter no matter how quickly it is actually moving, because a dot has no direction.
+    ///
+    /// Measured in moments — a streak of four is how far the body will travel in the next four moments — so a
+    /// fast body streaks further than a slow one without anything having to scale it.
+    public var streak: Double = 0
     /// Above this many bodies the lines are not drawn at all.
     ///
     /// Not the dimming — that costs the same whatever the crowd — only the lines, which are two more
@@ -112,11 +121,13 @@ public struct TrailSettings: Sendable, Hashable, Codable {
         fade: Double = 0.25,
         opacity: Double = 0.3,
         width: Double = 0.8,
+        streak: Double = 0,
         lineLimit: Int = 1_000
     ) {
         self.fade = fade
         self.opacity = opacity
         self.width = width
+        self.streak = streak
         self.lineLimit = lineLimit
     }
 
@@ -129,6 +140,7 @@ public struct TrailSettings: Sendable, Hashable, Codable {
             fade: Self.clamp(fade, 0.01, 1, fallback: 0.25),
             opacity: Self.clamp(opacity, 0.02, 1, fallback: 0.3),
             width: Self.clamp(width, 0.1, 4, fallback: 0.8),
+            streak: Self.clamp(streak, 0, 24, fallback: 0),
             lineLimit: min(20_000, max(0, lineLimit))
         )
     }

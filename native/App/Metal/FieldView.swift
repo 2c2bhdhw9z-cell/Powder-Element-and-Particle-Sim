@@ -653,8 +653,18 @@ final class FieldView: MTKView {
         upload(&positionBuffer, from: positions, count: frame.bodyCount * 2, device: device)
         upload(&colorBuffer, from: colors, count: frame.bodyCount, device: device)
         upload(&springBuffer, from: springPositions, count: frame.springCount * 4, device: device)
-        upload(&swarmPositionBuffer, from: swarmPositions, count: frame.swarmCount * 2, device: device)
-        upload(&swarmColorBuffer, from: swarmColors, count: frame.swarmCount, device: device)
+        upload(
+            &swarmPositionBuffer,
+            from: swarmPositions,
+            count: frame.swarmCount * (frame.swarmIsStreaked ? 4 : 2),
+            device: device
+        )
+        upload(
+            &swarmColorBuffer,
+            from: swarmColors,
+            count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
+            device: device
+        )
         upload(&trailPositionBuffer, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
         upload(&trailColorBuffer, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
         upload(&guidePositionBuffer, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
@@ -693,12 +703,22 @@ final class FieldView: MTKView {
            let swarmPositionBuffer, let swarmColorBuffer {
             var swarmUniforms = uniforms
             swarmUniforms.pointSize = 1
-            encoder.setRenderPipelineState(pointPipeline)
-            encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)
-            encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
-            encoder.setVertexBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
-            encoder.setFragmentBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
-            encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+            if frame.swarmIsStreaked {
+                // As lines along each body's own motion. The trail pipeline, because it is the one that takes
+                // a colour per vertex — a spring line is one flat colour for all of them.
+                encoder.setRenderPipelineState(trailPipeline)
+                encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
+                encoder.setVertexBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+                encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.swarmCount * 2)
+            } else {
+                encoder.setRenderPipelineState(pointPipeline)
+                encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
+                encoder.setVertexBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+                encoder.setFragmentBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+            }
         }
 
         // Trails behind everything solid: they are where a body has been, and should never sit on

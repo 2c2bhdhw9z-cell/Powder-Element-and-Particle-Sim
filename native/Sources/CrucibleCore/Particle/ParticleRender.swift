@@ -116,6 +116,12 @@ extension ParticleEngine {
                 saturation: 1,
                 lightness: 0.6
             )
+
+        case .mass:
+            // Light is blue and heavy is red, saturating at three times the ordinary weight — which is
+            // where the reference implementation puts it, and is about the range the scenes actually use.
+            let weight = body.mass.isFinite ? max(0, min(1, body.mass / 3)) : 0
+            return PackedColor(hue: 220 - weight * 220, saturation: 0.9, lightness: 0.62)
         }
     }
 
