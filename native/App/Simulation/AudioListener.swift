@@ -28,7 +28,9 @@ final class AudioListener {
         set { follower.envelope = newValue }
     }
 
+    @ObservationIgnored
     private var engine: AVAudioEngine?
+    @ObservationIgnored
     private var follower = ParticleAudioFollower()
 
     /// How many samples go into one look at the frequencies.
@@ -42,16 +44,27 @@ final class AudioListener {
     ///
     /// Working this out is the expensive part; doing it per frame rather than once would cost more than the
     /// transform itself.
-    private var transform: vDSP.DFT<Float>?
+    ///
+    /// Kept out of the observation machinery. It is not state anything watches, and leaving it in makes the
+    /// macro generate code that touches the type — which matters because the type is deprecated-adjacent
+    /// enough that the generated code produced errors of its own, in a file with no name a person could
+    /// find.
+    @ObservationIgnored
+    private var transform: vDSP.DiscreteFourierTransform<Float>?
 
     /// Somewhere to put the sound while the transform runs.
     ///
     /// Held rather than made per window, because this runs some fifty times a second and allocating five
     /// buffers each time is the sort of thing that shows up as the interface stuttering while music plays.
+    @ObservationIgnored
     private var windowed = [Float](repeating: 0, count: windowSize)
+    @ObservationIgnored
     private var realOut = [Float](repeating: 0, count: windowSize)
+    @ObservationIgnored
     private var imaginaryOut = [Float](repeating: 0, count: windowSize)
+    @ObservationIgnored
     private var magnitudes = [Float](repeating: 0, count: windowSize / 2)
+    @ObservationIgnored
     private var zeros = [Float](repeating: 0, count: windowSize)
 
     /// The shape the sound is faded in and out with before being transformed.
@@ -59,6 +72,7 @@ final class AudioListener {
     /// Without it, the two ends of the window are a sudden jump, and a sudden jump contains every frequency
     /// there is — so a smooth tone comes back as a smear across the whole range and the three bands all
     /// read the same. Fading the ends to nothing removes that.
+    @ObservationIgnored
     private let taper: [Float] = {
         var window = [Float](repeating: 0, count: AudioListener.windowSize)
         vDSP_hann_window(&window, vDSP_Length(AudioListener.windowSize), Int32(vDSP_HANN_NORM))
@@ -66,7 +80,8 @@ final class AudioListener {
     }()
 
     init() {
-        transform = vDSP.DFT(
+        transform = try? vDSP.DiscreteFourierTransform(
+            previous: nil,
             count: Self.windowSize,
             direction: .forward,
             transformType: .complexComplex,
