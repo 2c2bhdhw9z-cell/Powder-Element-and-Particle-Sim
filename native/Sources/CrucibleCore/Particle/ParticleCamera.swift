@@ -133,7 +133,9 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         return max(minimumZoom, min(maximumZoom, value))
     }
 
-    static func clampPitch(_ value: Double) -> Double {
+    /// Public because the tilt slider hands over whatever the finger produced, and the same rule has to
+    /// apply there as everywhere else — a limit enforced in some places and not others is not a limit.
+    public static func clampPitch(_ value: Double) -> Double {
         guard value.isFinite else { return 0 }
         return max(0, min(maximumPitch, value))
     }
