@@ -91,6 +91,8 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// The recorded changes over time.
+    public var timeline: ParticleTimeline?
     /// Whether the wind blows.
     public var flowEnabled: Bool?
     /// How the wind behaves.
@@ -156,6 +158,7 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             fluidSettings: fluidSettings,
             bodyGravitySettings: bodyGravitySettings,
+            timeline: timeline.isEmpty ? nil : timeline,
             flowEnabled: flowEnabled,
             flowSettings: flowSettings,
             writtenForceAcross: writtenForceAcross.source,
@@ -263,6 +266,12 @@ extension ParticleEngine {
         }
         paletteEnabled = state.paletteEnabled ?? false
         if let saved = state.palette { palette = saved }
+        // Rebuilt through its own initialiser rather than assigned, so a hand-edited file's keyframes are
+        // put in order and pulled into range on the way in.
+        if let saved = state.timeline {
+            timeline = ParticleTimeline(keyframes: saved.keyframes, loops: saved.loops)
+            playhead = ParticlePlayhead()
+        }
         flowEnabled = state.flowEnabled ?? false
         if let saved = state.flowSettings { flowSettings = saved }
         // Compiled again on the way in rather than trusted. A saved file can be hand-edited, and an

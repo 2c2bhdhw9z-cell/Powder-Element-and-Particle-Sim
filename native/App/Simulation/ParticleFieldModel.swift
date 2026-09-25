@@ -130,6 +130,77 @@ final class ParticleFieldModel {
         ) ?? SwarmCost.bodyGravityWarning(bodies: bodyCount, gravity: engine.nbodyEnabled)
     }
 
+    // MARK: - The timeline
+
+    /// The recorded changes over time.
+    var timeline: ParticleTimeline {
+        get { observeEngine(); return engine.timeline }
+        set { engine.timeline = newValue; engineDidChange() }
+    }
+
+    /// Where the timeline has got to.
+    var playhead: ParticlePlayhead {
+        get { observeEngine(); return engine.playhead }
+        set { engine.playhead = newValue; engineDidChange() }
+    }
+
+    /// Records everything the field currently is, at the playhead.
+    ///
+    /// Everything rather than only what has changed, because "what has changed" would need a record of what
+    /// it changed *from*, and the honest version of that is the previous keyframe — which is exactly what
+    /// somebody pressing record is about to create.
+    func recordKeyframe(curve: ParticleKeyframe.Curve = .smooth) {
+        var next = engine.timeline
+        next.record(
+            ParticleKeyframe(
+                at: engine.playhead.at,
+                curve: curve,
+                values: engine.currentTimelineValues()
+            )
+        )
+        engine.timeline = next
+        engineDidChange()
+    }
+
+    /// Starts or stops playback.
+    func setTimelinePlaying(_ shouldPlay: Bool) {
+        var head = engine.playhead
+        head.isPlaying = shouldPlay
+        // Back to the start if it was sitting at the end, so pressing play there replays rather than doing
+        // nothing at all.
+        if shouldPlay, head.at >= engine.timeline.duration - ParticleTimeline.sameMoment {
+            head.at = 0
+        }
+        engine.playhead = head
+        engineDidChange()
+    }
+
+    /// Moves the playhead, without starting or stopping it.
+    func scrubTimeline(to moment: Double) {
+        engine.playhead = engine.playhead.scrubbed(to: moment, through: engine.timeline)
+        // Applied at once, so dragging the playhead shows what is there rather than waiting for the next
+        // tick — which, on a paused field, would be never.
+        engine.applyTimelineValues(engine.timeline.values(at: engine.playhead.at))
+        engineDidChange()
+    }
+
+    /// Removes one keyframe.
+    func removeKeyframe(at index: Int) {
+        var next = engine.timeline
+        next.remove(at: index)
+        engine.timeline = next
+        engineDidChange()
+    }
+
+    /// Removes the whole timeline.
+    func clearTimeline() {
+        var next = engine.timeline
+        next.clear()
+        engine.timeline = next
+        engine.playhead = ParticlePlayhead()
+        engineDidChange()
+    }
+
     // MARK: - Music
 
     /// The microphone, when the field is listening.

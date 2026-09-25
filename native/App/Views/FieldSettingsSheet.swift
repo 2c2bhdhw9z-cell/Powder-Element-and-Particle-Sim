@@ -21,6 +21,7 @@ struct FieldSettingsSheet: View {
             wind
             written
             music
+            recording
             edges
             appearance
         }
@@ -421,6 +422,117 @@ struct FieldSettingsSheet: View {
             )
         }
         model.audioMappings = mappings
+    }
+
+    /// Recording how the field changes over time.
+    private var recording: some View {
+        LabGroup(
+            "Over time",
+            footnote: "Set the field up, move the playhead, press Record, change something, record again. "
+                + "The field works out everything in between. Jump makes a value change all at once instead "
+                + "of blending."
+        ) {
+            HStack(spacing: 8) {
+                Button {
+                    model.setTimelinePlaying(!model.playhead.isPlaying)
+                } label: {
+                    Label(
+                        model.playhead.isPlaying ? "Pause" : "Play",
+                        systemImage: model.playhead.isPlaying ? "pause.fill" : "play.fill"
+                    )
+                    .font(.labBody(12, .semiBold))
+                    .foregroundStyle(Palette.foreground)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Color.white.opacity(0.10)))
+                }
+                .buttonStyle(.plain)
+                .disabled(model.timeline.isEmpty)
+                .opacity(model.timeline.isEmpty ? 0.4 : 1)
+
+                ForEach([ParticleKeyframe.Curve.smooth, .hold], id: \.self) { curve in
+                    Button {
+                        model.recordKeyframe(curve: curve)
+                    } label: {
+                        Text(curve == .hold ? "Record jump" : "Record")
+                            .font(.labBody(12, .semiBold))
+                            .foregroundStyle(Palette.primaryForeground)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(Capsule().fill(Palette.primary))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            if !model.timeline.isEmpty {
+                LabDivider()
+                LabSlider(
+                    label: "Playhead",
+                    value: Binding(
+                        get: { model.playhead.at },
+                        set: { model.scrubTimeline(to: $0) }
+                    ),
+                    range: 0 ... max(0.1, model.timeline.duration),
+                    step: 0.05
+                ) { "\($0.formatted(.number.precision(.fractionLength(2))))s" }
+
+                LabDivider()
+                LabToggle(
+                    label: "Start again at the end",
+                    isOn: Binding(
+                        get: { model.timeline.loops },
+                        set: {
+                            var next = model.timeline
+                            next.loops = $0
+                            model.timeline = next
+                        }
+                    )
+                )
+
+                LabDivider()
+                // One row per keyframe, so a mistake can be removed without starting over.
+                ForEach(Array(model.timeline.keyframes.enumerated()), id: \.offset) { entry in
+                    HStack(spacing: 8) {
+                        Text("\(entry.element.at.formatted(.number.precision(.fractionLength(2))))s")
+                            .font(.labNumeric(12))
+                            .foregroundStyle(Palette.foreground)
+                            .frame(width: 56, alignment: .leading)
+                        Text(entry.element.curve.displayName)
+                            .font(.labBody(11))
+                            .foregroundStyle(Palette.subtleForeground)
+                        Spacer(minLength: 8)
+                        Button {
+                            model.removeKeyframe(at: entry.offset)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.labBody(11, .semiBold))
+                                .foregroundStyle(Palette.muted)
+                                .frame(width: 26, height: 26)
+                                .background(Circle().fill(Color.white.opacity(0.08)))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove the keyframe at \(entry.element.at) seconds")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 5)
+                }
+
+                LabDivider()
+                Button {
+                    model.clearTimeline()
+                } label: {
+                    Text("Remove all of them")
+                        .font(.labBody(12))
+                        .foregroundStyle(Palette.warn)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     // MARK: Pieces

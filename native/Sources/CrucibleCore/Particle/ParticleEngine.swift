@@ -126,6 +126,11 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// The recorded changes over time. Reached through ``timeline``.
+    var storedTimeline = ParticleTimeline()
+    /// Where those have got to. Reached through ``playhead``.
+    var storedPlayhead = ParticlePlayhead()
+
     /// Whether the wind blows. Reached through ``flowEnabled``.
     var storedFlowEnabled: Bool = false
     /// How the wind behaves. Reached through ``flowSettings``.
@@ -489,6 +494,10 @@ public final class ParticleEngine {
         // a clock, so a written force or a wind that reads the time advances in step with the physics
         // rather than with the wall.
         elapsedSeconds += 1.0 / 60.0
+
+        // Before the forces, so a moment's physics uses the settings the timeline has just chosen for it
+        // rather than the previous moment's.
+        advanceTimeline()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             spawnEmitter(at: mouseX, y: mouseY)
