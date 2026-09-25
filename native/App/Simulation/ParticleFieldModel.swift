@@ -1218,8 +1218,8 @@ final class ParticleFieldModel {
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
             swarmCount: swarmCount,
-            swarmIsStreaked: streaked,
             trailSegmentCount: trailSegments,
+            swarmIsStreaked: streaked,
             guideSegmentCount: fillGuides(positions: &guidePositions, colors: &guideColors),
             touchRing: currentTouchRing()
         )
