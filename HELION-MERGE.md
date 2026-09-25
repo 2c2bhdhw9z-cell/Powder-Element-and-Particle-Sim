@@ -2624,3 +2624,127 @@ property.
 **Instanced quads, not point sprites.** Shapes need a full `[-1,1]` square and a per-particle size
 and rotation; point sprites give neither, and have a hardware size cap. That is a real change to the
 render path, so it lands as its own step with the disc reproduced exactly first.
+
+
+---
+
+# WHAT GOT BUILT
+
+All twelve items on the plan above are done and shipping. Recorded here so the next person can tell
+what was taken, what was left, and — most usefully — what turned out to be wrong in the reference.
+
+| # | what | where |
+| --- | --- | --- |
+| 1 | Colour ramps, gradients, tint, palette from a picture | `ParticlePalette.swift`, `ParticleMetric.swift` |
+| 2 | Camera: zoom, pan, turn, tilt, fit-to-field, auto-spin | `ParticleCamera.swift` + Metal + gestures |
+| 3 | Ten particle shapes | `ParticleShape.swift` + Metal |
+| 4 | Glow | Metal, three passes at half size |
+| 5 | Twelve pattern scenes | `ParticlePatterns.swift` |
+| 6 | Fluid | `SwarmFluid.swift`, `SwarmGrid.swift` |
+| 7 | Gravity between bodies | `SwarmGravity.swift` |
+| 8 | Wind (curl noise) | `SwarmFlow.swift` |
+| 9 | Written forces | `ParticleForceExpression.swift` |
+| 10 | Backdrops: stars, gradient, nebula | `ParticleBackdrop.swift` + Metal |
+| 11 | Reacting to music | `ParticleAudio.swift` + `AudioListener.swift` |
+| 12 | Timeline | `ParticleTimeline.swift` |
+
+Tests went from 493 to 736. Everything above is in `CrucibleCore` except the drawing, the microphone
+and the gestures, so all of it is tested on Linux on every push.
+
+## Errors in the reference that were corrected rather than copied
+
+This is the part worth keeping. Every one of these was found by writing the thing out properly and
+noticing the numbers did not agree — not by reading its documentation, which describes all of them as
+working.
+
+1. **The fluid's weighting does not add up to one.** Integrated over the area it covers it comes to two
+   thirds, so every crowding figure it produces is two thirds of the truth and its rest-density setting
+   is a number with no meaning. Normalised here, which makes crowding *equal* mass per unit area — so
+   the spacing slider asks for a spacing in pixels and gets it.
+2. **Its fluid pressure is one-sided.** It divides both halves of a pair by the neighbour's density, so
+   the two push on each other unequally, momentum is not conserved, and the fluid drifts and heats.
+   Symmetric here, with a test that the whole body of liquid does not drift.
+3. **What it calls a velocity correction is a second viscosity** under a false name, added into
+   acceleration.
+4. **Its gravity multiplies by the pulled body's own mass and never divides it out**, so heavy bodies
+   accelerate faster than light ones in the same field — the opposite of the single most famous fact
+   about gravity.
+5. **Its gravity leaves a body's own mass in its own cell's lump**, so everything is attracted to where
+   it already is.
+6. **Its spatial grid silently drops any particle past the thirty-second in a cell.** In a dense fluid
+   that does not lose accuracy gently — the density under-reads, the pressure clamps to zero, and the
+   fluid collapses.
+7. **Its triangle uses 1.62 where the right number is √3 ≈ 1.732**, so it is six percent squat.
+8. **Its snowflakes overrun their own radius by about two thirds** and arrive with their edges sliced
+   flat. Its own notes describe this and leave it.
+9. **Its water molecule measures the bond angle from the upright rather than between the two
+   hydrogens**, so what it draws is 75.5° while naming 104.5°. There is a test for this one.
+10. **Its star is drawn as a filled square with a star-shaped hole on one path**, its triangle and heart
+    are upside down on one of its two backends, and one backend clips every shape to a circle so its
+    squares have rounded corners. Three untested copies of the same silhouettes.
+11. **Its spark is a plain diamond.** It combines a thin cross with a diamond using the wrong operation —
+    a union rather than an overlap — so the cross is entirely inside the diamond and invisible.
+12. **Its heart's notch is about two percent of the shape**, invisible at any size a particle is drawn,
+    so what it renders is a rounded blob with a point on it.
+13. **Its glow's blur width is tied to its brightness slider**, so asking for a brighter glow gives a
+    wider one and turning it up reads as haze rather than as brightness. It also blurs at full
+    resolution with twenty scattered samples and no centre sample, which costs sixteen times as much
+    per unit of blur and produces visible rings.
+14. **Its backdrops are drawn on top of the field** and rely on a blend mode to look as though they are
+    underneath.
+15. **Its written-force expressions are walked as a tree per body per axis per frame**, trimming a string
+    and allocating an array per function call. Millions of small allocations a second for a dozen
+    operations.
+16. **Its `strength = 0` does not disable a written force** — the multiplier falls back to one.
+17. **Its curl noise has no processor implementation at all**, so any of its scenes using cloth or a
+    painted field silently lose the wind. It also discards the flow's magnitude twice over, so its wind
+    blows at one speed everywhere.
+18. **Its audio has no envelope**, so a beat lasts one frame. Its audio mappings do not stack — two
+    pointed at one setting means the second silently overwrites the first. It writes into its live
+    settings, so its sliders drift while music plays and stay drifted. And its frequency bands are
+    hard-coded bin numbers, so which frequencies they cover depends on the device.
+19. **Its auto-orbit writes into the same field its slider uses**, so turning the spin on makes the
+    slider jump and then fight it.
+20. **Its timeline has no easing and nowhere to record any**, so adding it later is a format change.
+    It keeps three separate lists of what can be animated.
+21. **Nothing in it is seeded**, so no scene it produces can ever be reproduced.
+22. **Its "fill frame" never looks at where the particles are.** It is `worldScale = 1/zoom` and nothing
+    else, so it cannot fit a view to the content — which is the thing its name promises.
+
+## Faults of my own, found by tests rather than by reasoning
+
+Recorded for the same reason. Every one of these looked right when written.
+
+- The fluid read velocities it had already changed within the same pass, so each body amplified the one
+  before it; two hundred bodies in a row compounded that into numbers with twenty-six digits.
+- The fluid's viscosity was missing its normalising factor and came out about a hundred and seventy
+  times too strong, so it overshot past the neighbours every tick instead of damping toward them.
+- The gravity swept all 1,600 cells for every body — thirty-one milliseconds at ten thousand bodies.
+  Doing it once per cell instead made it eleven.
+- The wind sampled its slope four times per body where the slope can be differentiated on paper: ten
+  milliseconds became 2.9.
+- The expression evaluator allocated its working stack on the heap every call, which was most of its
+  cost: 13.7 milliseconds became 2.8.
+- The expression parser advanced past the space before an operator but not past the operator itself, so
+  nothing after a space parsed at all. `2 + 3 * 4` was refused outright and `0 - 2` came out as
+  positive two.
+- Three of the ten shapes were wrong and all three were found by drawing them out as text and looking.
+- `half` is a type name in Metal, so using it as a variable failed with four errors naming neither the
+  word nor the reason.
+- The ring round a finger was specified in world units, so under a tilt it would have arrived as a
+  lopsided egg drawn round a round finger.
+- The fade quad behind the trails was built from the world rectangle, so a moved view would have left
+  trails smeared permanently round the outside of the field.
+
+## What was deliberately not taken
+
+- **Billing, accounts as a product, social features, teams, the developer API, analytics, hosted AI,
+  deployment.** Roughly two thirds of the reference's file count. None of it is about particles.
+- **Emoji and sprite shapes.** They need a glyph texture, and the reference's "atlas" is a single cell
+  holding one glyph at a time — so it is not an atlas and the feature is one emoji for the whole field.
+  Worth doing properly or not at all.
+- **Image and data import (CSV, OBJ, XYZ).** Plumbing rather than simulation, and it wants a file picker
+  and a format decision rather than a port. The colour half of image import *was* taken — see
+  `ParticlePaletteSpec.fromImage`.
+- **Video backdrops.** A browser video element behind a canvas. On a phone this is a different feature
+  with different questions (where does the video come from, what does it cost in battery).
