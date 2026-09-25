@@ -189,6 +189,23 @@ public final class Swarm {
         generation += 1
     }
 
+    /// Moves every body by the same amount.
+    ///
+    /// Used when the world is deliberately grown to make more room: everything shifts by half the growth so
+    /// the scene stays in the middle and the new space appears evenly all round it. Velocities are left
+    /// alone — the crowd keeps doing what it was doing, it is only somewhere else.
+    public func translate(dx: Double, dy: Double) {
+        guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0, count > 0 else { return }
+        let shiftX = Float(dx)
+        let shiftY = Float(dy)
+        for index in 0 ..< count {
+            let pair = index * 2
+            positions[pair] += shiftX
+            positions[pair + 1] += shiftY
+        }
+        generation += 1
+    }
+
     /// Adds one body at a chosen place, and reports whether there was room.
     ///
     /// ``spawn(count:width:height:color:budget:rng:)`` scatters bodies at random, which is what a crowd
@@ -245,6 +262,11 @@ public final class Swarm {
         public var mouseRadius: Double
         /// `true` pulls toward the finger, `false` pushes away.
         public var attract: Bool
+        /// How bodies in the crowd meet one another.
+        ///
+        /// Given a default so that adding it did not have to change every caller — of which the tests are
+        /// most, and they are testing the physics rather than the contact numbers.
+        public var contact: ContactSettings = .default
 
         public init(
             width: Double,
@@ -261,7 +283,8 @@ public final class Swarm {
             mouseActive: Bool,
             mouseForce: Double,
             mouseRadius: Double,
-            attract: Bool
+            attract: Bool,
+            contact: ContactSettings = .default
         ) {
             self.width = width
             self.height = height
@@ -278,6 +301,7 @@ public final class Swarm {
             self.mouseForce = mouseForce
             self.mouseRadius = mouseRadius
             self.attract = attract
+            self.contact = contact
         }
     }
 
@@ -375,15 +399,18 @@ public final class Swarm {
             }
         }
 
-        if options.collide && count > 1 {
-            // Twice, which firms up stacks that one pass leaves overlapping.
-            resolveCollisions(width: width, height: height)
-            resolveCollisions(width: width, height: height)
+        if options.collide, count > 1 {
+            // More than once, because moving one pair apart pushes each of them into somebody else — one
+            // pass leaves stacks overlapping. Twice was the old fixed behaviour and is still the default.
+            let contact = options.contact.sanitized
+            for _ in 0 ..< contact.passes {
+                resolveCollisions(width: width, height: height, contact: contact)
+            }
         }
     }
 
     /// Pushes overlapping bodies apart, using a uniform grid to find neighbours.
-    private func resolveCollisions(width: Double, height: Double) {
+    private func resolveCollisions(width: Double, height: Double, contact: ContactSettings) {
         let bodies = count
         guard bodies > 1, width > 0, height > 0 else { return }
 
@@ -426,7 +453,16 @@ public final class Swarm {
         // At very high counts only every other body is resolved per pass, which halves
         // the cost and is invisible in a crowd that dense.
         let stride = bodies > 250_000 ? 2 : 1
-        let diameter = max(3.2, cell * 0.88)
+        // How wide a body counts as.
+        //
+        // Nought means work it out, which is what the field has always done: a little under the width of a
+        // search square, and never below 3.2 so that a very coarse grid at a huge crowd does not make the
+        // bodies enormous. Anything else is what somebody asked for — capped at the square's width, because
+        // a body reaching beyond it would have neighbours the search never looks at, so it would pass
+        // through some of them and not others depending only on which square each happened to fall in.
+        let diameter = contact.size <= 0
+            ? max(3.2, cell * 0.88)
+            : max(1, min(contact.size, cell * 0.98))
         let diameterSquared = diameter * diameter
 
         var i = 0
@@ -482,8 +518,8 @@ public final class Swarm {
                                 let otherVelY = velocities[otherPair + 1].asDouble
                                 let closing = (velX - otherVelX) * normalX + (velY - otherVelY) * normalY
                                 if closing < 0 {
-                                    velX -= normalX * closing * 0.92
-                                    velY -= normalY * closing * 0.92
+                                    velX -= normalX * closing * contact.bounciness
+                                    velY -= normalY * closing * contact.bounciness
                                 }
                                 // Friction along the contact.
                                 let relativeX = velX - otherVelX
@@ -491,8 +527,8 @@ public final class Swarm {
                                 let alongNormal = relativeX * normalX + relativeY * normalY
                                 let tangentX = relativeX - normalX * alongNormal
                                 let tangentY = relativeY - normalY * alongNormal
-                                velX -= tangentX * 0.18
-                                velY -= tangentY * 0.18
+                                velX -= tangentX * contact.friction
+                                velY -= tangentY * contact.friction
                             }
                         }
                         other = Int(next[other])

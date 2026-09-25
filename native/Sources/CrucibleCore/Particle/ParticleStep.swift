@@ -449,9 +449,18 @@ extension ParticleEngine {
     /// Boids-style flocking: bodies steer toward their neighbours, match their
     /// heading, and keep their distance.
     func stepFlock() {
-        // Capped, because this is quadratic in the number of bodies considered.
-        let considered = min(particles.count, 360)
+        // Capped, because this is quadratic in the number of bodies considered. The cap is a setting rather
+        // than a constant: somebody with a hundred bodies can afford far more than somebody with a million,
+        // and should not be held to a limit set for the second one.
+        let tuned = flockSettings.sanitized
+        let considered = min(particles.count, tuned.limit)
         guard considered > 1 else { return }
+
+        let visionSquared = tuned.vision * tuned.vision
+        let personalSquared = tuned.personalSpace * tuned.personalSpace
+        let separationWeight = tuned.separation
+        let alignmentWeight = tuned.alignment
+        let cohesionWeight = tuned.cohesion
 
         particles.withUnsafeMutableBufferPointer { bodies in
             for i in 0 ..< considered {
@@ -475,7 +484,7 @@ extension ParticleEngine {
                     let dy = bodies[j].y - bodies[i].y
                     let distanceSquared = dx * dx + dy * dy
                     // Out of sight, or so close the direction is meaningless.
-                    if distanceSquared > 3600 || distanceSquared < 0.01 { continue }
+                    if distanceSquared > visionSquared || distanceSquared < 0.01 { continue }
 
                     neighbours += 1
                     centreX += bodies[j].x
@@ -483,7 +492,7 @@ extension ParticleEngine {
                     headingX += bodies[j].velocityX
                     headingY += bodies[j].velocityY
 
-                    if distanceSquared < 400 {
+                    if distanceSquared < personalSquared {
                         // Divided by distance, so closer neighbours push harder. The web
                         // version accumulated the raw offset, which made separation
                         // *weaker* the closer two bodies came — backwards for collision
@@ -496,12 +505,12 @@ extension ParticleEngine {
 
                 guard neighbours > 0 else { continue }
                 // Separation is scaled up to compensate for being normalised.
-                bodies[i].velocityX += (centreX / neighbours - bodies[i].x) * 0.002
-                    + (headingX / neighbours - bodies[i].velocityX) * 0.04
-                    + separationX * 0.24
-                bodies[i].velocityY += (centreY / neighbours - bodies[i].y) * 0.002
-                    + (headingY / neighbours - bodies[i].velocityY) * 0.04
-                    + separationY * 0.24
+                bodies[i].velocityX += (centreX / neighbours - bodies[i].x) * cohesionWeight
+                    + (headingX / neighbours - bodies[i].velocityX) * alignmentWeight
+                    + separationX * separationWeight
+                bodies[i].velocityY += (centreY / neighbours - bodies[i].y) * cohesionWeight
+                    + (headingY / neighbours - bodies[i].velocityY) * alignmentWeight
+                    + separationY * separationWeight
             }
         }
     }
@@ -619,7 +628,8 @@ extension ParticleEngine {
             mouseActive: mouseActive && effect.active,
             mouseForce: mouseForceMultiplier * (mouseMode == .hawk ? 2.4 : 1),
             mouseRadius: mouseRadius,
-            attract: effect.attract
+            attract: effect.attract,
+            contact: contactSettings.sanitized
         ))
     }
 }

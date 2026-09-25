@@ -126,6 +126,13 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// How bodies steer by their neighbours. Reached through ``flockSettings``.
+    var storedFlockSettings: FlockSettings = .default
+    /// How motion trails behave. Reached through ``trailSettings``.
+    var storedTrailSettings: TrailSettings = .default
+    /// How bodies in the crowd meet one another. Reached through ``contactSettings``.
+    var storedContactSettings: ContactSettings = .default
+
     /// The recorded changes over time. Reached through ``timeline``.
     var storedTimeline = ParticleTimeline()
     /// Where those have got to. Reached through ``playhead``.
@@ -203,6 +210,43 @@ public final class ParticleEngine {
         if safeWidth == width && safeHeight == height { return }
         width = safeWidth
         height = safeHeight
+    }
+
+    /// Changes the size of the world, keeping whatever is in it where it looks.
+    ///
+    /// The plain resize above leaves every body at the coordinates it had, which is right when the screen
+    /// itself has changed shape — the world and the view are the same thing then, so a body at the middle
+    /// of the old view should end up at the same place in pixels.
+    ///
+    /// It is wrong when the world is deliberately *grown* to make more room, which is what zooming out
+    /// does. Left alone, everything would stay bunched in the top-left corner of the new larger world while
+    /// the empty space appeared below and to the right. Everything is shifted by half the growth instead,
+    /// so the scene stays in the middle and the new room appears evenly all round it — which is what
+    /// "zoom out for more space" has to mean to be any use.
+    public func resizeKeepingContentsCentred(width newWidth: Double, height newHeight: Double) {
+        let safeWidth = max(0, newWidth)
+        let safeHeight = max(0, newHeight)
+        guard safeWidth > 0, safeHeight > 0 else { return }
+        if safeWidth == width && safeHeight == height { return }
+
+        let shiftX = (safeWidth - width) * 0.5
+        let shiftY = (safeHeight - height) * 0.5
+        width = safeWidth
+        height = safeHeight
+
+        guard shiftX != 0 || shiftY != 0 else { return }
+        for index in particles.indices {
+            particles[index].x += shiftX
+            particles[index].y += shiftY
+            // Anything anchored to a place has to follow, or a lattice snaps back to where the world used
+            // to be the moment it is touched.
+            if let originX = particles[index].originX { particles[index].originX = originX + shiftX }
+            if let originY = particles[index].originY { particles[index].originY = originY + shiftY }
+            // And the remembered positions, or every body draws a trail from where it used to be to where
+            // it now is — one long streak across the field on the frame the world changed size.
+            particles[index].trail.removeAll()
+        }
+        swarm.translate(dx: shiftX, dy: shiftY)
     }
 
     /// Empties the field and returns its settings to their defaults.

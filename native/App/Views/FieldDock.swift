@@ -340,40 +340,195 @@ struct FieldDock: View {
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Three kinds of physics that change what the field *is* rather than how it looks, which
-            // is why they sit apart from the sliders.
-            //
-            // Two of these showed here for a long time and did nothing at all — the engine saved them,
-            // reset them when the field was cleared, and never read either one. They work now, and the
-            // labels say what they actually do rather than what they were going to do.
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle("Fluid — the crowd holds itself apart, and holds a surface", isOn: Binding(
-                    get: { model.fluidEnabled },
-                    set: { model.fluidEnabled = $0 }
-                ))
-                Toggle("Flock — bodies steer by their neighbours", isOn: Binding(
-                    get: { model.flockEnabled },
-                    set: { model.flockEnabled = $0 }
-                ))
-                Toggle("Gravity between bodies — everything pulls on everything", isOn: Binding(
-                    get: { model.nbodyEnabled },
-                    set: { model.nbodyEnabled = $0 }
-                ))
-                Toggle("Wind — eddies and channels filling the field", isOn: Binding(
-                    get: { model.flowEnabled },
-                    set: { model.flowEnabled = $0 }
-                ))
-            }
-            .font(.labBody(11))
-            .foregroundStyle(Palette.muted)
-            .tint(Palette.primary)
-
+            physics
             colourModes
             colourRamps
             shapeChoices
             backdropChoices
             viewControls
         }
+    }
+
+    /// The kinds of physics, each with its own numbers directly underneath it.
+    ///
+    /// Underneath, and not in a separate panel. Every one of these used to be a bare switch with everything
+    /// about how it behaved written into the code as a constant — and when the numbers did arrive they
+    /// arrived somewhere else, which is the same fault wearing a different hat. A switch you can turn on and
+    /// then not adjust is somebody else's decision presented as a choice.
+    ///
+    /// Each set of numbers appears only when its switch is on, because five sliders that do nothing are
+    /// worse than no sliders.
+    private var physics: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PHYSICS")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+
+            switchAndNumbers(
+                "Collide — bodies push each other apart",
+                isOn: Binding(get: { model.collisionsEnabled }, set: { model.collisionsEnabled = $0 })
+            ) {
+                inlineSlider("How wide they count as", \.contactSize, 0 ... 24, step: 0.5) {
+                    $0 <= 0 ? "automatic" : "\($0.formatted(.number.precision(.fractionLength(1)))) px"
+                }
+                inlineSlider("Bounciness", \.contactBounciness, 0 ... 1, step: 0.02)
+                inlineSlider("Friction", \.contactFriction, 0 ... 1, step: 0.02)
+                inlineSlider("Firmness", \.contactPasses, 1 ... 6, step: 1) {
+                    "\(Int($0)) pass\(Int($0) == 1 ? "" : "es")"
+                }
+            }
+
+            switchAndNumbers(
+                "Trails — bodies leave a fading streak",
+                isOn: Binding(get: { model.showTrails }, set: { model.showTrails = $0 })
+            ) {
+                // The length control, phrased as length rather than as the fade it actually is — a slider
+                // that gets shorter as you drag it right is a puzzle, not a control.
+                inlineSlider("How long they last", \.trailFade, 0.01 ... 1, step: 0.01) {
+                    "\(Int((1 / max(0.01, $0)).rounded())) frames"
+                }
+                inlineSlider("How solid", \.trailOpacity, 0.02 ... 1, step: 0.02)
+                inlineSlider("How thick", \.trailWidth, 0.1 ... 3, step: 0.1)
+            }
+
+            switchAndNumbers(
+                "Fluid — the crowd holds itself apart, and holds a surface",
+                isOn: Binding(get: { model.fluidEnabled }, set: { model.fluidEnabled = $0 })
+            ) {
+                // Spacing rather than the crowding figure it is stored as. Crowding is bodies per square
+                // pixel, which is a real quantity and a useless thing to drag.
+                inlineSlider(
+                    "Spacing",
+                    Binding(
+                        get: { (1 / max(1e-6, model.fluidRestDensity)).squareRoot() },
+                        set: { model.fluidRestDensity = 1 / max(1e-6, $0 * $0) }
+                    ),
+                    2 ... 20,
+                    step: 0.5
+                ) { "\($0.formatted(.number.precision(.fractionLength(1)))) px" }
+                inlineSlider("Reach", \.fluidSmoothing, 4 ... 48, step: 1) {
+                    "\(Int($0)) px"
+                }
+                inlineSlider("Springiness", \.fluidStiffness, 0 ... 8, step: 0.1)
+                inlineSlider("Thickness", \.fluidViscosity, 0 ... 0.6, step: 0.01)
+                inlineSlider("Beading", \.fluidCohesion, 0 ... 1.2, step: 0.05)
+            }
+
+            switchAndNumbers(
+                "Flock — bodies steer by their neighbours",
+                isOn: Binding(get: { model.flockEnabled }, set: { model.flockEnabled = $0 })
+            ) {
+                inlineSlider("Keep apart", \.flockSeparation, 0 ... 1, step: 0.01)
+                inlineSlider("Match direction", \.flockAlignment, 0 ... 0.3, step: 0.005)
+                inlineSlider("Stay together", \.flockCohesion, 0 ... 0.02, step: 0.0005) {
+                    $0.formatted(.number.precision(.fractionLength(4)))
+                }
+                inlineSlider("How far they see", \.flockVision, 10 ... 300, step: 5) {
+                    "\(Int($0)) px"
+                }
+                inlineSlider("Personal space", \.flockPersonalSpace, 2 ... 200, step: 2) {
+                    "\(Int($0)) px"
+                }
+                inlineSlider("How many take part", \.flockLimit, 20 ... 1200, step: 20) {
+                    Int($0).formattedWithSeparators
+                }
+            }
+
+            switchAndNumbers(
+                "Gravity between bodies — everything pulls on everything",
+                isOn: Binding(get: { model.nbodyEnabled }, set: { model.nbodyEnabled = $0 })
+            ) {
+                inlineSlider("Strength", \.bodyGravityStrength, 0 ... 12, step: 0.1)
+                inlineSlider("Closest approach", \.bodyGravitySoftening, 1 ... 60, step: 1) {
+                    "\(Int($0)) px"
+                }
+            }
+
+            switchAndNumbers(
+                "Wind — eddies and channels filling the field",
+                isOn: Binding(get: { model.flowEnabled }, set: { model.flowEnabled = $0 })
+            ) {
+                inlineSlider("Strength", \.flowStrength, 0 ... 3, step: 0.05)
+                inlineSlider("Eddy size", \.flowScale, 20 ... 600, step: 10) { "\(Int($0)) px" }
+                inlineSlider("How fast it changes", \.flowDrift, 0 ... 1, step: 0.02) {
+                    $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(2)))
+                }
+            }
+        }
+    }
+
+    /// A switch, with its own numbers folded in underneath it while it is on.
+    @ViewBuilder
+    private func switchAndNumbers(
+        _ label: String,
+        isOn: Binding<Bool>,
+        @ViewBuilder numbers: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: isOn) {
+                Text(label)
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .tint(Palette.primary)
+
+            if isOn.wrappedValue {
+                VStack(alignment: .leading, spacing: 2) {
+                    numbers()
+                }
+                .padding(.leading, 10)
+                .padding(.top, 2)
+                .overlay(alignment: .leading) {
+                    // A hairline down the left, so a set of numbers plainly belongs to the switch above it
+                    // rather than floating between two of them.
+                    Rectangle()
+                        .fill(Palette.primary.opacity(0.35))
+                        .frame(width: 1.5)
+                }
+            }
+        }
+    }
+
+    /// A compact slider for the folded-in sets, which have no room for the full-width kind.
+    private func inlineSlider(
+        _ label: String,
+        _ path: ReferenceWritableKeyPath<ParticleFieldModel, Double>,
+        _ range: ClosedRange<Double>,
+        step: Double,
+        format: @escaping (Double) -> String = { $0.formatted(.number.precision(.fractionLength(2))) }
+    ) -> some View {
+        inlineSlider(
+            label,
+            Binding(get: { model[keyPath: path] }, set: { model[keyPath: path] = $0 }),
+            range,
+            step: step,
+            format: format
+        )
+    }
+
+    private func inlineSlider(
+        _ label: String,
+        _ value: Binding<Double>,
+        _ range: ClosedRange<Double>,
+        step: Double,
+        format: @escaping (Double) -> String = { $0.formatted(.number.precision(.fractionLength(2))) }
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 8) {
+                Text(label)
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
+                Spacer(minLength: 8)
+                Text(format(value.wrappedValue))
+                    .font(.labNumeric(11))
+                    .foregroundStyle(Palette.subtleForeground)
+            }
+            Slider(value: value, in: range, step: step) { Text(label) }
+                .tint(Palette.primary)
+        }
+        .padding(.vertical, 1)
     }
 
     /// What the field sits on, and how brightly it glows.
@@ -502,6 +657,24 @@ struct FieldDock: View {
                 .font(.labBody(10))
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // The difference between a zoom that is worth having and one that is not.
+            Toggle(isOn: Binding(get: { model.zoomAddsSpace }, set: { model.zoomAddsSpace = $0 })) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Zooming out adds room")
+                        .font(.labBody(11))
+                        .foregroundStyle(Palette.muted)
+                    Text(
+                        model.worldScale > 1.01
+                            ? "The world is \(model.worldScale.formatted(.number.precision(.fractionLength(1))))× the screen."
+                            : "Pulling back makes the world bigger instead of the picture smaller."
+                    )
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .tint(Palette.primary)
 
             LabSlider(
                 label: "Tilt",

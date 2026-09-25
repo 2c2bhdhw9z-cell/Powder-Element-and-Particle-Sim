@@ -78,6 +78,17 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     public var yaw: Double
     /// Tip toward the viewer, in degrees. Nought is looking straight down at the plane.
     public var pitch: Double
+    /// Whether zooming out makes the world larger instead of making the picture smaller.
+    ///
+    /// On by default, because it is what somebody means by zooming out. With it off, pulling back shrinks
+    /// the whole field into the middle of the screen and leaves black all round it — which is technically a
+    /// zoom and is useless: the same scene, smaller, with nothing gained. With it on, the screen stays
+    /// full and the freed room becomes *real simulation space*, so the crowd has somewhere to go and the
+    /// scene can grow into it.
+    ///
+    /// Only below one. Zooming *in* is always a magnification — there is no sense in which looking closely
+    /// at something should shrink the world it lives in.
+    public var growsWorldWhenZoomedOut: Bool = true
     /// Whether the view turns by itself.
     public var autoOrbit: Bool
     /// How far the automatic spin has turned so far, in degrees.
@@ -94,9 +105,11 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         panY: Double = 0,
         yaw: Double = 0,
         pitch: Double = 0,
+        growsWorldWhenZoomedOut: Bool = true,
         autoOrbit: Bool = false,
         autoOrbitAngle: Double = 0
     ) {
+        self.growsWorldWhenZoomedOut = growsWorldWhenZoomedOut
         self.zoom = Self.clampZoom(zoom)
         self.panX = Self.usable(panX)
         self.panY = Self.usable(panY)
@@ -112,6 +125,25 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     /// Whether the camera is doing nothing at all, so the drawing path can take its fast route.
     public var isIdentity: Bool {
         zoom == 1 && panX == 0 && panY == 0 && !isRotated
+    }
+
+    /// How many times larger the world is than the view.
+    ///
+    /// One at rest and when zoomed in. Zoomed out with world growth on, it is one over the zoom — so at a
+    /// quarter zoom the world is four times as wide and four times as tall, which is sixteen times the room.
+    public var worldScale: Double {
+        guard growsWorldWhenZoomedOut, zoom < 1 else { return 1 }
+        return 1 / max(Self.minimumZoom, zoom)
+    }
+
+    /// How much the picture itself is scaled.
+    ///
+    /// This is what the drawing uses, and it is *not* the zoom. When zooming out grows the world instead,
+    /// the picture stays at its true size — the bodies do not get smaller, there are simply more of the
+    /// world's units on screen. Pinned to one in that case; equal to the zoom otherwise.
+    public var pictureScale: Double {
+        guard growsWorldWhenZoomedOut, zoom < 1 else { return zoom }
+        return 1
     }
 
     /// Whether the plane is turned or tipped.
@@ -190,6 +222,8 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     /// otherwise "reset the view" would leave the field at whatever angle the spin happened to have
     /// reached, which is not a reset.
     public mutating func reset() {
+        // The growth setting is left alone. It is a choice about what zooming out *means*, not a position
+        // the view happens to be in, so resetting the view should not silently change it back.
         zoom = 1
         panX = 0
         panY = 0
@@ -242,11 +276,15 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         )
 
         let turned = Self.turn(plain, yaw: effectiveYaw, pitch: pitch)
+        // The picture scale, not the zoom. When zooming out grows the world instead of shrinking the
+        // picture, the two are different numbers and using the wrong one would shrink the bodies *and*
+        // enlarge the world, which cancels out into no visible change at all.
+        let scale = pictureScale
         return Projected(
-            x: turned.x * zoom + Self.panToScreenFraction(panX, across: viewWidth),
+            x: turned.x * scale + Self.panToScreenFraction(panX, across: viewWidth),
             // Pan down the screen has to become pan down the *picture*, and the picture's y runs the
             // other way — so this subtracts where the x above adds.
-            y: turned.y * zoom - Self.panToScreenFraction(panY, across: viewHeight),
+            y: turned.y * scale - Self.panToScreenFraction(panY, across: viewHeight),
             depthScale: turned.depthScale
         )
     }
@@ -296,7 +334,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         let clamped = depthScale.isFinite
             ? max(Self.minimumDepthScale, min(Self.maximumDepthScale, depthScale))
             : 1
-        return zoom * clamped
+        return pictureScale * clamped
     }
 
     // MARK: - Going back the other way
@@ -329,8 +367,9 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         var ny = 1 - (Self.usable(screenY) / vh) * 2
 
         // Undo the pan and the zoom, in the reverse of the order they were applied.
-        nx = (nx - Self.panToScreenFraction(panX, across: vw)) / zoom
-        ny = (ny + Self.panToScreenFraction(panY, across: vh)) / zoom
+        let scale = max(1e-6, pictureScale)
+        nx = (nx - Self.panToScreenFraction(panX, across: vw)) / scale
+        ny = (ny + Self.panToScreenFraction(panY, across: vh)) / scale
 
         let flat = Self.untilt(x: nx, y: ny, yaw: effectiveYaw, pitch: pitch)
 

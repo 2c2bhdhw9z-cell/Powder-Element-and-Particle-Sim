@@ -2748,3 +2748,87 @@ Recorded for the same reason. Every one of these looked right when written.
   `ParticlePaletteSpec.fromImage`.
 - **Video backdrops.** A browser video element behind a canvas. On a phone this is a different feature
   with different questions (where does the video come from, what does it cost in battery).
+
+
+---
+
+# THE GAP AUDIT
+
+The owner asked the right question: if zoom-out-for-more-space was written down here and then not built,
+what else was? This is the answer, checked against the code rather than from memory. It is kept at the
+bottom of this file and updated as things land, so the list of "documented but absent" is never again
+something somebody has to discover by installing the app.
+
+**The distinction that matters:** some of the things below were declared as deliberately skipped, with a
+reason, in *What was deliberately not taken* above. Those are decisions. The ones in this section are
+different — they were described in detail in the read, treated as things to port, and then quietly not
+ported. That is not a decision, it is an omission, and calling it one is the point of this section.
+
+## Omissions that are controls
+
+These are the ones that matter most, because they are the reason the merge was wanted: they are things
+the person using the app would *do*, not settings they would adjust.
+
+| what it is | where it was written down | state |
+| --- | --- | --- |
+| **Zoom out for more room** — pulling back grows the world instead of shrinking the picture | Slice A, "Zoom is two different products on one slider" | **being built now** |
+| **Painted force fields** — drag a finger to paint wind into the world, and the crowd follows it | Slice C, §C6, in full — grid size, bilinear sampling, the saturating paint stroke | absent |
+| **Walls** — draw line segments the crowd collides with, including the swept test so fast bodies cannot tunnel through | Slice B and C | absent |
+| **Emitters with real controls** — a source that pours continuously at a rate, spread, speed and direction you set | Slice B, §B4, where the rate accumulator is called "the right way and worth copying exactly" | the field has an emitter tool, but it is a fixed six bodies a frame with nothing adjustable |
+
+## Omissions in how it looks
+
+| what it is | where | state |
+| --- | --- | --- |
+| **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | absent. The field has trails as short lines and as a fading picture, but a body is always round. |
+| **Fade in and out over a lifetime** | Slice A, §A3 and Slice E | absent |
+| **Colour by weight** | Slice A, §A3 | absent, and cannot be done until the crowd carries weights — see below |
+| **Detail settings for the field** tied to the real pixel density | first-pass table | absent. The powder half has them; the field does not. |
+
+## Omissions in the crowd itself
+
+One root cause, and it is worth stating on its own because four of the gaps above and below all come back
+to it.
+
+**The crowd carries three things per body: where it is, how fast it is going, and what colour it is.** The
+reference carries sixteen — including weight, how long it has left to live, how long it started with, and a
+fixed random number per body. Slice B lists all sixteen.
+
+That single difference is why:
+
+- gravity between bodies treats every body as weighing the same;
+- there is no colour-by-weight;
+- there is nothing to fade in or out over, because nothing has a lifetime;
+- the `Vanish` edge setting silently falls back to bouncing for the crowd, which the code admits in a
+  comment but the interface does not;
+- and a crowd cannot be made of a mixture of heavy and light things, which is most of what makes an
+  n-body scene interesting.
+
+Adding weight and lifetime is eight more bytes a body — eight more megabytes at a million, against the
+sixty-two the reference spends. It is the highest-leverage thing left on this list.
+
+## Scenes described and not built
+
+Slice D documents all twenty-six of the reference's generators. Twelve were ported, twelve already had
+a near-equivalent, and these had neither:
+
+- **Fire** and **Smoke** — a rising column and a slow wide plume. Both are continuous sources rather than
+  one-off arrangements, which is why they want the emitter work above.
+- **Ring** — a single tilted annulus. Small, and the one scene that shows off the camera's tilt.
+- **Water** — a hexagonally packed standing pool with an inlet pouring into it. Worth revisiting now that
+  the field actually has a fluid, which it did not when the read was written.
+- **Text** — words as particles. The reference does this by drawing the letters to an offscreen picture and
+  reading the pixels back, which needs the drawing system and therefore belongs in the app layer rather
+  than the engine. That is the only reason it was not done, and it is not a good enough one.
+
+## Already declared, listed again so the two lists are not confused
+
+These were skipped on purpose, with reasons, above: emoji and sprite shapes, image and data import, video
+backdrops, depth sorting, and roughly two thirds of the reference's files which are a web business rather
+than a particle simulator.
+
+One is worth re-stating because the reason has changed: **settle and sleep**. Slice C records that the
+reference's version saves no processor time at all — a sleeping body is still iterated end to end, only
+its velocity is zeroed — so porting it faithfully would be porting a label. A version that genuinely
+skipped settled bodies would be worth having, and that is a different piece of work from the one the read
+described.

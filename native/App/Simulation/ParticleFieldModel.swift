@@ -304,6 +304,106 @@ final class ParticleFieldModel {
         restingValues = nil
     }
 
+    /// Whether pulling the camera back makes the world larger instead of the picture smaller.
+    var zoomAddsSpace: Bool {
+        get { observeEngine(); return storedCamera.growsWorldWhenZoomedOut }
+        set {
+            var next = storedCamera
+            next.growsWorldWhenZoomedOut = newValue
+            camera = next
+        }
+    }
+
+    /// How many times larger the world is than the screen right now.
+    var worldScale: Double {
+        observeEngine()
+        return storedCamera.worldScale
+    }
+
+    // MARK: - Flocking
+
+    /// How hard bodies avoid crowding their neighbours.
+    var flockSeparation: Double {
+        get { observeEngine(); return engine.flockSettings.separation }
+        set { engine.flockSettings.separation = newValue; engineDidChange() }
+    }
+
+    /// How hard they match their neighbours' direction.
+    var flockAlignment: Double {
+        get { observeEngine(); return engine.flockSettings.alignment }
+        set { engine.flockSettings.alignment = newValue; engineDidChange() }
+    }
+
+    /// How hard they move toward the middle of their neighbours.
+    var flockCohesion: Double {
+        get { observeEngine(); return engine.flockSettings.cohesion }
+        set { engine.flockSettings.cohesion = newValue; engineDidChange() }
+    }
+
+    /// How far a body can see.
+    var flockVision: Double {
+        get { observeEngine(); return engine.flockSettings.vision }
+        set { engine.flockSettings.vision = newValue; engineDidChange() }
+    }
+
+    /// How close is too close.
+    var flockPersonalSpace: Double {
+        get { observeEngine(); return engine.flockSettings.personalSpace }
+        set { engine.flockSettings.personalSpace = newValue; engineDidChange() }
+    }
+
+    /// How many bodies take part.
+    var flockLimit: Double {
+        get { observeEngine(); return Double(engine.flockSettings.limit) }
+        set { engine.flockSettings.limit = Int(newValue.rounded()); engineDidChange() }
+    }
+
+    // MARK: - Trails
+
+    /// How much of the previous frame is replaced each time — the trail length, backwards.
+    var trailFade: Double {
+        get { observeEngine(); return engine.trailSettings.fade }
+        set { engine.trailSettings.fade = newValue; engineDidChange() }
+    }
+
+    /// How solid the line behind a body is.
+    var trailOpacity: Double {
+        get { observeEngine(); return engine.trailSettings.opacity }
+        set { engine.trailSettings.opacity = newValue; engineDidChange() }
+    }
+
+    /// How thick that line is.
+    var trailWidth: Double {
+        get { observeEngine(); return engine.trailSettings.width }
+        set { engine.trailSettings.width = newValue; engineDidChange() }
+    }
+
+    // MARK: - Contact
+
+    /// How wide a body counts as for touching. Nought means work it out.
+    var contactSize: Double {
+        get { observeEngine(); return engine.contactSettings.size }
+        set { engine.contactSettings.size = newValue; engineDidChange() }
+    }
+
+    /// How many times a tick the crowd is pushed apart.
+    var contactPasses: Double {
+        get { observeEngine(); return Double(engine.contactSettings.passes) }
+        set { engine.contactSettings.passes = Int(newValue.rounded()); engineDidChange() }
+    }
+
+    /// How much speed survives a collision.
+    var contactBounciness: Double {
+        get { observeEngine(); return engine.contactSettings.bounciness }
+        set { engine.contactSettings.bounciness = newValue; engineDidChange() }
+    }
+
+    /// How much sideways speed is rubbed off when two bodies scrape past.
+    var contactFriction: Double {
+        get { observeEngine(); return engine.contactSettings.friction }
+        set { engine.contactSettings.friction = newValue; engineDidChange() }
+    }
+
     /// Whether the wind blows.
     var flowEnabled: Bool {
         get { observeEngine(); return engine.flowEnabled }
@@ -841,6 +941,8 @@ final class ParticleFieldModel {
         var background: ParticleBackdrop
         /// How brightly that is drawn.
         var backgroundStrength: Double
+        /// How much of the previous frame is replaced each time — the trail length control.
+        var trailFade: Double
         /// Seconds since the field started, for the twinkle and the drift.
         ///
         /// Seconds rather than the millisecond clock the rest of the tick uses, because a shader's
@@ -948,18 +1050,17 @@ final class ParticleFieldModel {
         return Frame(
             worldWidth: engine.width,
             worldHeight: engine.height,
-            // The world and the view are the same size in this half of the app — the world *is* the
-            // screen, at full resolution — so the pan is measured in the same pixels as everything
-            // else. Kept as its own pair of fields rather than reusing the world's, because that
-            // equality is a property of how the field is set up and not something the drawing code
-            // should assume.
-            viewWidth: engine.width,
-            viewHeight: engine.height,
+            // The view's own size, which is *not* the world's any more: pulling the camera back grows the
+            // world beyond the screen so the crowd has more room. The pan is measured in screen pixels, so
+            // it needs the screen.
+            viewWidth: viewPixelWidth > 0 ? viewPixelWidth : engine.width,
+            viewHeight: viewPixelHeight > 0 ? viewPixelHeight : engine.height,
             camera: camera,
             shape: engine.particleShape,
             background: engine.backdrop,
             backgroundStrength: engine.backdropStrength,
             backgroundTime: backdropSeconds,
+            trailFade: engine.trailSettings.sanitized.fade,
             bodyCount: bodies.count,
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
@@ -983,14 +1084,13 @@ final class ParticleFieldModel {
         colors: inout [UInt32],
         bodies: [ParticleObject]
     ) -> Int {
-        guard engine.showTrails, bodies.count <= ParticleEngine.trailDrawingLimit else { return 0 }
+        let trail = engine.trailSettings.sanitized
+        guard engine.showTrails, bodies.count <= trail.lineLimit else { return 0 }
 
         // The colour a trail is drawn in is the body's current colour under whichever colour mode is
         // selected, so a trail agrees with the thing that left it.
         let density = engine.densityGridIfNeeded()
-        let opacity = UInt32(
-            max(0, min(255, (ParticleOverlayStyle.trailOpacity * 255).rounded()))
-        )
+        let opacity = UInt32(max(0, min(255, (trail.opacity * 255).rounded())))
 
         var segments = 0
         for body in bodies {
@@ -1109,13 +1209,40 @@ final class ParticleFieldModel {
 
     /// How many pixels a point is, so a gesture measured in points can be applied in pixels.
     private var viewScale: Double = 2
+    /// The view's own size in pixels, before any world growth.
+    ///
+    /// Kept because the world's size is now the view's size times however far out the camera is pulled, so
+    /// the view's own size has to be remembered separately — otherwise growing the world once would make the
+    /// next growth compound on top of it.
+    private var viewPixelWidth: Double = 0
+    private var viewPixelHeight: Double = 0
 
     var camera: ParticleCamera {
         get { observeEngine(); return storedCamera }
         set {
+            let grew = newValue.worldScale != storedCamera.worldScale
             storedCamera = newValue
+            if grew { matchWorldToCamera() }
             cameraDidChange()
         }
+    }
+
+    /// Resizes the world to match how far out the camera is pulled.
+    ///
+    /// This is what makes zooming out mean *more room* rather than a smaller picture. Pull back to a quarter
+    /// and the world becomes four times as wide and four times as tall — sixteen times the space — with the
+    /// bodies still drawn at their true size, so the screen stays full and the freed room is somewhere the
+    /// crowd can actually go.
+    ///
+    /// Whatever is already in the field is shifted to stay in the middle, so the new space appears evenly
+    /// all round the existing scene rather than the scene sitting in one corner of it.
+    private func matchWorldToCamera() {
+        guard viewPixelWidth > 0, viewPixelHeight > 0 else { return }
+        let scale = storedCamera.worldScale
+        engine.resizeKeepingContentsCentred(
+            width: viewPixelWidth * scale,
+            height: viewPixelHeight * scale
+        )
     }
 
     /// Whether the view is anything other than looking straight down at the whole world.
@@ -1442,6 +1569,11 @@ final class ParticleFieldModel {
         if scale > 0 { viewScale = Double(scale) }
         // Full resolution, unlike the powder grid. The cost here is per body rather than per
         // cell, so a larger world is not a slower one — it is simply more room.
-        engine.resize(width: Double(size.width * scale), height: Double(size.height * scale))
+        viewPixelWidth = Double(size.width * scale)
+        viewPixelHeight = Double(size.height * scale)
+        // Through the camera, because the world is the view's size times however far out it is pulled. A
+        // plain resize here would silently undo the extra room the moment the phone was turned.
+        let worldScale = storedCamera.worldScale
+        engine.resize(width: viewPixelWidth * worldScale, height: viewPixelHeight * worldScale)
     }
 }

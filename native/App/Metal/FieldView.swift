@@ -552,7 +552,7 @@ final class FieldView: MTKView {
         // there down to three quarters and leaves the background showing through, which is what a
         // fading trail should do.
         var fade = FadeUniforms(
-            color: SIMD4<Float>(0, 0, 0, Float(ParticleOverlayStyle.frameFadeOpacity))
+            color: SIMD4<Float>(0, 0, 0, Float(frame.trailFade))
         )
         encoder.setRenderPipelineState(fadePipeline)
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)

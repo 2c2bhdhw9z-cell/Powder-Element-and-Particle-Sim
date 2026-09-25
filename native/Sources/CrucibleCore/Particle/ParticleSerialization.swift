@@ -91,6 +91,12 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// How bodies steer by their neighbours.
+    public var flockSettings: FlockSettings?
+    /// How motion trails behave.
+    public var trailSettings: TrailSettings?
+    /// How bodies in the crowd meet one another.
+    public var contactSettings: ContactSettings?
     /// The recorded changes over time.
     public var timeline: ParticleTimeline?
     /// Whether the wind blows.
@@ -158,6 +164,9 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             fluidSettings: fluidSettings,
             bodyGravitySettings: bodyGravitySettings,
+            flockSettings: flockSettings,
+            trailSettings: trailSettings,
+            contactSettings: contactSettings,
             timeline: timeline.isEmpty ? nil : timeline,
             flowEnabled: flowEnabled,
             flowSettings: flowSettings,
@@ -268,6 +277,9 @@ extension ParticleEngine {
         if let saved = state.palette { palette = saved }
         // Rebuilt through its own initialiser rather than assigned, so a hand-edited file's keyframes are
         // put in order and pulled into range on the way in.
+        if let saved = state.flockSettings { flockSettings = saved }
+        if let saved = state.trailSettings { trailSettings = saved }
+        if let saved = state.contactSettings { contactSettings = saved }
         if let saved = state.timeline {
             timeline = ParticleTimeline(keyframes: saved.keyframes, loops: saved.loops)
             playhead = ParticlePlayhead()
