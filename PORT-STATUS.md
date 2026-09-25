@@ -11,21 +11,36 @@ For *why* the project is arranged this way, read [README.md](README.md) and
 
 ## The one idea everything rests on
 
-The web implementation is the **specification**, not a rough draft. Nobody ever wrote
-down how this simulation behaves — it is the accumulated result of thousands of small
-tuning decisions — so the only way to carry it into Swift intact is to run the same world
-in both and compare **every cell and every body**, including how many random numbers each
-engine consumed.
+The web implementation was the **starting point** for correctness. Nobody ever wrote down
+how this simulation behaves — it is the accumulated result of thousands of small tuning
+decisions — so the only way to carry it into Swift intact was to run the same world in both
+and compare **every cell and every body**, including how many random numbers each engine
+consumed. That has found about eighty real bugs. It works because it cannot be fooled.
 
-Two rules follow, and breaking either loses the whole method:
+**But `web/` is now reference material only and must not be edited.** It is going to be
+deleted once the app has surpassed it; the only reason it is still here is so the app's look
+and behaviour can be checked against it. Do not fix anything in it, do not regenerate its
+fixtures, do not "keep the two in step".
 
-1. **Fixes go into both engines at once.** The golden comparison still passing afterwards
-   is what proves the two fixes are equivalent. A fix applied to one side only is
-   indistinguishable from a porting bug.
-2. **Never regenerate a fixture to make a test pass.** Regenerate only when a change to
-   behaviour was intended, and then check that the native side shows the *same* diff.
+### Which means the comparison is a tool, not an authority
 
-This has found about eighty real bugs so far. It works because it cannot be fooled.
+Two rules, and the second replaces what this file used to say:
+
+1. **Never regenerate a fixture to make a test pass.** If a comparison fails unexpectedly,
+   that is the method working.
+2. **When behaviour is deliberately changed, retire that comparison and replace it with a
+   native test of the intent.** The reference is not allowed to be a defence for something
+   that looks or behaves wrong — "the port is faithful" is not an answer to "this is broken".
+
+Two comparisons have been retired that way so far, and both are recorded where they were:
+
+- **The built-in scenes.** `RecipeGoldenTests` is gone, replaced by `RecipeTests`. The
+  reference's scenes were rectangles at fixed fractions: flat ground, identical trees at equal
+  spacing, and the *same picture every time*. Holding the rewritten ones to that grid would be
+  holding them to the fault.
+- **One powder scenario.** `laser-stops-at-bedrock` is filtered out of the comparison (see
+  `PowderGoldenTests.comparedScenarios`) because the reference's laser did not shoot. The other
+  thirty-seven scenarios are untouched and still compared cell for cell.
 
 ---
 
@@ -39,7 +54,7 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | Own sine, cosine, powers | complete | several thousand recorded values, bit-exact |
 | Saving, loading, undo, multiplayer wire format | complete | round trips + wire payload byte-identical across 38 scenarios |
 | Health inspection and repair tools, both chambers | complete | 25 behavioural tests |
-| All 13 built-in powder scenes | complete | 52 scene/size combinations, cell-for-cell |
+| All 13 built-in powder scenes | rewritten | native tests: rolling ground, layering, varied trees, a different world per seed, laid out at 8 sizes |
 | Powder renderer | complete | 16 frames, pixel for pixel |
 | Particle renderer | complete | 6 colour modes, pixel for pixel |
 | The four set-piece events | complete | 4 events x 4 sizes, cells + heat + momentum + draws + the shake and sound they ask for |
@@ -60,7 +75,7 @@ This has found about eighty real bugs so far. It works because it cannot be fool
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**474 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
+**493 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 **The port is complete.** Everything the web version does, the app now does — including the online

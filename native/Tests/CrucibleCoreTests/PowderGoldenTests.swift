@@ -166,6 +166,20 @@ struct PowderGoldenTests {
         return "\(negative ? "-" : "")\(whole).\(fractionText)"
     }
 
+    /// The scenarios still held to the web engine's exact grid.
+    ///
+    /// One is deliberately left out. `laser-stops-at-bedrock` records the reference's beam
+    /// behaviour, and that behaviour was wrong: a laser did not shoot. It looked three cells
+    /// ahead, could not pass through more of its own beam than that, and so a painted lump sat
+    /// exactly where it was put and did nothing. The Swift beam was rewritten to cut and travel
+    /// — see `propagateBeam` — so holding it to that fixture would be holding it to the fault.
+    ///
+    /// The web version is reference material only and is not being changed, so the comparison
+    /// for this one scenario is retired rather than regenerated. What replaces it is
+    /// `LaserTests`, which asserts what a beam is supposed to do instead of what the reference
+    /// happened to do. The other thirty-seven are untouched and still compared cell for cell.
+    static let comparedScenarios = fixture.scenarios.filter { $0.name != "laser-stops-at-bedrock" }
+
     @Test("The fixture loaded and covers every scenario")
     func fixtureLoads() {
         #expect(Self.fixture.scenarios.count == 38)
@@ -181,7 +195,7 @@ struct PowderGoldenTests {
         #expect(totalDraws > 500_000, "the suite consumed only \(totalDraws) random draws")
     }
 
-    @Test("Every cell matches the web engine", arguments: Self.fixture.scenarios)
+    @Test("Every cell matches the web engine", arguments: Self.comparedScenarios)
     func gridMatches(scenario: Scenario) {
         let engine = play(scenario)
         let produced = rows(of: engine)
@@ -204,7 +218,7 @@ struct PowderGoldenTests {
         }
     }
 
-    @Test("Temperatures match the web engine", arguments: Self.fixture.scenarios)
+    @Test("Temperatures match the web engine", arguments: Self.comparedScenarios)
     func temperaturesMatch(scenario: Scenario) {
         // Temperature drives the chemistry. A port could place every element
         // correctly while running slightly hot or cold, and would then diverge at
@@ -225,7 +239,7 @@ struct PowderGoldenTests {
         }
     }
 
-    @Test("Momentum matches the web engine", arguments: Self.fixture.scenarios)
+    @Test("Momentum matches the web engine", arguments: Self.comparedScenarios)
     func momentumMatches(scenario: Scenario) {
         let engine = play(scenario)
 
@@ -240,7 +254,7 @@ struct PowderGoldenTests {
         )
     }
 
-    @Test("The same number of random draws is consumed", arguments: Self.fixture.scenarios)
+    @Test("The same number of random draws is consumed", arguments: Self.comparedScenarios)
     func randomDrawsMatch(scenario: Scenario) {
         let engine = play(scenario)
         // Generous ceiling: the heaviest scenario consumes about 34,000.
@@ -262,7 +276,7 @@ struct PowderGoldenTests {
         )
     }
 
-    @Test("Occupied-cell count and world fingerprint match", arguments: Self.fixture.scenarios)
+    @Test("Occupied-cell count and world fingerprint match", arguments: Self.comparedScenarios)
     func countsAndHashMatch(scenario: Scenario) {
         let engine = play(scenario)
         #expect(

@@ -111,7 +111,18 @@ extension PowderEngine {
         // validation and anything a user named "Laser ..." silently inherited full beam
         // physics. Behaviour belongs to state, not to spelling.
         if definition.state == .energy {
-            propagateBeam(x: x, y: y, idx: idx)
+            // A laser and a spark share a state and are not the same thing: one is a cutting beam
+            // and the other is electricity creeping along a wire. They used to share this code,
+            // and giving the laser the beam it needed gave sparks a twelve-cell reach and the
+            // ability to set light to whatever they were next to — which broke electricity.
+            //
+            // Split by identifier, which is safe where a name check was not: the built-in ids are
+            // fixed, so nothing a user invents can land on 36.
+            if type[idx] == Element.laser {
+                propagateLaser(x: x, y: y, idx: idx)
+            } else {
+                propagateBeam(x: x, y: y, idx: idx)
+            }
         }
     }
 
@@ -347,8 +358,11 @@ extension PowderEngine {
 
     // MARK: - Beams
 
-    /// Sparks and laser beams: travel in a straight line and transform whatever
-    /// they hit.
+    /// Energy that is not a laser — a spark crossing a gap.
+    ///
+    /// Three cells, and it transforms the first thing it touches. Unchanged from the reference on
+    /// purpose: this is the path electricity takes, and it is held to the web engine cell for cell
+    /// by several golden scenarios.
     private func propagateBeam(x: Int, y: Int, idx: Int) {
         let stepDir = gravityY != 0 ? JS.signOrFallback(gravityY, fallback: 1) : 1
 
@@ -364,12 +378,11 @@ extension PowderEngine {
                 return
             }
 
-            // Bedrock stops a beam dead. The original did not break here, so the loop
-            // carried on to the next distance and the beam reappeared on the far side
-            // of the wall.
+            // Bedrock stops it dead. The reference did not break here, so the loop carried on to
+            // the next distance and it reappeared on the far side of the wall.
             if targetType == Element.bedrock { break }
 
-            // Beams pass through each other.
+            // Energy passes through energy.
             if targetType != Element.laser {
                 temperature[targetIdx] = JS.toFloat32(temperature[targetIdx].asDouble + 400)
 
@@ -382,6 +395,97 @@ extension PowderEngine {
                 }
                 return
             }
+        }
+    }
+
+    /// How far a laser travels in one moment.
+    ///
+    /// Twelve cells. It was three, and a laser is not a thing that creeps.
+    static let beamSpeed = 12
+
+    /// The laser: travels in a straight line and cuts whatever it meets.
+    ///
+    /// ## What was wrong with this
+    ///
+    /// A laser did not shoot. Painting one produced a red lump that sat exactly where it was
+    /// put and did nothing, and three separate faults combined to cause it — all three
+    /// inherited from the reference, which has the same problem.
+    ///
+    /// 1. **It looked three cells ahead, and passed through its own beam only within those
+    ///    three.** A brush is wider than three cells, so every cell inside the lump found more
+    ///    laser in front of it, ran out of look-ahead, and stayed put. Only the leading edge
+    ///    could ever move.
+    /// 2. **It burned only if it could not move, and returned either way.** So it never cleared
+    ///    and advanced in the same moment, which is what cutting is.
+    /// 3. **It stalled on its own damage.** Sand became lava, lava became fire, and fire is not
+    ///    empty — so the beam sat against the hole it had just made.
+    ///
+    /// ## What it does now
+    ///
+    /// Looks the full twelve cells ahead. Passes through its own beam however thick it is, and
+    /// through anything thin enough not to stop light — gas, plasma, the fire it just started.
+    /// Burns the first solid thing in its path **and** advances into the furthest clear cell
+    /// before it, in the same moment. Bedrock still absorbs it completely.
+    ///
+    /// The result is that a painted lump streams forward as a beam, cuts a channel through
+    /// stone and sand, boils water on contact, and stops dead at bedrock.
+    private func propagateLaser(x: Int, y: Int, idx: Int) {
+        let stepDir = gravityY != 0 ? JS.signOrFallback(gravityY, fallback: 1) : 1
+
+        // The furthest clear cell along the path, and the first solid thing past it.
+        var reachable = 0
+        var blockedIdx = -1
+        var blockedType: ElementID = Element.empty
+        var blockedY = 0
+
+        for distance in 1 ... Self.beamSpeed {
+            let targetY = y + distance * stepDir
+            // The edge of the world ends the beam; there is nothing beyond it to travel into.
+            guard isValid(x, targetY) else { break }
+
+            let targetIdx = index(x, targetY)
+            let targetType = type[targetIdx]
+
+            if targetType == Element.empty {
+                reachable = distance
+                continue
+            }
+            // Bedrock stops a beam dead. The reference did not break here, so the loop carried
+            // on to the next distance and the beam reappeared on the far side of the wall.
+            if targetType == Element.bedrock { break }
+
+            let target = elements[targetType]
+            // Another beam, or a spark: light passes through light, however much of it there is.
+            if target.state == .energy { continue }
+            // Thin enough not to stop a beam — and this is what lets it cut, because the fire
+            // and steam it leaves behind are exactly these.
+            if target.state == .gas || target.state == .plasma {
+                reachable = distance
+                continue
+            }
+
+            blockedIdx = targetIdx
+            blockedType = targetType
+            blockedY = targetY
+            break
+        }
+
+        // Burn what is in the way. Done before moving, and done whether or not it can move,
+        // which together are what turn this from a lump into a cutting beam.
+        if blockedIdx >= 0 {
+            temperature[blockedIdx] = JS.toFloat32(temperature[blockedIdx].asDouble + 400)
+
+            if blockedType == Element.water || blockedType == Element.ice {
+                setElement(x, blockedY, Element.steam)
+            } else if blockedType == Element.sand || blockedType == Element.stone {
+                setElement(x, blockedY, Element.lava)
+            } else {
+                setElement(x, blockedY, Element.fire, temp: 150)
+            }
+        }
+
+        if reachable > 0 {
+            swapCells(idx, index(x, y + reachable * stepDir))
         }
     }
 }
