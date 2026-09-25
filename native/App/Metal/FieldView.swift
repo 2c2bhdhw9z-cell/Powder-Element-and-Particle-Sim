@@ -29,6 +29,12 @@ final class FieldView: MTKView {
         var orbit: SIMD2<Float>
         var pointSize: Float
         var zoom: Float
+        /// Which silhouette. `ParticleShape.shaderIdentifier`.
+        var shape: Int32
+        /// Nothing, and here on purpose — see the note in the shader. Without it the struct ends on a
+        /// four-byte boundary and each language pads the tail on its own; they agree today and neither
+        /// is required to, and a disagreement about padding does not fail to compile.
+        var reserved: Int32 = 0
     }
 
     /// Mirrors `RingUniforms` in the shader, field for field and in the same order.
@@ -404,7 +410,8 @@ final class FieldView: MTKView {
                 Float(ParticleCamera.radians(frame.camera.pitch))
             ),
             pointSize: Float(frame.pointSize),
-            zoom: Float(frame.camera.zoom)
+            zoom: Float(frame.camera.zoom),
+            shape: frame.shape.shaderIdentifier
         )
     }
 
@@ -422,6 +429,7 @@ final class FieldView: MTKView {
             encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)
             encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
             encoder.setVertexBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
         }
 
@@ -453,6 +461,7 @@ final class FieldView: MTKView {
             encoder.setVertexBuffer(positionBuffer, offset: 0, index: 0)
             encoder.setVertexBuffer(colorBuffer, offset: 0, index: 1)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
         }
 

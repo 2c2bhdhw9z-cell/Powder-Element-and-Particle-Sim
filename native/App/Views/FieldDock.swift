@@ -363,7 +363,47 @@ struct FieldDock: View {
 
             colourModes
             colourRamps
+            shapeChoices
             viewControls
+        }
+    }
+
+    /// What silhouette bodies are drawn as.
+    ///
+    /// Shown as the shapes themselves rather than as a list of words. "Spark, Plus, Diamond" tells
+    /// nobody what they are choosing between; these are pictures, and the point of them is how they
+    /// look.
+    ///
+    /// The swatches are drawn by SwiftUI rather than sampled from the shader, which is the one place in
+    /// this file where two drawings of the same thing exist. That is a real risk — it is exactly how the
+    /// reference implementation ended up with hearts the right way up on one path and upside down on
+    /// the other — so the swatches are kept deliberately plain, and the engine's own tests are what
+    /// establish which way round a shape belongs.
+    private var shapeChoices: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("SHAPE")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ForEach(ParticleShape.allCases, id: \.self) { shape in
+                    let selected = model.particleShape == shape
+                    Button {
+                        model.particleShape = shape
+                    } label: {
+                        ShapeSwatch(shape: shape)
+                            .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
+                            .frame(width: 26, height: 26)
+                            .padding(5)
+                            .background(
+                                Circle().fill(selected ? Palette.primary : Color.white.opacity(0.10))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(shape.displayName)
+                    .accessibilityAddTraits(selected ? [.isSelected] : [])
+                }
+            }
         }
     }
 

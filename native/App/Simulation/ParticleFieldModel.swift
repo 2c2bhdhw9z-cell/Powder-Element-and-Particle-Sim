@@ -76,6 +76,12 @@ final class ParticleFieldModel {
         }
     }
 
+    /// What silhouette bodies are drawn as.
+    var particleShape: ParticleShape {
+        get { observeEngine(); return engine.particleShape }
+        set { engine.particleShape = newValue; engineDidChange() }
+    }
+
     /// Whether a colour ramp replaces the hue arithmetic.
     var paletteEnabled: Bool {
         get { observeEngine(); return engine.paletteEnabled }
@@ -483,6 +489,8 @@ final class ParticleFieldModel {
         var viewHeight: Double
         /// Where the field is being looked at from.
         var camera: ParticleCamera
+        /// What silhouette bodies are drawn as.
+        var shape: ParticleShape
         var bodyCount: Int
         var springCount: Int
         var pointSize: Double
@@ -591,6 +599,7 @@ final class ParticleFieldModel {
             viewWidth: engine.width,
             viewHeight: engine.height,
             camera: camera,
+            shape: engine.particleShape,
             bodyCount: bodies.count,
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),

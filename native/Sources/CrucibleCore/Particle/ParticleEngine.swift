@@ -79,6 +79,12 @@ public final class ParticleEngine {
     public var paletteEnabled: Bool = false
     /// Which colours the field is drawn in when ``paletteEnabled`` is set.
     public var palette: ParticlePaletteSpec = .default
+    /// What silhouette bodies are drawn as.
+    ///
+    /// A disc by default, which is what the field has always drawn. The other nine are additions: a
+    /// field of sparks, of rings or of confetti reads completely differently, and none of those can be
+    /// had from a circle.
+    public var particleShape: ParticleShape = .circle
     /// Drawn radius for bodies that do not specify one.
     public var particleSize: Double = 2
     /// Upper bound on the whole field, objects and swarm together.

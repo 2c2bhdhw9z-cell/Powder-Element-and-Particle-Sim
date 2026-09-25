@@ -87,6 +87,8 @@ public struct ParticleState: Codable, Sendable {
     public var fluidEnabled: Bool?
     /// How the bodies are coloured. Optional, so files written before palettes existed still load.
     public var colorMode: String?
+    /// What silhouette bodies are drawn as.
+    public var particleShape: String?
     /// Whether a colour ramp replaces the hue arithmetic.
     public var paletteEnabled: Bool?
     /// Which ramp, gradient or fade. Carried in full, including a hand-made gradient's stops —
@@ -131,6 +133,7 @@ extension ParticleEngine {
             nbodyEnabled: nbodyEnabled,
             fluidEnabled: fluidEnabled,
             colorMode: colorMode.rawValue,
+            particleShape: particleShape.rawValue,
             paletteEnabled: paletteEnabled,
             palette: palette,
             // Filled in by the caller, which is where the camera lives. Left empty here rather than
@@ -220,6 +223,12 @@ extension ParticleEngine {
         // cannot express, not quietly repaint the scene.
         if let saved = state.colorMode, let mode = ParticleColorMode(rawValue: saved) {
             colorMode = mode
+        }
+        // A shape this build does not recognise leaves the current one alone, for the same reason the
+        // colour mode does: a file from a later build should lose the setting it cannot express rather
+        // than quietly redrawing the scene as circles.
+        if let saved = state.particleShape, let shape = ParticleShape(rawValue: saved) {
+            particleShape = shape
         }
         paletteEnabled = state.paletteEnabled ?? false
         if let saved = state.palette { palette = saved }

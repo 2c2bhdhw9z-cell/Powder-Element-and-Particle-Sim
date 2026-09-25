@@ -29,6 +29,15 @@ struct FieldUniforms {
     float pointSize;
     // How far in the view is pushed.
     float zoom;
+    // Which silhouette to draw. The numbers are `ParticleShape.shaderIdentifier`.
+    int shape;
+    // Nothing, and here on purpose.
+    //
+    // Without it the struct ends on a four-byte boundary and both languages pad the tail out to
+    // eight on their own. They agree today, and neither is required to — and a disagreement about
+    // trailing padding does not fail to compile, it silently reads the wrong fields. Filling the gap
+    // explicitly means there is nothing left to agree about.
+    int reserved;
 };
 
 struct PointOut {
@@ -97,8 +106,10 @@ static inline float4 worldToClip(float2 world, constant FieldUniforms &u, thread
     // the turn happens about the middle of the world rather than the middle of what is on screen.
     // The vertical pan subtracts where the horizontal adds: down the screen is down the picture, and
     // the picture's vertical axis runs the other way.
-    float2 half = max(u.viewSize * 0.5, float2(1e-6));
-    n = n * u.zoom + float2(u.pan.x / half.x, -u.pan.y / half.y);
+    // Not named `half`: that is a type in this language, and using it as a variable fails to compile
+    // with four errors that name neither the word nor the reason.
+    float2 halfView = max(u.viewSize * 0.5, float2(1e-6));
+    n = n * u.zoom + float2(u.pan.x / halfView.x, -u.pan.y / halfView.y);
 
     return float4(n, 0.0, 1.0);
 }
@@ -125,15 +136,138 @@ vertex PointOut particleVertex(uint index [[vertex_id]],
     return out;
 }
 
+// How far outside the chosen silhouette a point is, and where that silhouette's edge sits.
+//
+// **This mirrors `ParticleShape.metric(x:y:)` in `CrucibleCore`, formula for formula.** That file is
+// the one to change first: it is ordinary arithmetic, so the silhouettes are tested there — a ring
+// must be hollow, a triangle must widen downward, no two shapes may be identical — and none of that
+// can be checked from inside a shader.
+//
+// Three of these were wrong when first written and all three were found by drawing them out as text
+// and looking at them: the star came out as a filled square with a star-shaped hole, the hexagon
+// overran its box and arrived with the top and bottom sliced flat, and the spark was a plain diamond
+// with an invisible cross inside it. The reference implementation ships all three of those faults.
+//
+// Everything is measured in a square running from minus one to one with **y pointing up**. The
+// gradient that comes back says how fast this shape's measurement moves compared with a plain
+// radius, so that one piece of edge-softening can serve all ten.
+static inline void shapeMetric(float2 p, int shape,
+                               thread float &distance, thread float &edge, thread float &gradient) {
+    gradient = 1.0;
+    edge = 1.0;
+
+    switch (shape) {
+    case 1:  // square
+        distance = max(abs(p.x), abs(p.y));
+        return;
+
+    case 2: {  // ring — a band three tenths wide about a circle of radius seven tenths
+        float radius = length(p);
+        distance = abs(radius - 0.7) * (1.0 / 0.3);
+        gradient = 1.0 / 0.3;
+        return;
+    }
+
+    case 3:  // diamond — the axes added rather than compared
+        distance = abs(p.x) + abs(p.y);
+        return;
+
+    case 4: {  // triangle, point upward, base cut off flat
+        float halfWidth = 0.85 * (1.0 - p.y) / 1.7;
+        distance = max(-p.y - 0.72, abs(p.x) - halfWidth);
+        edge = 0.0;
+        return;
+    }
+
+    case 5: {  // star — five points, folded by reflection rather than by taking an angle
+        const float cos36 = 0.8090169943749475;
+        const float sin36 = 0.5877852522924731;
+        float2 q = float2(abs(p.x), p.y);
+
+        float first = q.x * cos36 - q.y * sin36;
+        if (first > 0.0) { q -= 2.0 * first * float2(cos36, -sin36); }
+        float second = -q.x * cos36 - q.y * sin36;
+        if (second > 0.0) { q += 2.0 * second * float2(cos36, sin36); }
+        q.x = abs(q.x);
+        q.y -= 1.0;
+
+        float2 e = float2(0.38 * sin36, 0.38 * cos36 - 1.0);
+        float along = clamp(dot(q, e) / dot(e, e), 0.0, 1.0);
+        float gap = length(q - e * along);
+        float side = q.x * e.y - q.y * e.x;
+        distance = side > 0.0 ? -gap : gap;
+        edge = 0.0;
+        return;
+    }
+
+    case 6:  // hexagon, points up and down, fitting the box exactly
+        distance = max(abs(p.x), abs(p.x) * 0.5 + abs(p.y) * 0.8660254037844386);
+        edge = 0.8660254037844386;
+        return;
+
+    case 7:  // cross — two long thin boxes, joined
+        distance = min(max(3.2 * abs(p.x), abs(p.y)), max(3.2 * abs(p.y), abs(p.x)));
+        gradient = 3.2;
+        return;
+
+    case 8:  // spark — four points with sides bent inward by adding square roots
+        distance = sqrt(abs(p.x)) + sqrt(abs(p.y));
+        gradient = 1.4;
+        return;
+
+    case 9: {  // heart — a circle whose centre lifts the further out it goes
+        float shifted = p.y + 0.28;
+        float across = abs(p.x);
+        float lift = shifted - 0.5 * sqrt(across);
+        distance = across * across + lift * lift;
+        edge = 0.62;
+        gradient = 1.6;
+        return;
+    }
+
+    default:  // circle
+        distance = length(p);
+        return;
+    }
+}
+
 fragment half4 particleFragment(PointOut in [[stage_in]],
-                                float2 coordinate [[point_coord]]) {
-    // Clipped to a disc. A point arrives as a square, and a field of squares reads as a grid
-    // of tiles rather than as a cloud of particles — especially where they overlap.
-    float2 offset = coordinate - float2(0.5);
-    if (length_squared(offset) > 0.25) {
+                                float2 coordinate [[point_coord]],
+                                constant FieldUniforms &uniforms [[buffer(0)]]) {
+    // A point arrives as a square. Turned into a square running from minus one to one with y upward,
+    // matching what `ParticleShape` describes — the vertical flip is because the coordinate a point
+    // hands over grows downward, and two of the ten shapes have a top and a bottom.
+    float2 p = float2(coordinate.x * 2.0 - 1.0, 1.0 - coordinate.y * 2.0);
+
+    float distance, edge, gradient;
+    shapeMetric(p, uniforms.shape, distance, edge, gradient);
+
+    // The faded edge, one pixel wide whatever size the body is drawn. The square is always two units
+    // across, so one pixel is two divided by the size — which means the fade is worked out from the
+    // real drawn size rather than being a fixed fraction of it.
+    //
+    // The reference implementation uses a fixed fraction, so its edges are invisible on a small body
+    // and a blur several pixels wide on a large one. This is also strictly better than what the field
+    // did before, which was no softening at all: a plain hard cut, which at two or three pixels across
+    // gives every body a visible staircase.
+    float softness = min(0.5, 2.0 / max(in.size, 1.0)) * max(gradient, 1e-6);
+
+    float coverage;
+    if (softness > 1e-9) {
+        coverage = clamp((edge - distance) / softness, 0.0, 1.0);
+    } else {
+        coverage = distance <= edge ? 1.0 : 0.0;
+    }
+
+    // Discarded rather than returned transparent: a fully faded fragment still costs a blend, and at
+    // a million bodies most of every point sprite is outside its shape.
+    if (coverage <= 0.004) {
         discard_fragment();
     }
-    return in.color;
+
+    half4 color = in.color;
+    color.a *= half(coverage);
+    return color;
 }
 
 // Springs. Drawn as plain lines in one flat colour, because they are structure rather than
