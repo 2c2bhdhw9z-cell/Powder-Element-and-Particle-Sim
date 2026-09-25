@@ -124,5 +124,11 @@
 		<string>IBMPlexMono-Regular.ttf</string>
 		<string>IBMPlexMono-Medium.ttf</string>
 	</array>
+	<!-- Asked for only when somebody switches the field's music reaction on, and worth being plain
+	     about: the sound is never recorded, never saved and never leaves the phone. It is turned into
+	     three numbers — how much low end, how much middle, how loud — and those are thrown away again
+	     every frame. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Crucible listens to the room so the particle field can move to whatever is playing. Nothing is recorded or saved.</string>
 </dict>
 </plist>

@@ -20,6 +20,7 @@ struct FieldSettingsSheet: View {
             pull
             wind
             written
+            music
             edges
             appearance
         }
@@ -289,6 +290,137 @@ struct FieldSettingsSheet: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    /// Reacting to whatever is playing in the room.
+    private var music: some View {
+        LabGroup(
+            "Move to music",
+            footnote: "Listens to the room through the microphone. Nothing is recorded or saved — the sound "
+                + "becomes three numbers, and those are thrown away every frame. Switching it off puts every "
+                + "setting back exactly where it was."
+        ) {
+            LabToggle(
+                label: "Listen",
+                isOn: Binding(get: { model.isListening }, set: { model.setListening($0) })
+            )
+
+            if let problem = model.listeningProblem {
+                Text(problem)
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
+
+            if model.isListening {
+                LabDivider()
+                // What it is hearing, so the mappings can be set up by watching rather than by guessing.
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(ParticleAudioSignal.Source.allCases, id: \.self) { source in
+                        let level = model.heardSignal.value(of: source)
+                        HStack(spacing: 8) {
+                            Text(source.displayName)
+                                .font(.labBody(11))
+                                .foregroundStyle(Palette.muted)
+                                .frame(width: 66, alignment: .leading)
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.white.opacity(0.08))
+                                    Capsule()
+                                        .fill(Palette.primary)
+                                        .frame(width: max(2, geometry.size.width * level))
+                                }
+                            }
+                            .frame(height: 6)
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+                LabDivider()
+                LabSlider(
+                    label: "How strongly",
+                    value: Binding(
+                        get: { model.audioSensitivity },
+                        set: { model.audioSensitivity = $0 }
+                    ),
+                    range: 0 ... 3,
+                    step: 0.05
+                ) { "\($0.formatted(.number.precision(.fractionLength(2))))×" }
+
+                LabDivider()
+                // One row per thing sound can drive, each with which signal drives it and how much. A
+                // strength of nothing is off, so there is no separate switch per row.
+                ForEach(ParticleAudioTarget.allCases, id: \.self) { target in
+                    mappingRow(for: target)
+                }
+            }
+        }
+    }
+
+    /// One row: what sound does to one setting.
+    private func mappingRow(for target: ParticleAudioTarget) -> some View {
+        let existing = model.audioMappings.first { $0.target == target }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(target.displayName)
+                        .font(.labBody(13))
+                        .foregroundStyle(Palette.foreground)
+                    Text(target.explanation)
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                }
+                Spacer(minLength: 8)
+                ForEach(ParticleAudioSignal.Source.allCases, id: \.self) { source in
+                    let chosen = existing?.source == source
+                    Button {
+                        setMapping(target: target, source: source, amount: existing?.amount ?? 1)
+                    } label: {
+                        Text(source.displayName)
+                            .font(.labBody(10, chosen ? .semiBold : .regular))
+                            .foregroundStyle(chosen ? Palette.primaryForeground : Palette.muted)
+                            .padding(.horizontal, 8)
+                            .frame(height: 24)
+                            .background(
+                                Capsule().fill(chosen ? Palette.primary : Color.white.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Slider(
+                value: Binding(
+                    get: { existing?.amount ?? 0 },
+                    set: {
+                        setMapping(target: target, source: existing?.source ?? .level, amount: $0)
+                    }
+                ),
+                in: 0 ... 2
+            ) { Text(target.displayName) }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    /// Points a signal at a setting, or removes the pointing when the strength reaches nothing.
+    private func setMapping(
+        target: ParticleAudioTarget,
+        source: ParticleAudioSignal.Source,
+        amount: Double
+    ) {
+        var mappings = model.audioMappings.filter { $0.target != target }
+        // Removed rather than kept at nothing, so the saved list stays as short as what it describes — and
+        // so a row switched off cannot come back with a strength somebody has forgotten setting.
+        if amount > 0.001 {
+            mappings.append(
+                ParticleAudioMapping(source: source, target: target, amount: amount)
+            )
+        }
+        model.audioMappings = mappings
     }
 
     // MARK: Pieces

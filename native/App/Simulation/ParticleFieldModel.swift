@@ -130,6 +130,109 @@ final class ParticleFieldModel {
         ) ?? SwarmCost.bodyGravityWarning(bodies: bodyCount, gravity: engine.nbodyEnabled)
     }
 
+    // MARK: - Music
+
+    /// The microphone, when the field is listening.
+    ///
+    /// Made only when asked for. Holding one from the start would show the microphone indicator in the
+    /// status bar for the whole life of the app, which is alarming and untrue.
+    private(set) var listener: AudioListener?
+
+    /// Which signals drive which settings.
+    var audioMappings: [ParticleAudioMapping] = ParticleAudio.defaultMappings
+    /// How strongly sound affects the field overall.
+    var audioSensitivity: Double = 1
+
+    /// Whether the field is reacting to sound.
+    var isListening: Bool {
+        listener?.isListening == true
+    }
+
+    /// Why it is not, if it is not.
+    var listeningProblem: String? {
+        listener?.problem
+    }
+
+    /// What the microphone is hearing, for the interface to show.
+    var heardSignal: ParticleAudioSignal {
+        listener?.signal ?? .silence
+    }
+
+    /// Starts or stops listening.
+    func setListening(_ shouldListen: Bool) {
+        if shouldListen {
+            if listener == nil { listener = AudioListener() }
+            listener?.start()
+        } else {
+            listener?.stop()
+            // Put back whatever sound was changing, so switching it off restores the field exactly.
+            restoreFromMusic()
+            listener = nil
+        }
+        engineDidChange()
+    }
+
+    /// What the settings were before sound started changing them.
+    ///
+    /// Sound never writes into a setting — it works out a value for one frame from the resting one — so this
+    /// is what "resting" means. Taken when listening starts and put back when it stops, so a session of
+    /// music cannot leave the sliders somewhere they were never dragged to. The reference implementation
+    /// writes into its live settings, so its sliders drift while music plays and stay drifted afterwards.
+    private var restingValues: ParticleAudioBaseline?
+    /// When a burst of bodies was last thrown in, in seconds of the field's own clock.
+    private var lastBurstAt: Double = -1
+
+    /// Applies what the microphone is hearing to the field, for this frame.
+    private func applyMusic() {
+        guard let listener, listener.isListening else { return }
+
+        if restingValues == nil {
+            restingValues = ParticleAudioBaseline(
+                particleSize: engine.particleSize,
+                gravityY: engine.gravityY,
+                swirl: engine.vortexForce,
+                glowStrength: engine.glow.strength
+            )
+        }
+        guard let resting = restingValues else { return }
+
+        let response = ParticleAudio.respond(
+            to: listener.signal,
+            mappings: audioMappings,
+            sensitivity: audioSensitivity,
+            baseline: resting
+        )
+        engine.particleSize = response.particleSize
+        engine.gravityY = response.gravityY
+        engine.vortexForce = response.swirl
+        engine.glow.strength = response.glowStrength
+
+        // The colour shift is expressed as a tint that walks round the ramp, which is the only way to move
+        // every body's colour at once without recolouring a million of them.
+        if response.colourShift > 0, engine.paletteEnabled {
+            let turn = response.colourShift * 360
+            engine.palette.tint = PackedColor(hue: turn, saturation: 0.35, lightness: 0.72)
+        }
+
+        // Bursts, spaced out so one drum hit spread over several frames fires once.
+        let count = ParticleAudio.burstCount(strength: response.burst)
+        if count > 0, engine.elapsedSeconds - lastBurstAt >= ParticleAudio.burstInterval {
+            lastBurstAt = engine.elapsedSeconds
+            engine.spawnBurst(count: count, x: engine.width * 0.5, y: engine.height * 0.5)
+        }
+    }
+
+    /// Puts back whatever sound was changing.
+    private func restoreFromMusic() {
+        guard let resting = restingValues else { return }
+        engine.particleSize = resting.particleSize
+        engine.gravityY = resting.gravityY
+        engine.vortexForce = resting.swirl
+        engine.glow.strength = resting.glowStrength
+        engine.palette.tint = PackedColor(r: 255, g: 255, b: 255)
+        restingValues = nil
+    }
+
     /// Whether the wind blows.
     var flowEnabled: Bool {
         get { observeEngine(); return engine.flowEnabled }
@@ -591,6 +694,11 @@ final class ParticleFieldModel {
         // looking at the field, not part of it. Somebody who pauses to study an arrangement should
         // still be able to turn it round and see the shape of it.
         advanceCameraSpin(now: now)
+
+        // Sound is applied before the pause check as well: a paused field reacting to music is a
+        // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
+        // place — by watching what each one does without the field also flying about.
+        applyMusic()
 
         // And the backdrop keeps moving while paused too. Stars that stopped twinkling the moment time
         // stopped would make a paused field look broken rather than paused.
