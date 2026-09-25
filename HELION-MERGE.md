@@ -2769,18 +2769,32 @@ ported. That is not a decision, it is an omission, and calling it one is the poi
 These are the ones that matter most, because they are the reason the merge was wanted: they are things
 the person using the app would *do*, not settings they would adjust.
 
+**Three of the four are now done.** What is left is the emitter.
+
 | what it is | where it was written down | state |
 | --- | --- | --- |
-| **Zoom out for more room** — pulling back grows the world instead of shrinking the picture | Slice A, "Zoom is two different products on one slider" | **being built now** |
-| **Painted force fields** — drag a finger to paint wind into the world, and the crowd follows it | Slice C, §C6, in full — grid size, bilinear sampling, the saturating paint stroke | absent |
-| **Walls** — draw line segments the crowd collides with, including the swept test so fast bodies cannot tunnel through | Slice B and C | absent |
-| **Emitters with real controls** — a source that pours continuously at a rate, spread, speed and direction you set | Slice B, §B4, where the rate accumulator is called "the right way and worth copying exactly" | the field has an emitter tool, but it is a fixed six bodies a frame with nothing adjustable |
+| **Zoom out for more room** — pulling back grows the world instead of shrinking the picture | Slice A, "Zoom is two different products on one slider" | **done**, build-66 |
+| **Painted wind** — drag a finger to paint a current into the world, and the crowd follows it | Slice C, §C6, in full — grid size, bilinear sampling, the saturating paint stroke | **done**, build-67 |
+| **Walls** — draw lines the crowd collides with, catching a fast body that would cross between frames | Slice B and C | **done**, build-67 |
+| **Emitters with real controls** — a source that pours continuously at a rate, spread, speed and direction you set | Slice B, §B4, where the rate accumulator is called "the right way and worth copying exactly" | **still absent.** The field has an emitter tool, but it is a fixed six bodies a frame with nothing adjustable. |
+
+## Settings that were switches
+
+A separate kind of omission, and the one the owner raised alongside the zoom: several things *were* built
+but arrived as a bare on-and-off switch with every number about how they behaved written into the code as a
+constant. That is the same fault as not building them, because a switch you cannot adjust is somebody
+else's decision presented as a choice.
+
+**Done in build-66.** Flocking's three urges, its sight range, its personal space and how many bodies take
+part; the trail length, solidity and thickness; the contact size, bounciness, friction and firmness. All of
+them now fold in directly underneath their own switch rather than living in a separate panel — because
+numbers that arrive somewhere else are the same fault wearing a different hat.
 
 ## Omissions in how it looks
 
 | what it is | where | state |
 | --- | --- | --- |
-| **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | absent. The field has trails as short lines and as a fading picture, but a body is always round. |
+| **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | still absent. The field has trails as short lines and as a fading picture, but a body is always round. |
 | **Fade in and out over a lifetime** | Slice A, §A3 and Slice E | absent |
 | **Colour by weight** | Slice A, §A3 | absent, and cannot be done until the crowd carries weights — see below |
 | **Detail settings for the field** tied to the real pixel density | first-pass table | absent. The powder half has them; the field does not. |
