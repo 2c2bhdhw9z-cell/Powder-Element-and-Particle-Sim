@@ -91,6 +91,17 @@ public struct ParticleState: Codable, Sendable {
     public var fluidSettings: SwarmFluid.Settings?
     /// How strong the pull between bodies is.
     public var bodyGravitySettings: SwarmGravity.Settings?
+    /// Whether the wind blows.
+    public var flowEnabled: Bool?
+    /// How the wind behaves.
+    public var flowSettings: SwarmFlow.Settings?
+    /// A force somebody wrote, sideways. Saved as the text, so it comes back editable rather than as
+    /// something already compiled that cannot be read.
+    public var writtenForceAcross: String?
+    /// The same, vertically.
+    public var writtenForceDown: String?
+    /// How hard a written force pushes.
+    public var writtenForceStrength: Double?
     /// What is drawn behind the field.
     public var backdrop: String?
     /// How brightly that is drawn.
@@ -145,6 +156,11 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             fluidSettings: fluidSettings,
             bodyGravitySettings: bodyGravitySettings,
+            flowEnabled: flowEnabled,
+            flowSettings: flowSettings,
+            writtenForceAcross: writtenForceAcross.source,
+            writtenForceDown: writtenForceDown.source,
+            writtenForceStrength: writtenForceStrength,
             backdrop: backdrop.rawValue,
             backdropStrength: backdropStrength,
             glow: glow,
@@ -247,6 +263,24 @@ extension ParticleEngine {
         }
         paletteEnabled = state.paletteEnabled ?? false
         if let saved = state.palette { palette = saved }
+        flowEnabled = state.flowEnabled ?? false
+        if let saved = state.flowSettings { flowSettings = saved }
+        // Compiled again on the way in rather than trusted. A saved file can be hand-edited, and an
+        // expression that no longer makes sense should quietly become no force rather than being carried
+        // into the physics as something half-understood.
+        if let saved = state.writtenForceAcross,
+           case .success(let expression) = ParticleForceExpression.compile(saved)
+        {
+            writtenForceAcross = expression
+        }
+        if let saved = state.writtenForceDown,
+           case .success(let expression) = ParticleForceExpression.compile(saved)
+        {
+            writtenForceDown = expression
+        }
+        if let saved = state.writtenForceStrength, saved.isFinite {
+            writtenForceStrength = max(-20, min(20, saved))
+        }
         if let saved = state.backdrop, let kind = ParticleBackdrop(rawValue: saved) { backdrop = kind }
         if let saved = state.backdropStrength { backdropStrength = saved }
         if let saved = state.glow { glow = saved.sanitized }

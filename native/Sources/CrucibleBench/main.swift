@@ -513,3 +513,61 @@ print("")
 print("  The pull between bodies sweeps a grid of sixteen hundred squares per body whatever the crowd,")
 print("  so its cost per body barely changes — which is the whole reason for the approximation. The")
 print("  fluid is two passes over every neighbour, so it climbs with how tightly packed the crowd is.")
+
+// MARK: - Wind, and forces somebody writes
+//
+// Both of these are one sweep over the bodies with no neighbour search at all, so both should be cheap
+// and should stay linear. Measured because "should be" is not a figure, and because the written force in
+// particular is where the reference implementation loses most of its time — it reads the text afresh for
+// every body on every axis on every frame.
+
+print("")
+print("Wind, and a written force, one moment each:")
+print("")
+print("  bodies      wind         written force")
+
+for count in [25_000, 100_000, 500_000, 1_000_000] {
+    var figures: [Double] = []
+    for mode in 0 ..< 2 {
+        let field = ParticleEngine(width: 400, height: 700)
+        _ = field.setMaxParticles(1_000_000)
+        field.collisionsEnabled = false
+        if mode == 0 {
+            field.flowEnabled = true
+            field.flowSettings.strength = 1
+        } else if case .success(let expression) =
+            ParticleForceExpression.compile("sin(y * 8 + t) * 2 - vx * 0.1")
+        {
+            field.writtenForceAcross = expression
+            field.writtenForceDown = expression
+        }
+        var swarmRng = Mulberry32(seed: 1)
+        field.swarm.spawn(
+            count: count,
+            width: 400,
+            height: 700,
+            color: 0xFFFF_FFFF,
+            budget: 1_000_000,
+            rng: &swarmRng
+        )
+        for _ in 0 ..< 5 { field.step() }
+
+        let rounds = 20
+        let started = now()
+        for _ in 0 ..< rounds { field.step() }
+        figures.append((now() - started) / Double(rounds) * 1000)
+    }
+    print(
+        String(
+            format: "  %-10@  %8.2f ms   %8.2f ms",
+            count.formattedWithSeparators as NSString,
+            figures[0],
+            figures[1]
+        )
+    )
+}
+
+print("")
+print("  Both are one sweep with no neighbour search, so both stay linear. The written force is compiled")
+print("  once into a flat list of steps rather than read afresh per body, which is the difference between")
+print("  arithmetic and millions of small allocations a second.")

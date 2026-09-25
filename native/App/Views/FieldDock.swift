@@ -359,6 +359,10 @@ struct FieldDock: View {
                     get: { model.nbodyEnabled },
                     set: { model.nbodyEnabled = $0 }
                 ))
+                Toggle("Wind — eddies and channels filling the field", isOn: Binding(
+                    get: { model.flowEnabled },
+                    set: { model.flowEnabled = $0 }
+                ))
             }
             .font(.labBody(11))
             .foregroundStyle(Palette.muted)

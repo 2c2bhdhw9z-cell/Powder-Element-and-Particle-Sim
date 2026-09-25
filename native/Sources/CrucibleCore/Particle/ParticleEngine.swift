@@ -126,8 +126,33 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// Whether the wind blows. Reached through ``flowEnabled``.
+    var storedFlowEnabled: Bool = false
+    /// How the wind behaves. Reached through ``flowSettings``.
+    var storedFlowSettings: SwarmFlow.Settings = .default
+
+    /// A force somebody wrote, for the sideways direction.
+    ///
+    /// Empty means no force, which is what an empty box in the interface should mean.
+    public var writtenForceAcross: ParticleForceExpression = .blank
+    /// The same, for the vertical direction.
+    public var writtenForceDown: ParticleForceExpression = .blank
+    /// How hard a written force pushes.
+    public var writtenForceStrength: Double = 1
+
+    /// How long the field has been running, in seconds.
+    ///
+    /// Counted from the ticks rather than read from a clock, because the engine deliberately has no clock
+    /// — and because a written force that reads the time has to see it advance in step with the physics
+    /// rather than with the wall, or a paused field would still have a moving force acting on it.
+    public private(set) var elapsedSeconds: Double = 0
+
     /// The liquid's working state. Held here so its buffers survive between ticks.
     let fluid = SwarmFluid()
+    /// The wind's working state.
+    let flow = SwarmFlow()
+    /// The written force's working state.
+    let writtenForce = SwarmCustomForce()
     /// The pull's working state, likewise.
     let bodyGravity = SwarmGravity()
 
@@ -458,6 +483,12 @@ public final class ParticleEngine {
         if let mouseX { lastMouseX = mouseX }
         if let mouseY { lastMouseY = mouseY }
         lastMouseActive = mouseActive
+
+        // A sixtieth of a second per tick, which is what the field's numbers are tuned around — the step
+        // has no time in it at all, so one tick *is* the unit of time here. Counted rather than read from
+        // a clock, so a written force or a wind that reads the time advances in step with the physics
+        // rather than with the wall.
+        elapsedSeconds += 1.0 / 60.0
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             spawnEmitter(at: mouseX, y: mouseY)

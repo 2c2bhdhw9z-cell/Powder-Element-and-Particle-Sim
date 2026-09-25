@@ -18,6 +18,8 @@ struct FieldSettingsSheet: View {
             forces
             liquid
             pull
+            wind
+            written
             edges
             appearance
         }
@@ -186,6 +188,107 @@ struct FieldSettingsSheet: View {
                 ) { "\($0.formatted(.number.precision(.fractionLength(0)))) px" }
             }
         }
+    }
+
+    /// The wind.
+    @ViewBuilder
+    private var wind: some View {
+        if model.flowEnabled {
+            LabGroup(
+                "Wind",
+                footnote: "A pattern of motion filling the whole field, with eddies and channels and calm "
+                    + "patches. Eddy size decides how many of them fit across the screen; drift is how "
+                    + "fast the pattern itself changes, and at nought the crowd finds the channels and "
+                    + "then follows them forever."
+            ) {
+                LabSlider(label: "Strength", value: bind(\.flowStrength), range: 0 ... 3, step: 0.05) {
+                    $0.formatted(.number.precision(.fractionLength(2)))
+                }
+                LabDivider()
+                LabSlider(label: "Eddy size", value: bind(\.flowScale), range: 20 ... 600, step: 10) {
+                    "\($0.formatted(.number.precision(.fractionLength(0)))) px"
+                }
+                LabDivider()
+                LabSlider(label: "Drift", value: bind(\.flowDrift), range: 0 ... 1, step: 0.02) {
+                    $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(2)))
+                }
+            }
+        }
+    }
+
+    /// A force somebody writes themselves.
+    ///
+    /// Always shown, unlike the wind and the liquid, because there is no switch for it — an empty box
+    /// means no force, so the boxes *are* the switch.
+    private var written: some View {
+        LabGroup(
+            "Write your own force",
+            footnote: "Two sums, worked out for every body. `x` and `y` run from 0 to 1 across the field, "
+                + "`vx` and `vy` are how fast it is going, `r` is how far it is from the middle and `t` is "
+                + "seconds. Try `sin(y * 8) * 2` sideways for a standing wave, or `0 - vy * 0.4` downward "
+                + "for drag that only acts vertically."
+        ) {
+            expressionBox(
+                label: "Sideways",
+                text: Binding(
+                    get: { model.writtenForceAcross },
+                    set: { model.writtenForceAcross = $0 }
+                ),
+                problem: model.writtenForceAcrossProblem
+            )
+            LabDivider()
+            expressionBox(
+                label: "Downward",
+                text: Binding(
+                    get: { model.writtenForceDown },
+                    set: { model.writtenForceDown = $0 }
+                ),
+                problem: model.writtenForceDownProblem
+            )
+            LabDivider()
+            LabSlider(
+                label: "Strength",
+                value: bind(\.writtenForceStrength),
+                range: -4 ... 4,
+                step: 0.1
+            ) { "\($0.formatted(.number.precision(.fractionLength(1))))×" }
+        }
+    }
+
+    /// One box to write a sum in, with whatever is wrong with it underneath.
+    ///
+    /// The explanation matters. The reference implementation this was merged from turns every mistake into
+    /// silence — a typo there produces no force and no message, so the only symptom is that nothing
+    /// happens, and there is no way to tell a wrong sum from a sum that correctly does nothing.
+    private func expressionBox(label: String, text: Binding<String>, problem: String?) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(.labBody(13))
+                .foregroundStyle(Palette.foreground)
+            TextField("", text: text, prompt: Text("no force").foregroundStyle(Palette.subtleForeground))
+                .font(.labNumeric(13))
+                .foregroundStyle(Palette.foreground)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 10)
+                .frame(height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .stroke(problem == nil ? Color.clear : Palette.warn.opacity(0.65), lineWidth: 1)
+                )
+            if let problem {
+                Text(problem)
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     // MARK: Pieces

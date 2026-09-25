@@ -588,6 +588,20 @@ extension ParticleEngine {
                 height: height
             )
         }
+        if flowEnabled {
+            flow.step(swarm: swarm, settings: flowSettings, time: elapsedSeconds)
+        }
+        if !writtenForceAcross.isEmpty || !writtenForceDown.isEmpty {
+            writtenForce.step(
+                swarm: swarm,
+                acrossward: writtenForceAcross,
+                downward: writtenForceDown,
+                strength: writtenForceStrength,
+                width: width,
+                height: height,
+                time: elapsedSeconds
+            )
+        }
 
         let effect = swarmMouseEffect
         swarm.step(Swarm.StepOptions(

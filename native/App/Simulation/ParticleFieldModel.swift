@@ -130,6 +130,82 @@ final class ParticleFieldModel {
         ) ?? SwarmCost.bodyGravityWarning(bodies: bodyCount, gravity: engine.nbodyEnabled)
     }
 
+    /// Whether the wind blows.
+    var flowEnabled: Bool {
+        get { observeEngine(); return engine.flowEnabled }
+        set { engine.flowEnabled = newValue; engineDidChange() }
+    }
+
+    /// How hard the wind pushes.
+    var flowStrength: Double {
+        get { observeEngine(); return engine.flowSettings.strength }
+        set { engine.flowSettings.strength = newValue; engineDidChange() }
+    }
+
+    /// How large the eddies are.
+    var flowScale: Double {
+        get { observeEngine(); return engine.flowSettings.scale }
+        set { engine.flowSettings.scale = newValue; engineDidChange() }
+    }
+
+    /// How fast the pattern itself changes.
+    var flowDrift: Double {
+        get { observeEngine(); return engine.flowSettings.drift }
+        set { engine.flowSettings.drift = newValue; engineDidChange() }
+    }
+
+    /// How hard a written force pushes.
+    var writtenForceStrength: Double {
+        get { observeEngine(); return engine.writtenForceStrength }
+        set { engine.writtenForceStrength = newValue; engineDidChange() }
+    }
+
+    /// The text of the sideways written force, exactly as typed.
+    ///
+    /// Kept separately from the compiled force, not read back off it. An expression is half-finished for
+    /// most of the time it is being written — `sin(y *` is not valid and neither is `sin(y * 4` — so a box
+    /// whose contents came from the last thing that compiled would erase what somebody was in the middle
+    /// of typing, on nearly every keystroke.
+    var writtenForceAcross: String = "" {
+        didSet { setWrittenForce(writtenForceAcross, across: true) }
+    }
+
+    /// The text of the vertical written force, exactly as typed.
+    var writtenForceDown: String = "" {
+        didSet { setWrittenForce(writtenForceDown, across: false) }
+    }
+
+    /// What is wrong with the sideways expression, or nothing when it is fine.
+    private(set) var writtenForceAcrossProblem: String?
+    /// What is wrong with the vertical expression.
+    private(set) var writtenForceDownProblem: String?
+
+    /// Compiles what somebody typed, and keeps the explanation when it does not work.
+    ///
+    /// The last expression that *did* work stays in force while the text is broken, for the same reason
+    /// the text is kept separately: a field that went dead at every intermediate keystroke would be
+    /// impossible to type into. Clearing the box is the exception — an empty box means no force, and that
+    /// compiles successfully, so it takes effect immediately.
+    private func setWrittenForce(_ text: String, across: Bool) {
+        switch ParticleForceExpression.compile(text) {
+        case .success(let expression):
+            if across {
+                engine.writtenForceAcross = expression
+                writtenForceAcrossProblem = nil
+            } else {
+                engine.writtenForceDown = expression
+                writtenForceDownProblem = nil
+            }
+        case .failure(let why):
+            if across {
+                writtenForceAcrossProblem = why.message
+            } else {
+                writtenForceDownProblem = why.message
+            }
+        }
+        engineDidChange()
+    }
+
     /// What is drawn behind the field.
     var backdrop: ParticleBackdrop {
         get { observeEngine(); return engine.backdrop }
