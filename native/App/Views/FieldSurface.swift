@@ -48,6 +48,17 @@ struct FieldSurface: UIViewRepresentable {
             super.init()
         }
 
+        /// One finger works the field; two fingers move the camera.
+        ///
+        /// That division is the whole scheme, and it is the only one that works here. A tool has to
+        /// be usable with one finger — the force ones are held down, not tapped — so a single finger
+        /// cannot also mean "pan". And a camera gesture has to be available without first putting a
+        /// tool away, or looking closely at something becomes a three-step chore.
+        ///
+        /// Worth noting what the reference implementation does here, because it is why this had to be
+        /// designed rather than ported: it pans with a middle-click, a right-click or a held Alt key,
+        /// and its turn and tilt are reachable only from sliders. None of those exist on a phone. Its
+        /// pinch-to-zoom is the one gesture that carried over.
         func attachGestures(to view: UIView) {
             // A long-press recogniser with no delay, rather than a pan. A pan does not begin
             // until the finger has moved, and holding still in one place is a perfectly good
@@ -59,13 +70,43 @@ struct FieldSurface: UIViewRepresentable {
             )
             press.minimumPressDuration = 0
             press.allowableMovement = .greatestFiniteMagnitude
+            press.delegate = self
             view.addGestureRecognizer(press)
+
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+            pinch.delegate = self
+            view.addGestureRecognizer(pinch)
+
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            // Exactly two. One belongs to the tool, and three or more is nothing in this app — and
+            // leaving the maximum open would let a stray third finger during a pinch be read as a
+            // pan and jerk the view sideways.
+            pan.minimumNumberOfTouches = 2
+            pan.maximumNumberOfTouches = 2
+            pan.delegate = self
+            view.addGestureRecognizer(pan)
+
+            let rotate = UIRotationGestureRecognizer(
+                target: self,
+                action: #selector(handleRotate(_:))
+            )
+            rotate.delegate = self
+            view.addGestureRecognizer(rotate)
         }
 
         @objc private func handlePress(_ gesture: UILongPressGestureRecognizer) {
             guard let view = gesture.view else { return }
             let bounds = view.bounds
             guard bounds.width > 0, bounds.height > 0 else { return }
+
+            // A second finger means the camera, not the field. The tool is let go the moment one
+            // arrives, because otherwise pinching to zoom would also drag whatever was under the
+            // first finger halfway across the world.
+            if gesture.numberOfTouches > 1 {
+                model.endTouch()
+                return
+            }
+
             let point = gesture.location(in: view)
             let fx = Double(point.x / bounds.width)
             let fy = Double(point.y / bounds.height)
@@ -82,5 +123,45 @@ struct FieldSurface: UIViewRepresentable {
                 model.endTouch()
             }
         }
+
+        @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            // The scale is reported cumulatively from the start of the gesture, so it is reset to one
+            // after each reading and what gets applied is the change since the last. Applying the
+            // cumulative value directly would fight the clamp: once the zoom hit its limit, pinching
+            // back would do nothing until the fingers had returned all the way to where they started.
+            guard gesture.state == .changed || gesture.state == .began else { return }
+            model.zoomCamera(by: Double(gesture.scale))
+            gesture.scale = 1
+        }
+
+        @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+            guard let view = gesture.view else { return }
+            guard gesture.state == .changed || gesture.state == .began else { return }
+            let movement = gesture.translation(in: view)
+            model.panCamera(byPointsX: Double(movement.x), y: Double(movement.y))
+            gesture.setTranslation(.zero, in: view)
+        }
+
+        @objc private func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            guard gesture.state == .changed || gesture.state == .began else { return }
+            model.rotateCamera(byRadians: Double(gesture.rotation))
+            gesture.rotation = 0
+        }
+    }
+}
+
+extension FieldSurface.Coordinator: UIGestureRecognizerDelegate {
+    /// All four run together.
+    ///
+    /// Pinch, two-finger drag and twist are one continuous motion of the same two fingers, and a
+    /// system that made you choose between them would feel broken — letting go to change from
+    /// zooming to turning is not how a phone behaves. The press recogniser also has to keep running
+    /// alongside them, because it is the thing that notices the second finger arriving and puts the
+    /// tool down.
+    func gestureRecognizer(
+        _ gesture: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }

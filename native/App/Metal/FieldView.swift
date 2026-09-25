@@ -15,10 +15,20 @@ import simd
 /// bodies are never buried under the crowd.
 @MainActor
 final class FieldView: MTKView {
-    /// Matches the layout the shader declares.
+    /// Matches the layout the shader declares, field for field and in the same order.
+    ///
+    /// The two-component values come first, in pairs, because they want eight-byte alignment — put
+    /// after the plain floats they would leave a hole whose size both sides have to agree about, and
+    /// a disagreement there does not fail to compile. It reads the wrong fields and draws the field
+    /// somewhere unexpected.
     private struct Uniforms {
         var worldSize: SIMD2<Float>
+        var viewSize: SIMD2<Float>
+        var pan: SIMD2<Float>
+        /// Turn and tip, in radians.
+        var orbit: SIMD2<Float>
         var pointSize: Float
+        var zoom: Float
     }
 
     /// Mirrors `RingUniforms` in the shader, field for field and in the same order.
@@ -167,10 +177,17 @@ final class FieldView: MTKView {
 
         let frame = prepare(device: device)
 
+        // Moving the camera invalidates whatever is left over from the previous frame. The kept
+        // picture is in screen space, so when the view slides underneath it, what was a trail behind
+        // a body becomes a streak across the screen belonging to nothing — and because each frame is
+        // only dimmed, the streak stays there. Wiped once, and the model is told so it stops asking.
+        let cameraMoved = model.trailHistoryIsStale
+        if cameraMoved { model.clearedTrailHistory() }
+
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].storeAction = .store
-        if model.showTrails {
+        if model.showTrails, !cameraMoved {
             // Kept, so the previous frame can be dimmed rather than erased. That dimming is what
             // makes a trail longer than the handful of positions a body remembers.
             pass.colorAttachments[0].loadAction = .load
@@ -187,7 +204,7 @@ final class FieldView: MTKView {
             return
         }
 
-        if model.showTrails {
+        if model.showTrails, !cameraMoved {
             encodeFade(frame, into: encoder)
         }
         encode(frame, into: encoder)
@@ -261,10 +278,7 @@ final class FieldView: MTKView {
         _ frame: ParticleFieldModel.Frame,
         into encoder: MTLRenderCommandEncoder
     ) {
-        var uniforms = Uniforms(
-            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
-            pointSize: Float(frame.pointSize)
-        )
+        var uniforms = Self.uniforms(for: frame)
         // The room's own near-black, at the fraction of itself the reference uses. The engine owns
         // that figure, alongside everything else about how trails look.
         var fade = FadeUniforms(
@@ -375,12 +389,28 @@ final class FieldView: MTKView {
         return frame
     }
 
+    /// Everything the shaders need to place a body, gathered in one place.
+    ///
+    /// One function rather than built twice, because the fading backdrop and the field itself must
+    /// agree about the camera exactly. If they drifted apart, the fade would dim one part of the
+    /// screen while the bodies were drawn in another, and trails would appear to stick.
+    private static func uniforms(for frame: ParticleFieldModel.Frame) -> Uniforms {
+        Uniforms(
+            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
+            viewSize: SIMD2<Float>(Float(frame.viewWidth), Float(frame.viewHeight)),
+            pan: SIMD2<Float>(Float(frame.camera.panX), Float(frame.camera.panY)),
+            orbit: SIMD2<Float>(
+                Float(ParticleCamera.radians(frame.camera.effectiveYaw)),
+                Float(ParticleCamera.radians(frame.camera.pitch))
+            ),
+            pointSize: Float(frame.pointSize),
+            zoom: Float(frame.camera.zoom)
+        )
+    }
+
     /// The four passes, in the order that decides what sits in front of what.
     private func encode(_ frame: ParticleFieldModel.Frame, into encoder: MTLRenderCommandEncoder) {
-        var uniforms = Uniforms(
-            worldSize: SIMD2<Float>(Float(frame.worldWidth), Float(frame.worldHeight)),
-            pointSize: Float(frame.pointSize)
-        )
+        var uniforms = Self.uniforms(for: frame)
 
         // The swarm first and smallest: it is the crowd, and the few individually interesting
         // bodies should never be buried under it.

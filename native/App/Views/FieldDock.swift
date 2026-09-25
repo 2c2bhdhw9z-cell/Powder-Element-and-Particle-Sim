@@ -363,6 +363,76 @@ struct FieldDock: View {
 
             colourModes
             colourRamps
+            viewControls
+        }
+    }
+
+    /// Where the field is being looked at from.
+    ///
+    /// Only the two things a gesture cannot say are given controls. Zoom is a pinch, shifting is a
+    /// two-finger drag and turning is a twist, so those need nothing here — but tipping the plane has
+    /// no natural two-finger motion left, and "put it back" and "fit it on screen" are buttons by
+    /// nature.
+    ///
+    /// The plane genuinely tips rather than the picture being squashed: the near half of the field is
+    /// drawn larger than the far half, so a ring of bodies becomes a proper ellipse and a galaxy
+    /// reads as a disc seen at an angle instead of as a circle that has been sat on.
+    private var viewControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("VIEW")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+
+            Text("Pinch to zoom, drag with two fingers to move, twist to turn.")
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+
+            LabSlider(
+                label: "Tilt",
+                value: Binding(get: { model.cameraPitch }, set: { model.cameraPitch = $0 }),
+                range: 0 ... ParticleCamera.maximumPitch,
+                step: 1
+            ) { "\(Int($0.rounded()))°" }
+
+            Toggle(isOn: Binding(
+                get: { model.cameraAutoOrbit },
+                set: { model.cameraAutoOrbit = $0 }
+            )) {
+                Text("Turn by itself")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
+            }
+            .tint(Palette.primary)
+
+            HStack(spacing: 8) {
+                Button {
+                    model.fitCameraToContent()
+                } label: {
+                    Label("Fit to the field", systemImage: "viewfinder")
+                        .font(.labBody(12, .semiBold))
+                        .foregroundStyle(Palette.foreground)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(Capsule().fill(Color.white.opacity(0.10)))
+                }
+                .buttonStyle(.plain)
+
+                if model.cameraIsMoved {
+                    Button {
+                        model.resetCamera()
+                    } label: {
+                        Label("Reset", systemImage: "arrow.counterclockwise")
+                            .font(.labBody(12, .semiBold))
+                            .foregroundStyle(Palette.foreground)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(Capsule().fill(Color.white.opacity(0.10)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 

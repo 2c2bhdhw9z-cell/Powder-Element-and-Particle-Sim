@@ -209,8 +209,13 @@ final class ParticleFieldModel {
     }
 
     /// The field as something that can be written to a file.
+    ///
+    /// The camera is added here rather than by the engine, because the engine does not have one — it
+    /// knows nothing about views or screens, and that is deliberate.
     func captureState() -> ParticleState {
-        engine.captureState()
+        var state = engine.captureState()
+        state.camera = storedCamera
+        return state
     }
 
     /// Puts a saved field back.
@@ -221,6 +226,12 @@ final class ParticleFieldModel {
         // An undo point first, so loading the wrong scene is recoverable.
         recordUndoPoint()
         let applied = engine.apply(state)
+        if applied {
+            // A file with no camera in it was written before there was one to save, and the right
+            // reading of that is the resting view rather than whatever the last scene happened to
+            // leave behind.
+            camera = state.camera ?? .identity
+        }
         bodyCount = engine.bodyCount
         return applied
     }
@@ -410,6 +421,11 @@ final class ParticleFieldModel {
         // stopped. See the same note in SimulationModel.
         steer(with: tilt?.isSteering == true ? tilt?.mapping : nil)
 
+        // Also before the pause check, and for the same reason: the automatic spin is a way of
+        // looking at the field, not part of it. Somebody who pauses to study an arrangement should
+        // still be able to turn it round and see the shape of it.
+        advanceCameraSpin(now: now)
+
         // Before this chamber's own pause is honoured, so each chamber's pause means only itself. The
         // companion decides for itself whether it is running.
         alsoStep?()
@@ -462,6 +478,11 @@ final class ParticleFieldModel {
     struct Frame {
         var worldWidth: Double
         var worldHeight: Double
+        /// The view's own size, in points. The camera's pan is measured in these.
+        var viewWidth: Double
+        var viewHeight: Double
+        /// Where the field is being looked at from.
+        var camera: ParticleCamera
         var bodyCount: Int
         var springCount: Int
         var pointSize: Double
@@ -473,6 +494,13 @@ final class ParticleFieldModel {
     }
 
     /// The ring round a finger.
+    ///
+    /// Measured in screen points, not world units. It used to be world units, because the world was
+    /// the screen and the two were the same thing — but with a camera a ring specified in world units
+    /// would be transformed along with the bodies, and under a tilt a circle does not stay a circle.
+    /// The ring would arrive as a lopsided egg drawn round a perfectly round finger. So the centre
+    /// goes through the camera here and the sizes stay constant on screen, which is what an interface
+    /// affordance should do.
     struct TouchRing {
         var x: Double
         var y: Double
@@ -555,6 +583,14 @@ final class ParticleFieldModel {
         return Frame(
             worldWidth: engine.width,
             worldHeight: engine.height,
+            // The world and the view are the same size in this half of the app — the world *is* the
+            // screen, at full resolution — so the pan is measured in the same pixels as everything
+            // else. Kept as its own pair of fields rather than reusing the world's, because that
+            // equality is a property of how the field is set up and not something the drawing code
+            // should assume.
+            viewWidth: engine.width,
+            viewHeight: engine.height,
+            camera: camera,
             bodyCount: bodies.count,
             springCount: written,
             pointSize: max(1, engine.particleSize * 2),
@@ -628,14 +664,33 @@ final class ParticleFieldModel {
     private func currentTouchRing() -> TouchRing? {
         guard engine.lastMouseActive else { return nil }
         let colour = ParticleOverlayStyle.ringColor
-        return TouchRing(
+
+        // Where the finger is in the world, put back through the camera, so the ring follows the
+        // body it is acting on rather than staying where the finger happens to be on a tilted view.
+        let placed = camera.project(
             x: engine.lastMouseX,
             y: engine.lastMouseY,
-            radius: ParticleOverlayStyle.ringRadius(
-                reach: engine.mouseRadius,
-                worldWidth: engine.width,
-                worldHeight: engine.height
-            ),
+            worldWidth: engine.width,
+            worldHeight: engine.height,
+            viewWidth: engine.width,
+            viewHeight: engine.height
+        )
+        let worldRadius = ParticleOverlayStyle.ringRadius(
+            reach: engine.mouseRadius,
+            worldWidth: engine.width,
+            worldHeight: engine.height
+        )
+
+        return TouchRing(
+            x: (placed.x + 1) * 0.5 * engine.width,
+            y: (1 - placed.y) * 0.5 * engine.height,
+            // The reach is a distance in the world, so it grows and shrinks with the view. Under a
+            // tilt it is also drawn at the depth its centre sits at — a circle on a tilted plane is
+            // properly an ellipse, and this is one number rather than two, so it is an approximation
+            // and is stated as one. It is an aiming aid, not a measurement.
+            radius: worldRadius * camera.drawScale(depthScale: placed.depthScale),
+            // These two do not scale. They are parts of the interface rather than parts of the
+            // world, and a hairline that thickened as you zoomed in would read as a fault.
             strokeWidth: ParticleOverlayStyle.ringStrokeWidth,
             centreDotRadius: ParticleOverlayStyle.ringCentreDotRadius,
             red: Double(colour.r) / 255,
@@ -654,13 +709,203 @@ final class ParticleFieldModel {
     }
 
     func updateTouch(atFractionX fx: Double, fractionY fy: Double) {
-        touchX = fx * engine.width
-        touchY = fy * engine.height
+        // Through the camera, so a tool lands where it was aimed. Without this, tilting or zooming
+        // the view would leave the brush acting on a body somewhere else entirely — and a tool that
+        // lands somewhere other than where it was pointed is worse than one that cannot be pointed.
+        let place = camera.unproject(
+            screenX: fx * engine.width,
+            screenY: fy * engine.height,
+            worldWidth: engine.width,
+            worldHeight: engine.height,
+            viewWidth: engine.width,
+            viewHeight: engine.height
+        )
+        touchX = place.x
+        touchY = place.y
         touchActive = true
     }
 
     func endTouch() {
         touchActive = false
+    }
+
+    // MARK: - The camera
+
+    /// Where the field is being looked at from.
+    ///
+    /// Held on the model rather than in the engine: it changes nothing about the simulation, and the
+    /// engine deliberately knows nothing about views or screens. It is saved with a scene, though, so
+    /// a view somebody set up carefully comes back.
+    private var storedCamera = ParticleCamera.identity
+
+    /// How many pixels a point is, so a gesture measured in points can be applied in pixels.
+    private var viewScale: Double = 2
+
+    var camera: ParticleCamera {
+        get { observeEngine(); return storedCamera }
+        set {
+            storedCamera = newValue
+            cameraDidChange()
+        }
+    }
+
+    /// Whether the view is anything other than looking straight down at the whole world.
+    ///
+    /// Read by the interface, so the button that puts it back can hide itself when there is nothing
+    /// to put back.
+    var cameraIsMoved: Bool {
+        observeEngine()
+        return !storedCamera.isIdentity
+    }
+
+    /// Moving the camera invalidates the faded picture left over from the previous frame.
+    ///
+    /// Without this, panning across the field drags a smear of every previous frame with it — the
+    /// accumulated picture is in screen space, so when the view moves underneath it, what was a
+    /// trail behind a body becomes a streak across the screen that has nothing to do with any body.
+    private func cameraDidChange() {
+        trailHistoryIsStale = true
+        engineDidChange()
+    }
+
+    /// Set when the camera moves, cleared once the renderer has wiped the leftover picture.
+    private(set) var trailHistoryIsStale = false
+
+    func clearedTrailHistory() {
+        trailHistoryIsStale = false
+    }
+
+    /// When the spin was last moved on, in milliseconds. Nothing means it has not started.
+    private var lastSpinTime: Double?
+
+    /// Moves the automatic spin on by however long has passed.
+    ///
+    /// By real elapsed time rather than a fixed step per frame, so the spin turns at the rate it says
+    /// whether the field is running at thirty frames a second or a hundred and twenty. The camera
+    /// itself clamps a long gap, so coming back from the background does not jump the view round.
+    private func advanceCameraSpin(now: Double) {
+        guard storedCamera.autoOrbit else {
+            lastSpinTime = nil
+            return
+        }
+        defer { lastSpinTime = now }
+        guard let last = lastSpinTime, now > last else { return }
+        var next = storedCamera
+        next.advance(bySeconds: (now - last) / 1000)
+        storedCamera = next
+        // Deliberately not through `camera`, which would wipe the leftover picture every frame and
+        // so destroy trails for as long as the spin was running. A spin is a continuous change; the
+        // smear it leaves is the same smear a moving body leaves, which is the point of a trail.
+        engineDidChange()
+    }
+
+    /// Zooms about the middle of the view, the way a pinch does.
+    func zoomCamera(by factor: Double) {
+        var next = storedCamera
+        next.zoom(by: factor)
+        camera = next
+    }
+
+    /// Shifts the view by a drag measured in points.
+    func panCamera(byPointsX dx: Double, y dy: Double) {
+        var next = storedCamera
+        next.pan(byX: dx * viewScale, y: dy * viewScale)
+        camera = next
+    }
+
+    /// Turns the view by a twist measured in radians, as a rotation gesture reports it.
+    func rotateCamera(byRadians radians: Double) {
+        var next = storedCamera
+        next.rotate(byYaw: radians * 180 / .pi, pitch: 0)
+        camera = next
+    }
+
+    /// How far the plane is tipped, in degrees.
+    var cameraPitch: Double {
+        get { observeEngine(); return storedCamera.pitch }
+        set {
+            var next = storedCamera
+            next.pitch = ParticleCamera.clampPitch(newValue)
+            camera = next
+        }
+    }
+
+    /// Whether the view turns by itself.
+    var cameraAutoOrbit: Bool {
+        get { observeEngine(); return storedCamera.autoOrbit }
+        set {
+            var next = storedCamera
+            next.autoOrbit = newValue
+            camera = next
+        }
+    }
+
+    /// Back to looking straight down at the whole world.
+    func resetCamera() {
+        var next = storedCamera
+        next.reset()
+        camera = next
+    }
+
+    /// Zooms and shifts the view so that everything in the field is on screen.
+    ///
+    /// This is the thing the reference implementation does not have: its "fill frame" never looks at
+    /// where the bodies actually are. Here the extent is measured, ignoring the wildest few — one
+    /// body flung out of a supernova must not frame the scene around itself — and the view is fitted
+    /// around what is left.
+    ///
+    /// Both stores are measured. A scene can be a handful of object bodies, a swarm of a million, or
+    /// both, and fitting to only one of them would put half the field off screen.
+    func fitCameraToContent() {
+        var frame = ParticleCamera.framing(
+            positions: engine.swarm.positions,
+            count: engine.swarm.count,
+            worldWidth: engine.width,
+            worldHeight: engine.height
+        )
+
+        if !engine.particles.isEmpty {
+            var flat: [Float] = []
+            flat.reserveCapacity(engine.particles.count * 2)
+            for body in engine.particles {
+                flat.append(Float(body.x))
+                flat.append(Float(body.y))
+            }
+            let objects = flat.withUnsafeBufferPointer { buffer -> ParticleFraming in
+                guard let base = buffer.baseAddress else { return frame }
+                return ParticleCamera.framing(
+                    positions: base,
+                    count: engine.particles.count,
+                    worldWidth: engine.width,
+                    worldHeight: engine.height
+                )
+            }
+            frame = Self.union(frame, objects)
+        }
+
+        guard !frame.isEmpty else { return }
+        var next = storedCamera
+        next.fit(
+            to: frame,
+            worldWidth: engine.width,
+            worldHeight: engine.height,
+            viewWidth: engine.width,
+            viewHeight: engine.height
+        )
+        camera = next
+    }
+
+    /// The smallest box holding both, or whichever one is not empty.
+    private static func union(_ left: ParticleFraming, _ right: ParticleFraming) -> ParticleFraming {
+        if left.isEmpty { return right }
+        if right.isEmpty { return left }
+        return ParticleFraming(
+            minX: min(left.minX, right.minX),
+            minY: min(left.minY, right.minY),
+            maxX: max(left.maxX, right.maxX),
+            maxY: max(left.maxY, right.maxY),
+            bodyCount: left.bodyCount + right.bodyCount
+        )
     }
 
     // MARK: - Scenes
@@ -792,6 +1037,8 @@ final class ParticleFieldModel {
 
     func resize(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
+        // Kept so that a drag measured in points can be turned into the pixels the camera works in.
+        if scale > 0 { viewScale = Double(scale) }
         // Full resolution, unlike the powder grid. The cost here is per body rather than per
         // cell, so a larger world is not a slower one — it is simply more room.
         engine.resize(width: Double(size.width * scale), height: Double(size.height * scale))

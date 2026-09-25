@@ -92,6 +92,12 @@ public struct ParticleState: Codable, Sendable {
     /// Which ramp, gradient or fade. Carried in full, including a hand-made gradient's stops —
     /// somebody who built one by hand should get it back, not a nearest named ramp.
     public var palette: ParticlePaletteSpec?
+    /// Where the field was being looked at from.
+    ///
+    /// Saved even though it changes nothing about the simulation, because a tilt and a zoom set up to
+    /// show a scene at its best are part of the scene. It lives on the interface's model rather than
+    /// in the engine, so it is written and read here but applied by the caller.
+    public var camera: ParticleCamera?
     public var swarm: SwarmRecord?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
@@ -127,6 +133,10 @@ extension ParticleEngine {
             colorMode: colorMode.rawValue,
             paletteEnabled: paletteEnabled,
             palette: palette,
+            // Filled in by the caller, which is where the camera lives. Left empty here rather than
+            // given a default, so "no camera was saved" and "the camera was in its resting position"
+            // stay distinguishable.
+            camera: nil,
             swarm: swarm.count > 0 ? swarmRecord(limit: Self.saveSwarmLimit) : nil,
             // Only springs whose two ends both survived the cap, since a position past the
             // end of what was written is exactly the stale index that makes a reloaded
