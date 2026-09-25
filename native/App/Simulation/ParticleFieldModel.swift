@@ -981,6 +981,12 @@ final class ParticleFieldModel {
         ("lattice", "Quantum lattice"), ("helix", "DNA helix"), ("flock", "Flock"),
         ("nbody", "N-body"), ("cloth", "Cloth"), ("rope", "Rope"), ("blob", "Blob"),
         ("burst", "Burst"), ("swarm", "Swarm"),
+        // The twelve pattern scenes. Kept together and after the rest, because they are a different kind
+        // of thing: the ones above are about a centre and a force, and these are about a shape.
+        ("sunflower", "Sunflower"), ("mandala", "Mandala"), ("snowflakes", "Snowflakes"),
+        ("tornado", "Tornado"), ("lightning", "Lightning"), ("aurora", "Aurora"),
+        ("supernova", "Supernova"), ("sierpinski", "Sierpinski"), ("fireworks", "Fireworks"),
+        ("magma", "Magma"), ("confetti", "Confetti"), ("molecules", "Molecules"),
     ]
 
     /// The limit on how many bodies the field will hold.
@@ -1045,6 +1051,23 @@ final class ParticleFieldModel {
         case "swarm":
             engine.clear()
             engine.spawnBatch(count: 120_000)
+
+        // The pattern scenes. These are crowds rather than a handful of bodies — a sunflower is its
+        // seeds and a mandala is its petals, and a few hundred of either would be a sketch of one. So
+        // they clear the field and ask for thousands, and they place into the swarm where thousands are
+        // affordable.
+        case "sunflower": engine.clear(); engine.spawnSunflower()
+        case "mandala": engine.clear(); engine.spawnMandala()
+        case "snowflakes": engine.clear(); engine.spawnSnowflakes()
+        case "tornado": engine.clear(); engine.spawnTornado()
+        case "lightning": engine.clear(); engine.spawnLightning()
+        case "aurora": engine.clear(); engine.spawnAurora()
+        case "supernova": engine.clear(); engine.spawnSupernova()
+        case "sierpinski": engine.clear(); engine.spawnSierpinski()
+        case "fireworks": engine.clear(); engine.spawnFireworks()
+        case "magma": engine.clear(); engine.spawnMagma()
+        case "confetti": engine.clear(); engine.spawnConfetti()
+        case "molecules": engine.clear(); engine.spawnMolecules()
         default: break
         }
         bodyCount = engine.bodyCount

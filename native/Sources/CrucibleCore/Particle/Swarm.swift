@@ -189,6 +189,40 @@ public final class Swarm {
         generation += 1
     }
 
+    /// Adds one body at a chosen place, and reports whether there was room.
+    ///
+    /// ``spawn(count:width:height:color:budget:rng:)`` scatters bodies at random, which is what a crowd
+    /// wants. The pattern scenes want the opposite: a sunflower's seeds, a snowflake's arms and a
+    /// mandala's petals are entirely *about* being in exact places, and none of them can be had from a
+    /// scatter.
+    ///
+    /// - Returns: `false` when the field is full, so a caller placing a shape can stop rather than
+    ///   silently drawing part of it. A half-drawn snowflake is worse than a smaller one.
+    @discardableResult
+    public func append(
+        x: Double,
+        y: Double,
+        velocityX: Double,
+        velocityY: Double,
+        color: UInt32,
+        budget: Int
+    ) -> Bool {
+        guard count < min(Self.maximumCount, budget) else { return false }
+        reserve(count + 1)
+        guard count < capacity else { return false }
+
+        let index = count
+        let pair = index * 2
+        positions[pair] = JS.toFloat32(x)
+        positions[pair + 1] = JS.toFloat32(y)
+        velocities[pair] = JS.toFloat32(velocityX)
+        velocities[pair + 1] = JS.toFloat32(velocityY)
+        colors[index] = color
+        count = index + 1
+        generation += 1
+        return true
+    }
+
     // MARK: - Stepping
 
     /// Everything the swarm needs to know about the world for one tick.
