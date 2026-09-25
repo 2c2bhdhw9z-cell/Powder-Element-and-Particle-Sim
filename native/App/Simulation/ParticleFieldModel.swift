@@ -76,6 +76,60 @@ final class ParticleFieldModel {
         }
     }
 
+    /// How far a body of liquid looks for its neighbours, in pixels.
+    var fluidSmoothing: Double {
+        get { observeEngine(); return engine.fluidSettings.smoothing }
+        set { engine.fluidSettings.smoothing = newValue; engineDidChange() }
+    }
+
+    /// The spacing the liquid tries to keep, expressed as bodies per square pixel.
+    var fluidRestDensity: Double {
+        get { observeEngine(); return engine.fluidSettings.restDensity }
+        set { engine.fluidSettings.restDensity = newValue; engineDidChange() }
+    }
+
+    /// How hard the liquid resists being squashed.
+    var fluidStiffness: Double {
+        get { observeEngine(); return engine.fluidSettings.stiffness }
+        set { engine.fluidSettings.stiffness = newValue; engineDidChange() }
+    }
+
+    /// How thick the liquid is.
+    var fluidViscosity: Double {
+        get { observeEngine(); return engine.fluidSettings.viscosity }
+        set { engine.fluidSettings.viscosity = newValue; engineDidChange() }
+    }
+
+    /// How much the liquid beads up rather than spreading out.
+    var fluidCohesion: Double {
+        get { observeEngine(); return engine.fluidSettings.cohesion }
+        set { engine.fluidSettings.cohesion = newValue; engineDidChange() }
+    }
+
+    /// How strong the pull between bodies is.
+    var bodyGravityStrength: Double {
+        get { observeEngine(); return engine.bodyGravitySettings.strength }
+        set { engine.bodyGravitySettings.strength = newValue; engineDidChange() }
+    }
+
+    /// How close two bodies may get before the pull stops growing.
+    var bodyGravitySoftening: Double {
+        get { observeEngine(); return engine.bodyGravitySettings.softening }
+        set { engine.bodyGravitySettings.softening = newValue; engineDidChange() }
+    }
+
+    /// What to say about the liquid or the pull, or nothing when there is nothing worth saying.
+    var forceWarning: String? {
+        observeEngine()
+        return SwarmCost.fluidWarning(
+            bodies: bodyCount,
+            fluid: engine.fluidEnabled,
+            width: engine.width,
+            height: engine.height,
+            restDensity: engine.fluidSettings.restDensity
+        ) ?? SwarmCost.bodyGravityWarning(bodies: bodyCount, gravity: engine.nbodyEnabled)
+    }
+
     /// What silhouette bodies are drawn as.
     var particleShape: ParticleShape {
         get { observeEngine(); return engine.particleShape }

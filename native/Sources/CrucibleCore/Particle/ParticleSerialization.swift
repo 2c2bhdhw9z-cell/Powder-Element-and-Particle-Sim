@@ -87,6 +87,10 @@ public struct ParticleState: Codable, Sendable {
     public var fluidEnabled: Bool?
     /// How the bodies are coloured. Optional, so files written before palettes existed still load.
     public var colorMode: String?
+    /// How the liquid behaves.
+    public var fluidSettings: SwarmFluid.Settings?
+    /// How strong the pull between bodies is.
+    public var bodyGravitySettings: SwarmGravity.Settings?
     /// What silhouette bodies are drawn as.
     public var particleShape: String?
     /// Whether a colour ramp replaces the hue arithmetic.
@@ -133,6 +137,8 @@ extension ParticleEngine {
             nbodyEnabled: nbodyEnabled,
             fluidEnabled: fluidEnabled,
             colorMode: colorMode.rawValue,
+            fluidSettings: fluidSettings,
+            bodyGravitySettings: bodyGravitySettings,
             particleShape: particleShape.rawValue,
             paletteEnabled: paletteEnabled,
             palette: palette,
@@ -232,6 +238,8 @@ extension ParticleEngine {
         }
         paletteEnabled = state.paletteEnabled ?? false
         if let saved = state.palette { palette = saved }
+        if let saved = state.fluidSettings { fluidSettings = saved }
+        if let saved = state.bodyGravitySettings { bodyGravitySettings = saved }
         flockEnabled = state.flockEnabled ?? false
         nbodyEnabled = state.nbodyEnabled ?? false
         fluidEnabled = state.fluidEnabled ?? false

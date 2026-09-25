@@ -112,6 +112,104 @@ public enum SwarmCost {
             + "\(String(tenths: cost))ms on its own. Colouring by Own, Place, Charge or Life is painted "
             + "once and costs nothing after that."
     }
+
+    // MARK: - The liquid, and the pull between bodies
+
+    /// How many bodies of liquid a world that size actually holds.
+    ///
+    /// This is the most useful thing to be able to say about the fluid, and it is not a performance
+    /// figure — it is a fact about the settings. The rest crowding is mass per square pixel, so the area
+    /// divided by it is how many bodies fit at the spacing the fluid is trying to keep. Ask for more than
+    /// that and the fluid is not slow, it is impossible: there is nowhere for the bodies to go, so they
+    /// stay squashed, every one of them has far more neighbours than the fluid was tuned for, and the
+    /// cost climbs for a picture that is wrong anyway.
+    ///
+    /// A phone-sized field holds around ten thousand. That is a real, explainable limit, which is worth
+    /// far more than a threshold picked to make the numbers look acceptable.
+    public static func fluidCapacity(width: Double, height: Double, restDensity: Double) -> Int {
+        guard width > 0, height > 0, restDensity > 0,
+              width.isFinite, height.isFinite, restDensity.isFinite
+        else { return 0 }
+        return Int(width * height * restDensity)
+    }
+
+    /// Roughly what one moment of liquid costs, in milliseconds.
+    ///
+    /// Measured on the test machine, with the crowd settled first: 16ms at ten thousand, 79 at
+    /// twenty-five thousand, 206 at fifty thousand, 450 at a hundred thousand. Not a straight line,
+    /// because past the point where the world is full the bodies are squashed together and every one of
+    /// them has more neighbours to compare itself against — so the cost grows faster than the crowd.
+    /// Roughly the square of it, which is what the fit below says.
+    public static func fluidMilliseconds(bodies: Int) -> Double {
+        guard bodies > 0 else { return 0 }
+        let thousands = Double(bodies) / 1000
+        // About a millisecond per thousand while there is room, plus a term that takes over once there
+        // is not.
+        return thousands * 0.95 + thousands * thousands * 0.021
+    }
+
+    /// Roughly what one moment of pull between bodies costs, in milliseconds.
+    ///
+    /// Measured: 12ms at ten thousand, 32 at twenty-five thousand, 62 at fifty thousand, 116 at a
+    /// hundred thousand, 227 at two hundred thousand. Very nearly a straight line, which is the point of
+    /// how it is worked out — the expensive part is done once per square rather than once per body, so
+    /// its cost does not grow with the crowd at all and what is left does.
+    public static func bodyGravityMilliseconds(bodies: Int) -> Double {
+        guard bodies > 0 else { return 0 }
+        // A fixed cost for comparing every square with every other, plus a little over a millisecond
+        // per thousand bodies for the near neighbours.
+        return 1.5 + Double(bodies) / 1000 * 1.12
+    }
+
+    /// Where the liquid stops being smooth enough to be worth having.
+    ///
+    /// Sixteen milliseconds, which is sixty frames a second — the same line the collision budget is drawn
+    /// at, and for the same reason: below it the field feels like a liquid, above it like a slideshow.
+    public static let smoothMilliseconds = 16.0
+
+    /// What to say about the liquid, or `nil` when there is nothing worth saying.
+    ///
+    /// Two different things, and which one matters depends on why there is a problem. Too much liquid for
+    /// the world is a fact about the settings and has a proper answer — fewer bodies, or a looser rest
+    /// spacing. Merely slow is a performance figure. Saying "this is slow" when the real problem is "you
+    /// have asked for four times more water than the container holds" would send somebody looking in
+    /// entirely the wrong place.
+    public static func fluidWarning(
+        bodies: Int,
+        fluid: Bool,
+        width: Double,
+        height: Double,
+        restDensity: Double
+    ) -> String? {
+        guard fluid, bodies > 0 else { return nil }
+
+        let capacity = fluidCapacity(width: width, height: height, restDensity: restDensity)
+        if capacity > 0, bodies > capacity * 5 / 4 {
+            return "A field this size holds about \(capacity.formattedWithSeparators) bodies of liquid at "
+                + "the spacing it is set to keep, and there are \(bodies.formattedWithSeparators). The "
+                + "extra have nowhere to go, so they stay squashed — which both looks wrong and costs "
+                + "more than it should. Fewer bodies, or a looser spacing, and it will settle."
+        }
+
+        let cost = fluidMilliseconds(bodies: bodies)
+        guard cost > smoothMilliseconds else { return nil }
+        let frames = cost > 0 ? Int((1000 / cost).rounded()) : 0
+        return "Liquid over \(bodies.formattedWithSeparators) bodies costs about "
+            + "\(Int(cost.rounded()))ms a moment — roughly \(frames) frames a second. It is two passes "
+            + "over every body's neighbours, so the cost follows how tightly packed they are."
+    }
+
+    /// What to say about the pull between bodies, or `nil`.
+    public static func bodyGravityWarning(bodies: Int, gravity: Bool) -> String? {
+        guard gravity, bodies > 0 else { return nil }
+        let cost = bodyGravityMilliseconds(bodies: bodies)
+        guard cost > smoothMilliseconds else { return nil }
+        let frames = cost > 0 ? Int((1000 / cost).rounded()) : 0
+        return "Gravity between \(bodies.formattedWithSeparators) bodies costs about "
+            + "\(Int(cost.rounded()))ms a moment — roughly \(frames) frames a second. Under "
+            + "\(SwarmGravity.exactBelow.formattedWithSeparators) bodies it is worked out exactly; above "
+            + "that, distant groups are treated as single lumps, which is what keeps it this affordable."
+    }
 }
 
 extension String {

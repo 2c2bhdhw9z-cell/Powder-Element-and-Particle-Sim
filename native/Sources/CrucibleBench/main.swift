@@ -461,3 +461,55 @@ print("")
 print("  Compare against the right-hand column of the field table above. A repaint is roughly the cost")
 print("  of a moment's physics, so a ramp driven by speed is not free — it is the reason the engine")
 print("  checks whether the ramp actually moves before running it.")
+
+// MARK: - The two switches that used to be wired to nothing
+//
+// Fluid and gravity-between-bodies. Both are per-body passes over every neighbour, so both are in the
+// same family of cost as pushing bodies apart — which is the expensive one. Measured here so the numbers
+// in `SwarmCost` are numbers rather than guesses, and so the interface can say what it will cost before
+// somebody finds out by the field dropping to five frames a second.
+
+print("")
+print("The two forces that were reserved, one moment each:")
+print("")
+print("  bodies      fluid        pull between bodies")
+
+for count in [10_000, 25_000, 50_000, 100_000, 200_000] {
+    var figures: [Double] = []
+    for mode in 0 ..< 2 {
+        let field = ParticleEngine(width: 400, height: 700)
+        _ = field.setMaxParticles(1_000_000)
+        field.collisionsEnabled = false
+        if mode == 0 { field.fluidEnabled = true } else { field.nbodyEnabled = true }
+        var swarmRng = Mulberry32(seed: 1)
+        field.swarm.spawn(
+            count: count,
+            width: 400,
+            height: 700,
+            color: 0xFFFF_FFFF,
+            budget: 1_000_000,
+            rng: &swarmRng
+        )
+        // Settled first, so the squares are as full as they get in practice. A crowd measured while
+        // still evenly spread is measured at its easiest, which is not the case anybody meets.
+        for _ in 0 ..< 10 { field.step() }
+
+        let rounds = 12
+        let started = now()
+        for _ in 0 ..< rounds { field.step() }
+        figures.append((now() - started) / Double(rounds) * 1000)
+    }
+    print(
+        String(
+            format: "  %-10@  %8.1f ms   %8.1f ms",
+            count.formattedWithSeparators as NSString,
+            figures[0],
+            figures[1]
+        )
+    )
+}
+
+print("")
+print("  The pull between bodies sweeps a grid of sixteen hundred squares per body whatever the crowd,")
+print("  so its cost per body barely changes — which is the whole reason for the approximation. The")
+print("  fluid is two passes over every neighbour, so it climbs with how tightly packed the crowd is.")

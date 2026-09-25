@@ -569,6 +569,26 @@ extension ParticleEngine {
     /// Runs one tick of the swarm.
     func stepSwarm(mouseX: Double?, mouseY: Double?, mouseActive: Bool) {
         guard swarm.count > 0 else { return }
+
+        // Both of these change velocity and nothing else, and both run *before* the main pass, so that
+        // everything it does afterwards — the speed limit, the walls, the finger — sees their
+        // contribution and can moderate it. A pass that moved bodies itself could push one through a
+        // wall with nothing left to notice.
+        //
+        // The liquid first. It is the one that resists being squashed, and running the pull first would
+        // mean a tick where bodies were drawn together and the liquid only got to object the tick after.
+        if fluidEnabled {
+            fluid.step(swarm: swarm, settings: fluidSettings, width: width, height: height)
+        }
+        if nbodyEnabled {
+            bodyGravity.step(
+                swarm: swarm,
+                settings: bodyGravitySettings,
+                width: width,
+                height: height
+            )
+        }
+
         let effect = swarmMouseEffect
         swarm.step(Swarm.StepOptions(
             width: width,

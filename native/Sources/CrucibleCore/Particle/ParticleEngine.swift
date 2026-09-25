@@ -100,15 +100,30 @@ public final class ParticleEngine {
     /// Whether boids-style flocking runs.
     public var flockEnabled: Bool = false
 
-    /// Reserved. No physics reads these yet.
+    /// Whether the swarm behaves like a liquid — crowding turned into pressure, plus thickness and a
+    /// surface. See ``SwarmFluid``.
     ///
-    /// Carried over because the interface exposes them, and recorded here plainly so
-    /// nobody assumes they do something. The powder half had three properties in the
-    /// same state, and two of them turned out to be features that had simply never
-    /// been implemented.
+    /// This and ``nbodyEnabled`` were reserved for a long time: the interface showed both, scenes saved
+    /// both, clearing the field reset both, and no physics read either. They do something now.
     public var fluidEnabled: Bool = false
-    /// Reserved. See ``fluidEnabled``.
+    /// How the liquid behaves.
+    public var fluidSettings: SwarmFluid.Settings = .default
+    /// Whether every body in the swarm pulls on every other. See ``SwarmGravity``.
     public var nbodyEnabled: Bool = false
+    /// How strong that pull is.
+    public var bodyGravitySettings: SwarmGravity.Settings = .default
+
+    /// Whether the liquid found more bodies in one place than it can represent.
+    ///
+    /// Past that point the crowding is under-counted, so the fluid reads as thinner than it is and stops
+    /// holding itself apart. Reported so the interface can say so rather than quietly showing something
+    /// wrong — which is what the reference implementation does.
+    public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
+
+    /// The liquid's working state. Held here so its buffers survive between ticks.
+    let fluid = SwarmFluid()
+    /// The pull's working state, likewise.
+    let bodyGravity = SwarmGravity()
 
     /// Called at the end of every tick, so the app can sample telemetry.
     public var onAfterStep: (() -> Void)?

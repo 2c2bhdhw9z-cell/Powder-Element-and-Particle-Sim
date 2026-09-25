@@ -340,11 +340,14 @@ struct FieldDock: View {
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Three kinds of physics that existed in the engine with no way to switch them on. Each
-            // changes what the field *is* rather than how it looks, which is why they sit apart from
-            // the sliders.
+            // Three kinds of physics that change what the field *is* rather than how it looks, which
+            // is why they sit apart from the sliders.
+            //
+            // Two of these showed here for a long time and did nothing at all — the engine saved them,
+            // reset them when the field was cleared, and never read either one. They work now, and the
+            // labels say what they actually do rather than what they were going to do.
             VStack(alignment: .leading, spacing: 4) {
-                Toggle("Fluid — bodies press on one another like water", isOn: Binding(
+                Toggle("Fluid — the crowd holds itself apart, and holds a surface", isOn: Binding(
                     get: { model.fluidEnabled },
                     set: { model.fluidEnabled = $0 }
                 ))
@@ -352,7 +355,7 @@ struct FieldDock: View {
                     get: { model.flockEnabled },
                     set: { model.flockEnabled = $0 }
                 ))
-                Toggle("Gravity between bodies — heavy, for a few hundred", isOn: Binding(
+                Toggle("Gravity between bodies — everything pulls on everything", isOn: Binding(
                     get: { model.nbodyEnabled },
                     set: { model.nbodyEnabled = $0 }
                 ))
@@ -496,6 +499,7 @@ struct FieldDock: View {
     @ViewBuilder
     private var costWarning: some View {
         if let warning = SwarmCost.warning(bodies: model.bodyCount, collisions: model.collisionsEnabled)
+            ?? model.forceWarning
             ?? SwarmCost.repaintWarning(
                 bodies: model.bodyCount,
                 ramp: model.paletteEnabled,
