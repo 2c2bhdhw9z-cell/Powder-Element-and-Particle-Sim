@@ -260,6 +260,10 @@ final class FieldView: MTKView {
         enableSetNeedsDisplay = false
         isPaused = false
         preferredFramesPerSecond = 120
+        // The drawable's size is set by hand at the top of every frame, because the detail setting decides it
+        // and the system's own answer is always "every pixel the screen has". Worked out from the bounds each
+        // frame, so turning the phone is handled by the same line that handles the setting.
+        autoResizeDrawable = false
         // The lab's own near-black, so the field sits in the same room as the powder grid.
         clearColor = MTLClearColor(red: 10 / 255, green: 10 / 255, blue: 12 / 255, alpha: 1)
     }
@@ -270,13 +274,20 @@ final class FieldView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
-        // How many pixels to draw for each one the screen has. The drawable is this view's bounds times its
-        // scale factor, so this is the whole of the detail setting: everything else about it follows from the
-        // drawable being smaller, including the glow pictures and the kept trail picture, which are both
-        // measured from it.
-        let wantedScale = model.drawableScale
-        if wantedScale > 0, abs(Double(contentScaleFactor) - wantedScale) > 0.001 {
-            contentScaleFactor = CGFloat(wantedScale)
+        // How many pixels to draw for each point on screen. Set outright rather than by adjusting the view's
+        // scale factor and letting the system work it out: this is the whole of the detail setting, and a
+        // number written here is one that can be read back and checked.
+        //
+        // Everything else about the setting follows from the drawable being smaller — the glow's two pictures
+        // and the trail picture that is kept between frames are all measured from it, and they are where the
+        // per-pixel cost is. The system scales the finished picture back up to fill the view.
+        let wantedScale = model.drawableScale > 0 ? model.drawableScale : Double(contentScaleFactor)
+        let wantedSize = CGSize(
+            width: (bounds.width * CGFloat(wantedScale)).rounded(),
+            height: (bounds.height * CGFloat(wantedScale)).rounded()
+        )
+        if wantedSize.width >= 1, wantedSize.height >= 1, drawableSize != wantedSize {
+            drawableSize = wantedSize
         }
 
         // The frame's own timestamp, handed to the simulation so that anything which reads the
