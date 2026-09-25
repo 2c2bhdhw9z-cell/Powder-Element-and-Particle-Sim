@@ -270,6 +270,15 @@ final class FieldView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
+        // How many pixels to draw for each one the screen has. The drawable is this view's bounds times its
+        // scale factor, so this is the whole of the detail setting: everything else about it follows from the
+        // drawable being smaller, including the glow pictures and the kept trail picture, which are both
+        // measured from it.
+        let wantedScale = model.drawableScale
+        if wantedScale > 0, abs(Double(contentScaleFactor) - wantedScale) > 0.001 {
+            contentScaleFactor = CGFloat(wantedScale)
+        }
+
         // The frame's own timestamp, handed to the simulation so that anything which reads the
         // clock — the painting tool picks its colour from it — is reproducible.
         model.tick(now: CFAbsoluteTimeGetCurrent() * 1000)
@@ -285,7 +294,13 @@ final class FieldView: MTKView {
             return
         }
 
-        let frame = prepare(device: device)
+        var frame = prepare(device: device)
+        // Measured from the drawable that actually arrived rather than from the setting, so the frame or two
+        // after a change — while the old drawable is still being handed out — draws bodies the right size
+        // instead of briefly doubling them.
+        if frame.viewWidth > 0 {
+            frame.pixelRatio = max(0.2, min(1, Double(width) / frame.viewWidth))
+        }
 
         // Moving the camera invalidates whatever is left over from the previous frame. The kept
         // picture is in screen space, so when the view slides underneath it, what was a trail behind
@@ -687,7 +702,10 @@ final class FieldView: MTKView {
                 Float(ParticleCamera.radians(frame.camera.effectiveYaw)),
                 Float(ParticleCamera.radians(frame.camera.pitch))
             ),
-            pointSize: Float(frame.pointSize),
+            // In pixels of the picture being drawn, which is not the screen's when the detail is turned
+            // down. Everything else in this struct is either in world units or in screen pixels used only as
+            // a ratio, so this is the one measurement that has to be converted.
+            pointSize: Float(max(1, frame.pointSize * frame.pixelRatio)),
             zoom: Float(frame.camera.zoom),
             shape: frame.shape.shaderIdentifier
         )

@@ -21,11 +21,25 @@ let package = Package(
     ],
     products: [
         .library(name: "CrucibleCore", targets: ["CrucibleCore"]),
+        .library(name: "CrucibleText", targets: ["CrucibleText"]),
         .executable(name: "crucible-bench", targets: ["CrucibleBench"]),
     ],
     targets: [
         .target(
             name: "CrucibleCore",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        // Drawing letters, and nothing else.
+        //
+        // Words made of particles need a picture of the word first, and drawing type needs fonts — which
+        // CrucibleCore is not allowed to reach for, and rightly. But putting it in the app instead would put
+        // it somewhere nothing can test, and "is the picture the right way up" is not a question reading the
+        // code answers. So it sits here: CoreText only, no UIKit, which means it builds and runs under
+        // `swift test` on the macOS half of the checks. On Linux it compiles away to nothing.
+        .target(
+            name: "CrucibleText",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
@@ -50,6 +64,13 @@ let package = Package(
             resources: [
                 .copy("Fixtures"),
             ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "CrucibleTextTests",
+            dependencies: ["CrucibleText", "CrucibleCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

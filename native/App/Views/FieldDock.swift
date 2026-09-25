@@ -150,6 +150,91 @@ struct FieldDock: View {
         }
     }
 
+    /// The word the field spells out, and how it is made.
+    ///
+    /// Directly under the arrangements, because the "Word" chip among them does nothing sensible until
+    /// there is a word to draw — a chip that needs typing first and gives you nowhere to type is a dead end.
+    private var wordControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WORD")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+
+            HStack(spacing: 8) {
+                TextField(
+                    "",
+                    text: Binding(get: { model.wordText }, set: { model.wordText = $0 }),
+                    prompt: Text("a word to spell").foregroundStyle(Palette.subtleForeground)
+                )
+                .font(.labBody(12))
+                .foregroundStyle(Palette.foreground)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .onSubmit { model.spawnWord() }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.small, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                )
+
+                Button {
+                    model.spawnWord()
+                } label: {
+                    Text("Spell it")
+                        .font(.labBody(12, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 12)
+                        .frame(height: 32)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                inlineSlider(
+                    "How many bodies",
+                    Binding(get: { model.wordCount }, set: { model.wordCount = $0 }),
+                    500 ... 40_000,
+                    step: 500
+                ) { "\(Int($0).formatted(.number.grouping(.automatic)))" }
+                inlineSlider(
+                    "How big",
+                    Binding(get: { model.wordFill }, set: { model.wordFill = $0 }),
+                    0.2 ... 1,
+                    step: 0.02
+                ) { "\(Int($0 * 100))% of the field" }
+
+                Button {
+                    model.spawnWord(replacingField: false)
+                } label: {
+                    Text("Add another without clearing")
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.muted)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+            .padding(.leading, 10)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(Palette.primary.opacity(0.35))
+                    .frame(width: 1.5)
+            }
+
+            if let problem = model.wordProblem {
+                Text(problem)
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     /// Adding bodies, and the ceiling on how many there can be.
     private var population: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -295,6 +380,7 @@ struct FieldDock: View {
             destinations
             costWarning
             presetChips
+            wordControls
             population
             // Directly under how many there are, because it is the other half of the same question and
             // because this is where somebody looks for it. It used to sit between Reach and Gravity,
@@ -826,6 +912,44 @@ struct FieldDock: View {
                 .font(.labBody(10))
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // How finely it is drawn. The powder half has had this since it was built; the field never did,
+            // and it is the half that can be made to fill eight million pixels a frame with a glow over them.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Detail")
+                        .font(.labBody(11))
+                        .foregroundStyle(Palette.muted)
+                    Spacer(minLength: 8)
+                    ForEach(ParticleFieldModel.detailChoices, id: \.id) { choice in
+                        Button {
+                            model.detail = choice.id
+                        } label: {
+                            Text(choice.name)
+                                .font(.labBody(11, .semiBold))
+                                .foregroundStyle(
+                                    model.detail == choice.id
+                                        ? Palette.primaryForeground
+                                        : Palette.foreground
+                                )
+                                .padding(.horizontal, 9)
+                                .frame(height: 26)
+                                .background(
+                                    Capsule().fill(
+                                        model.detail == choice.id
+                                            ? Palette.primary
+                                            : Color.white.opacity(0.10)
+                                    )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Text(model.detailDescription)
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             // The difference between a zoom that is worth having and one that is not.
             Toggle(isOn: Binding(get: { model.zoomAddsSpace }, set: { model.zoomAddsSpace = $0 })) {

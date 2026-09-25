@@ -52,6 +52,10 @@ targets:
     dependencies:
       - package: CrucibleCore
         product: CrucibleCore
+      # Drawing type for the word scene. Kept out of the engine because it needs fonts, and out of this
+      # target because code in here is code nothing can test.
+      - package: CrucibleCore
+        product: CrucibleText
     settings:
       base:
         PRODUCT_NAME: Crucible

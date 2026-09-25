@@ -2798,7 +2798,51 @@ numbers that arrive somewhere else are the same fault wearing a different hat.
 | **Velocity streaks** — a body stretched along its own direction of travel, so fast things read as motion | Slice E, §3 | **done**, build-68 |
 | **Fade over a lifetime** | Slice A, §A3 and Slice E | **done**, build-68 — the crowd carries lifetimes now |
 | **Colour by weight** | Slice A, §A3 | **done**, build-68 |
-| **Detail settings for the field** tied to the real pixel density | first-pass table | still absent. The powder half has them; the field does not. The one thing left on this list. |
+| **Detail settings for the field** tied to the real pixel density | first-pass table | **done**, build-70 — four choices in VIEW, as a ceiling on pixels per point: Full / High (2×) / Balanced (1.5×) / Fast (1×) |
+
+The detail setting is split from the reference's in one way that matters. Its quality modes clamp the pixel
+density **and** cap the number of particles — low 12,288, medium 32,768, high 65,536. Capping the population
+is already a separate control here, and a far better one: it goes to a million and it says what it costs. So
+only the pixel half was taken.
+
+And one thing was deliberately not copied: in the reference, the world is measured in the same units the
+picture is drawn in, so lowering its quality changes the world. Here the world is worked out from the
+*screen's* density and never from the setting, so turning the detail down draws the same field with fewer,
+larger pixels and does not move a single body. The size of a body is then multiplied back up by the ratio the
+view was actually handed — otherwise every body would appear to double in size, which is the one measurement
+in the shaders that is in pixels of the picture rather than in world units or fractions of the view.
+
+## Words as particles
+
+**Done in build-70.** A word typed into the dock, drawn as type, and turned into a cloud — the last of the
+reference's twenty-six arrangements and the only one that needed something outside the engine.
+
+Split where the seam actually is, and the split is the point:
+
+- **`CrucibleCore/Particle/ParticleTextShape.swift`** decides which pixels of a drawn word become bodies and
+  where they land. Sampled on a jittered lattice rather than copied pixel for pixel (a rasterised word is tens
+  of thousands of dark pixels, which is a solid slab, not particles) and rather than scattered freely (a free
+  scatter of ten thousand points over a letter leaves clumps and holes that read as the letters being
+  damaged). Eighteen tests.
+- **`CrucibleText/TextRasterizer.swift`** draws the letters. Its own small library rather than part of the app
+  target, and built on CoreText rather than UIKit, *so that it can be tested* — the app target only builds on
+  a Mac and nothing here ever runs one interactively, so code in it is code that gets read and hoped about.
+  Drawing has exactly the kind of fault reading does not catch: a picture handed over upside down, or
+  mirrored, or stretched is perfectly sensible code producing a wrong image. Fifteen tests, run on the macOS
+  half of the checks, including a T that must come out heavier at the top and an L whose top must sit to its
+  left.
+
+Three faults were found by writing the tests rather than by reading the code:
+
+1. The word came out **stretched**. The sheet it is drawn on is two and two thirds times wider than it is
+   tall, and the fit was done in fractions of the sheet rather than in distances — so a round mark became a
+   flattened oval. Caught by asking whether a drawn disc comes out as wide as it is tall.
+2. Trimming an overshoot **cut the bottom off the word**. The lattice cannot land on exactly the number of
+   bodies asked for and usually finds a few too many; the list is built row by row from the top, so dropping
+   the tail removed the last lines of the letters. Now thinned evenly across the whole list.
+3. A claim in a comment was simply **false** — that the random stream advances by the same amount whatever
+   the word is. It does not: the lattice spacing depends on how much ink there is. What is true, and is now
+   what the test checks, is that *where* the ink sits does not change it.
 
 ## Omissions in the crowd itself
 

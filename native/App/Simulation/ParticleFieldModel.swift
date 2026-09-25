@@ -1,4 +1,7 @@
 import CrucibleCore
+// Drawing letters, for the word scene. Its own library rather than part of this target, so that "is the
+// picture the right way up" is a tested question — see Sources/CrucibleText.
+import CrucibleText
 import Observation
 import SwiftUI
 // For UIImage, which a picture of the world is returned as.
@@ -1075,6 +1078,18 @@ final class ParticleFieldModel {
         var guideSegmentCount: Int
         /// Where the ring should be drawn, or nothing while no finger is down.
         var touchRing: TouchRing?
+        /// How many pixels are actually being drawn for each one the screen has, as a fraction.
+        ///
+        /// One at full detail. Below one when the detail is turned down, and everything measured in pixels
+        /// *of the picture being drawn* rather than of the screen has to be multiplied by it — which is the
+        /// size of a body and nothing else, since every other measurement in the shaders is either in world
+        /// units or a fraction of the view. Without it, turning the detail down would make every body
+        /// physically larger, because a body four pixels wide is twice the size when the pixels are.
+        ///
+        /// Filled in by the view from the drawable it was actually handed, not worked out from the setting.
+        /// The two agree once the drawable has caught up, and during the frame or two where they do not, the
+        /// real one is the right one.
+        var pixelRatio: Double = 1
     }
 
     /// The ring round a finger.
@@ -1821,6 +1836,9 @@ final class ParticleFieldModel {
         // fire a fire is that it keeps burning — so they place a source as well, which is why they had to wait
         // for sources to exist.
         ("ring", "Ring"), ("water", "Water"), ("fire", "Fire"), ("smoke", "Smoke"),
+        // Last, because it is the only one that needs something typed in before it means anything. Its box
+        // and its numbers are directly under the chips.
+        ("text", "Word"),
     ]
 
     /// The limit on how many bodies the field will hold.
@@ -1906,9 +1924,63 @@ final class ParticleFieldModel {
         case "water": engine.clear(); engine.spawnWaterPool()
         case "fire": engine.clear(); engine.spawnFire()
         case "smoke": engine.clear(); engine.spawnSmoke()
+        case "text": spawnWord()
         default: break
         }
         bodyCount = engine.bodyCount
+    }
+
+    // MARK: - Words
+
+    /// The word the field spells out.
+    var wordText: String = "CRUCIBLE"
+
+    /// How many bodies to make it out of.
+    ///
+    /// Four thousand by default. Fewer and the strokes come apart into dots; many more and the letters go
+    /// solid, which reads as a printed word rather than as a word made of particles — and the whole point is
+    /// that a breath of wind can take it apart.
+    var wordCount: Double = 4_000
+
+    /// How much of the field the word spans.
+    var wordFill: Double = 0.78
+
+    /// What went wrong with the last attempt, if anything.
+    ///
+    /// Said out loud rather than swallowed. A button that silently does nothing is the worst of the three
+    /// possible behaviours — worse than refusing, because there is no way to tell it from a broken app.
+    private(set) var wordProblem: String?
+
+    /// Spells the word out in particles.
+    ///
+    /// - Parameter replacingField: whether to empty the field first. A word dropped into a field that
+    ///   already has fifty thousand bodies in it is not legible, so the scene clears; adding one to what is
+    ///   already there is a separate thing somebody might want, so it stays possible.
+    func spawnWord(replacingField: Bool = true) {
+        let asked = wordText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !asked.isEmpty else {
+            wordProblem = "Type something for the field to spell."
+            return
+        }
+        guard let picture = TextRasterizer.picture(of: asked) else {
+            wordProblem = "Nothing in that leaves a mark on the page."
+            return
+        }
+
+        if replacingField { engine.clear() }
+        let room = max(0, engine.maxParticles - engine.bodyCount)
+        let placed = engine.spawnTextCloud(
+            coverage: picture.coverage,
+            width: picture.width,
+            height: picture.height,
+            count: min(Int(wordCount.rounded()), room),
+            fill: wordFill
+        )
+        wordProblem = placed > 0
+            ? nil
+            : "No room left. Clear the field, or raise the limit on how many bodies it holds."
+        bodyCount = engine.bodyCount
+        engineDidChange()
     }
 
     func clear() {
@@ -1957,14 +2029,69 @@ final class ParticleFieldModel {
         engine.pushUndo()
     }
 
+    // MARK: - Detail
+
+    /// How finely the field is drawn, as a ceiling on how many pixels there are to a point.
+    ///
+    /// ## Why a ceiling rather than a fraction
+    ///
+    /// Because what matters is the number of pixels, and a phone's screen is already three of them to a
+    /// point. Everything drawn per-pixel rather than per-body — the glow's three passes, the trail picture
+    /// that is kept between frames, the backdrop — costs in proportion to that count, and on a large phone at
+    /// full density it is around eight million pixels a frame. Two instead of three is under half the work
+    /// for a difference most people cannot see on a field of soft round dots.
+    ///
+    /// Nought means whatever the screen has, which stays the default: the fast settings exist for somebody
+    /// running a million bodies with the glow on, not for everybody.
+    ///
+    /// The *world* does not change with this. Lowering the detail must not move a single body or shrink the
+    /// room they have — it only draws the same field with fewer, larger pixels. That is why the count of world
+    /// pixels below is worked out from the screen's own density and never from this.
+    static let detailChoices: [(id: String, name: String, cap: Double)] = [
+        ("full", "Full", 0),
+        ("high", "High", 2),
+        ("balanced", "Balanced", 1.5),
+        ("fast", "Fast", 1),
+    ]
+
+    /// Which of those is chosen.
+    var detail: String = "full" {
+        didSet { refreshDrawableScale() }
+    }
+
+    /// How many pixels to a point the field is actually drawn at.
+    private(set) var drawableScale: Double = 0
+
+    /// What the chosen detail costs, said plainly, so the choice is not a guess.
+    var detailDescription: String {
+        guard viewScale > 0, drawableScale > 0 else { return "Matching the screen." }
+        guard drawableScale < viewScale - 0.001 else {
+            return "Every pixel the screen has."
+        }
+        let share = (drawableScale * drawableScale) / (viewScale * viewScale)
+        return "About \(Int((share * 100).rounded()))% as many pixels to fill. "
+            + "The field is unchanged; only the picture of it is coarser."
+    }
+
+    private func refreshDrawableScale() {
+        let cap = Self.detailChoices.first { $0.id == detail }?.cap ?? 0
+        let screen = viewScale > 0 ? viewScale : 2
+        drawableScale = cap > 0 ? min(screen, cap) : screen
+    }
+
     // MARK: - Size
 
     func resize(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
         // Kept so that a drag measured in points can be turned into the pixels the camera works in.
         if scale > 0 { viewScale = Double(scale) }
+        refreshDrawableScale()
         // Full resolution, unlike the powder grid. The cost here is per body rather than per
         // cell, so a larger world is not a slower one — it is simply more room.
+        //
+        // The screen's own density, never the chosen detail: how finely the field is *drawn* must not decide
+        // how much room the bodies have. Tying the two together would make turning the detail down shrink the
+        // world, which would shove every body in it and look like a zoom rather than like a setting.
         viewPixelWidth = Double(size.width * scale)
         viewPixelHeight = Double(size.height * scale)
         // Through the camera, because the world is the view's size times however far out it is pulled. A
