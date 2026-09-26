@@ -735,7 +735,26 @@ struct DepthUniforms {
     float radius;
     // How close to the eye something may be before it is not drawn, as a share of the eye's distance.
     float nearLimit;
+    // The near and far edges of the slab being shown, as how far away a thing is from nought to one. Nought and
+    // one shows the whole box.
+    float sliceNear;
+    float sliceFar;
+    // One to colour bodies by how far away they are; one to draw this pass as shadows on the floor. Kept as floats
+    // rather than as flags so the struct stays a whole number of sixteen-byte rows, with nothing for the two
+    // languages to disagree about.
+    float colorsByDistance;
+    float asShadow;
 };
+
+// Near and far turned into a colour: cool for what is close, warm for what is far.
+//
+// Two ends of a ramp rather than a full rainbow, because a rainbow has no order anybody agrees on — with red at
+// both the near and far end of a hue sweep there is no telling which way you are looking.
+static inline half3 distanceColour(float depth) {
+    float3 near = float3(0.36, 0.78, 1.0);
+    float3 far = float3(1.0, 0.44, 0.28);
+    return half3(mix(near, far, clamp(depth, 0.0, 1.0)));
+}
 
 // A place turned and tipped: across, up, and away from the viewer, each measured from the middle of the box.
 static inline float3 turnInDepth(float2 world, float z,
@@ -766,6 +785,8 @@ struct DepthPlacement {
     float scale;
     // How much of its colour is left once the fog has had its share.
     float fade;
+    // How far away it is, from nought for the nearest anything in the box can be to one for the furthest.
+    float depth;
 };
 
 // Anywhere outside everything the card draws, so a thing placed here is simply not drawn.
@@ -773,6 +794,11 @@ constant float4 kNotDrawn = float4(0.0, 0.0, 2.0, 1.0);
 
 static inline DepthPlacement placeInDepth(float2 world, float z,
                                           constant FieldUniforms &u, constant DepthUniforms &d) {
+    // A shadow is the same body with its height thrown away: put on the floor of the box, directly below where it
+    // is. That is what a light straight overhead casts, and it is the one thing that says how high something is.
+    if (d.asShadow > 0.5) {
+        world.y = max(u.worldSize.y - 1.0, 0.0);
+    }
     float3 turned = turnInDepth(world, z, u, d);
 
     float scale = 1.0;
@@ -794,6 +820,16 @@ static inline DepthPlacement placeInDepth(float2 world, float z,
     float depth = clamp((turned.z + radius) / (2.0 * radius), 0.0, 1.0);
 
     DepthPlacement placed;
+    placed.depth = depth;
+    // Outside the slab being shown, so not drawn at all. Tested against where the body actually is rather than
+    // against its own depth in the box, so the slab stays square to the view as the box is turned — which is what
+    // makes sliding it through feel like moving a sheet of glass rather than cutting the box up.
+    if (depth < d.sliceNear || depth > d.sliceFar) {
+        placed.position = kNotDrawn;
+        placed.scale = 1.0;
+        placed.fade = 0.0;
+        return placed;
+    }
     // Something behind the eye is not drawn at all. Drawn anyway, the perspective would turn it inside out and
     // throw it across the screen.
     if (isInFrontOfEye(turned.z, d)) {
@@ -821,6 +857,8 @@ vertex PointOut particleVertexInDepth(uint index [[vertex_id]],
     out.position = placed.position;
     out.size = clamp(uniforms.pointSize * placed.scale, 1.0, 511.0);
     out.color = unpackColor(colors[index]);
+    if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
+    if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
     out.color.a *= half(placed.fade);
     return out;
 }
@@ -838,6 +876,8 @@ vertex PointOut bodyVertexInDepth(uint index [[vertex_id]],
     out.position = placed.position;
     out.size = clamp(sizes[index] * uniforms.pointSize * placed.scale, 1.0, 511.0);
     out.color = unpackColor(colors[index]);
+    if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
+    if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
     out.color.a *= half(placed.fade);
     return out;
 }
@@ -882,6 +922,7 @@ vertex TrailOut lineVertexInDepth(uint index [[vertex_id]],
         out.position = kNotDrawn;
     }
     out.color = unpackColor(colors[index]);
+    if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     out.color.a *= half(placed.fade);
     return out;
 }

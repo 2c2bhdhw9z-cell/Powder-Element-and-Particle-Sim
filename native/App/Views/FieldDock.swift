@@ -291,7 +291,33 @@ struct FieldDock: View {
                 inlineSlider("Perspective", \.perspective, 0 ... 1, step: 0.05, format: { Self.share($0) })
                 inlineSlider("Fog on the far side", \.fog, 0 ... 1, step: 0.05, format: { Self.share($0) })
 
+                // A thin slab instead of the whole box, for seeing inside a crowd.
+                switchAndNumbers(
+                    "Show a slice only",
+                    isOn: Binding(
+                        get: { model.sliceDepth < 0.999 },
+                        set: { model.sliceDepth = $0 ? 0.18 : 1 }
+                    )
+                ) {
+                    inlineSlider("How thick", \.sliceDepth, 0.02 ... 0.6, step: 0.02, format: { Self.share($0) })
+                    inlineSlider(
+                        "Front to back",
+                        \.sliceAt,
+                        -1 ... 1,
+                        step: 0.02,
+                        format: { $0 < -0.05 ? "near" : ($0 > 0.05 ? "far" : "middle") }
+                    )
+                }
+
                 VStack(alignment: .leading, spacing: 4) {
+                    smallToggle(
+                        "Colour by how far away things are",
+                        isOn: Binding(get: { model.colorsByDistance }, set: { model.colorsByDistance = $0 })
+                    )
+                    smallToggle(
+                        "Shadows on the floor",
+                        isOn: Binding(get: { model.showsShadows }, set: { model.showsShadows = $0 })
+                    )
                     smallToggle(
                         "Show the box",
                         isOn: Binding(get: { model.showsBox }, set: { model.showsBox = $0 })

@@ -1209,6 +1209,14 @@ final class ParticleFieldModel {
         var fog: Double
         /// Whether bodies glow and add together rather than the nearer hiding the further.
         var glows: Bool
+        /// The near and far edges of the slab being shown, measured as how far away a thing is from nought to one.
+        /// Nought and one is the whole box.
+        var sliceNear: Double
+        var sliceFar: Double
+        /// Whether bodies are coloured by how far away they are.
+        var colorsByDistance: Bool
+        /// Whether every body drops a shadow on the floor of the box.
+        var showsShadows: Bool
     }
 
     /// The renderer's lists of how far into the screen everything is, filled only while the field is in 3D.
@@ -2613,8 +2621,53 @@ final class ParticleFieldModel {
             yaw: ParticleCamera.radians(drawn.effectiveOrbitYaw),
             pitch: ParticleCamera.radians(drawn.orbitPitch),
             fog: drawn.fog,
-            glows: drawn.glows
+            glows: drawn.glows,
+            // The slab, turned from "how thick and where" into the two edges the drawing compares against.
+            sliceNear: drawn.isSliced ? max(0, (drawn.sliceAt + 1) * 0.5 - drawn.sliceDepth * 0.5) : 0,
+            sliceFar: drawn.isSliced ? min(1, (drawn.sliceAt + 1) * 0.5 + drawn.sliceDepth * 0.5) : 1,
+            colorsByDistance: drawn.colorsByDistance,
+            showsShadows: drawn.showsShadows
         )
+    }
+
+    /// How thin a slab of the box is shown, as a share of its depth. One is the whole box.
+    var sliceDepth: Double {
+        get { observeEngine(); return storedCamera.sliceDepth }
+        set {
+            var next = storedCamera
+            next.sliceDepth = max(0.02, min(1, newValue.isFinite ? newValue : 1))
+            camera = next
+        }
+    }
+
+    /// Where that slab sits, from the front of the box to the back.
+    var sliceAt: Double {
+        get { observeEngine(); return storedCamera.sliceAt }
+        set {
+            var next = storedCamera
+            next.sliceAt = max(-1, min(1, newValue.isFinite ? newValue : 0))
+            camera = next
+        }
+    }
+
+    /// Whether bodies are coloured by how far away they are.
+    var colorsByDistance: Bool {
+        get { observeEngine(); return storedCamera.colorsByDistance }
+        set {
+            var next = storedCamera
+            next.colorsByDistance = newValue
+            camera = next
+        }
+    }
+
+    /// Whether every body drops a shadow on the floor of the box.
+    var showsShadows: Bool {
+        get { observeEngine(); return storedCamera.showsShadows }
+        set {
+            var next = storedCamera
+            next.showsShadows = newValue
+            camera = next
+        }
     }
 
     /// The line from the eye through the finger, as the view is now.

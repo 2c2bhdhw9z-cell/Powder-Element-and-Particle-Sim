@@ -118,6 +118,24 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     public var glows: Bool
     /// How fast the view turns by itself, as a multiple of the usual pace.
     public var spinRate: Double
+    /// How thin a slab of the box is shown, as a share of its depth. One is the whole box, which is off.
+    ///
+    /// A crowd deep enough to be interesting is also deep enough to hide its own middle. Showing a thin slab
+    /// instead is how anything is looked at inside: turn it down and the box becomes a single cross-section, which
+    /// can then be slid from the front of the box to the back with ``sliceAt``.
+    public var sliceDepth: Double
+    /// Where that slab sits, from minus one at the front of the box to one at the back.
+    public var sliceAt: Double
+    /// Whether bodies are coloured by how far away they are rather than by their own colour.
+    ///
+    /// The plainest way to read depth there is. Fog tells you roughly how far something is; this tells you exactly,
+    /// because near and far become two different colours rather than two brightnesses of one.
+    public var colorsByDistance: Bool
+    /// Whether every body drops a shadow on the floor of the box.
+    ///
+    /// The one thing that says how *high* something is. Without it a body near the top of the box and a body near
+    /// the back look identical, because both are simply higher up the screen.
+    public var showsShadows: Bool
 
     /// Where a field in 3D is looked at from until somebody turns it: a little from the left and a little from
     /// above, which is where depth shows best.
@@ -142,7 +160,11 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         fog: Double = 0.45,
         showsBox: Bool = true,
         glows: Bool = false,
-        spinRate: Double = 1
+        spinRate: Double = 1,
+        sliceDepth: Double = 1,
+        sliceAt: Double = 0,
+        colorsByDistance: Bool = false,
+        showsShadows: Bool = false
     ) {
         self.growsWorldWhenZoomedOut = growsWorldWhenZoomedOut
         self.zoom = Self.clampZoom(zoom)
@@ -159,7 +181,14 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         self.showsBox = showsBox
         self.glows = glows
         self.spinRate = spinRate.isFinite ? max(0.1, min(5, spinRate)) : 1
+        self.sliceDepth = sliceDepth.isFinite ? max(0.02, min(1, sliceDepth)) : 1
+        self.sliceAt = sliceAt.isFinite ? max(-1, min(1, sliceAt)) : 0
+        self.colorsByDistance = colorsByDistance
+        self.showsShadows = showsShadows
     }
+
+    /// Whether only a slab of the box is being shown.
+    public var isSliced: Bool { sliceDepth < 0.999 }
 
     /// Public for the same reason as ``clampPitch(_:)``.
     public static func clampOrbitPitch(_ value: Double) -> Double {
@@ -175,6 +204,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case zoom, panX, panY, yaw, pitch, growsWorldWhenZoomedOut, autoOrbit, autoOrbitAngle
         case orbitYaw, orbitPitch, perspective, fog, showsBox, glows, spinRate
+        case sliceDepth, sliceAt, colorsByDistance, showsShadows
     }
 
     /// Read from a file with anything missing taken as its resting value.
@@ -200,7 +230,11 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
             fog: (try? c.decodeIfPresent(Double.self, forKey: .fog)) ?? 0.45,
             showsBox: (try? c.decodeIfPresent(Bool.self, forKey: .showsBox)) ?? true,
             glows: (try? c.decodeIfPresent(Bool.self, forKey: .glows)) ?? false,
-            spinRate: (try? c.decodeIfPresent(Double.self, forKey: .spinRate)) ?? 1
+            spinRate: (try? c.decodeIfPresent(Double.self, forKey: .spinRate)) ?? 1,
+            sliceDepth: (try? c.decodeIfPresent(Double.self, forKey: .sliceDepth)) ?? 1,
+            sliceAt: (try? c.decodeIfPresent(Double.self, forKey: .sliceAt)) ?? 0,
+            colorsByDistance: (try? c.decodeIfPresent(Bool.self, forKey: .colorsByDistance)) ?? false,
+            showsShadows: (try? c.decodeIfPresent(Bool.self, forKey: .showsShadows)) ?? false
         )
     }
 
@@ -221,6 +255,10 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         try c.encode(showsBox, forKey: .showsBox)
         try c.encode(glows, forKey: .glows)
         try c.encode(spinRate, forKey: .spinRate)
+        try c.encode(sliceDepth, forKey: .sliceDepth)
+        try c.encode(sliceAt, forKey: .sliceAt)
+        try c.encode(colorsByDistance, forKey: .colorsByDistance)
+        try c.encode(showsShadows, forKey: .showsShadows)
     }
 
     /// Looking straight down at the whole world, centred.
@@ -338,6 +376,11 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         // box is drawn and whether bodies glow are choices about how it looks, so they are left alone.
         orbitYaw = Self.restingOrbitYaw
         orbitPitch = Self.restingOrbitPitch
+        // The whole box again. How strong the perspective and the fog are, and whether bodies glow, are matters of
+        // taste and are left alone — but a slab is a thing that *hides* most of the field, and a field that has
+        // mostly vanished is the first thing anybody would press reset to undo.
+        sliceDepth = 1
+        sliceAt = 0
     }
 
     // MARK: - The projection

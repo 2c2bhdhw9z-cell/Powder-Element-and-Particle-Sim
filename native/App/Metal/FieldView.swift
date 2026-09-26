@@ -52,6 +52,12 @@ final class FieldView: MTKView {
         var eyeDistance: Float
         var radius: Float
         var nearLimit: Float
+        /// The near and far edges of the slab being shown. Nought and one is the whole box.
+        var sliceNear: Float
+        var sliceFar: Float
+        /// One to colour by how far away things are; one to draw the pass as shadows on the floor.
+        var colorsByDistance: Float
+        var asShadow: Float
     }
 
     /// Everything drawing in 3D needs besides what the flat drawing has.
@@ -1157,7 +1163,11 @@ final class FieldView: MTKView {
             worldDepth: Float(view.worldDepth),
             eyeDistance: Float(view.eyeDistance),
             radius: Float(view.radius),
-            nearLimit: Float(ParticleCamera.depthNearLimit)
+            nearLimit: Float(ParticleCamera.depthNearLimit),
+            sliceNear: Float(view.sliceNear),
+            sliceFar: Float(view.sliceFar),
+            colorsByDistance: view.colorsByDistance ? 1 : 0,
+            asShadow: 0
         )
     }
 
@@ -1187,6 +1197,48 @@ final class FieldView: MTKView {
         // its edges is hidden wherever something nearer is in the way and shows wherever it is in front.
         if glows {
             encodeGuidesInDepth(frame, set: set, uniforms: uniforms, depth: depthUniforms, drawing: drawing, into: encoder)
+        }
+
+        // The shadows, before everything else, so anything solid is drawn over its own shadow rather than under it.
+        //
+        // The same bodies, the same buffers and the same arithmetic — only flattened onto the floor of the box and
+        // blackened, which is what a light straight overhead casts. Drawing them again is cheaper than it sounds,
+        // because a shadow needs no depth written and no shape: it is the crowd at a third of its opacity.
+        if view.showsShadows {
+            var shadowUniforms = depthUniforms
+            shadowUniforms.asShadow = 1
+            // Never coloured by distance: a shadow is a shadow.
+            shadowUniforms.colorsByDistance = 0
+            encoder.setDepthStencilState(drawing.ignoresDepth)
+            if frame.swarmCount > 0, !frame.swarmIsStreaked,
+               let positions = set.swarmPosition, let colours = set.swarmColor, let depths = set.swarmDepth {
+                var shadowFrame = uniforms
+                shadowFrame.pointSize = Float(frame.swarmPointSize * frame.pixelRatio * frame.camera.zoom)
+                // The ordinary pipeline, not the glowing one: a shadow has to darken what is under it, and the
+                // glowing one only ever adds light — black added to anything is nothing at all, so shadows drawn
+                // that way were perfectly invisible. The depth record is left alone through `ignoresDepth`, so a
+                // shadow cannot hide the body casting it.
+                encoder.setRenderPipelineState(drawing.points)
+                encoder.setVertexBuffer(positions, offset: 0, index: 0)
+                encoder.setVertexBuffer(colours, offset: 0, index: 1)
+                encoder.setVertexBytes(&shadowFrame, length: uniformLength, index: 2)
+                encoder.setVertexBuffer(depths, offset: 0, index: 4)
+                encoder.setVertexBytes(&shadowUniforms, length: depthLength, index: 5)
+                encoder.setFragmentBytes(&shadowFrame, length: uniformLength, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+            }
+            if frame.bodyCount > 0, let positions = set.position, let colours = set.color,
+               let sizes = set.size, let depths = set.bodyDepth {
+                encoder.setRenderPipelineState(drawing.bodies)
+                encoder.setVertexBuffer(positions, offset: 0, index: 0)
+                encoder.setVertexBuffer(colours, offset: 0, index: 1)
+                encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+                encoder.setVertexBuffer(sizes, offset: 0, index: 3)
+                encoder.setVertexBuffer(depths, offset: 0, index: 4)
+                encoder.setVertexBytes(&shadowUniforms, length: depthLength, index: 5)
+                encoder.setFragmentBytes(&uniforms, length: uniformLength, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
+            }
         }
 
         if frame.swarmCount > 0,
