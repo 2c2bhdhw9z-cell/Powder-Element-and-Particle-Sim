@@ -14,6 +14,7 @@ struct FieldSettingsSheet: View {
     var body: some View {
         LabSheet(title: "Field", subtitle: "Forces, edges and touch") {
             gravity
+            depth
             forces
             liquid
             pull
@@ -45,6 +46,53 @@ struct FieldSettingsSheet: View {
         }
         .disabled(model.isSteeredByTilt)
         .opacity(model.isSteeredByTilt ? 0.4 : 1)
+    }
+
+    /// The field in 3D. The same switch and numbers as in the tray, here too because this is where somebody
+    /// looking for how the field works will look.
+    @ViewBuilder
+    private var depth: some View {
+        LabGroup(
+            "3D",
+            footnote: model.depthEnabled
+                ? "Gravity still pulls down the screen, and the walls you draw reach from the front of the box to "
+                    + "the back. Box depth is how deep the box is compared with the width of the screen."
+                : "Turn it on and every body moves in a box instead of on a sheet, and whatever is showing is "
+                    + "rebuilt in 3D. Undo takes it back."
+        ) {
+            LabToggle(label: "3D", isOn: bind(\.depthEnabled))
+            if model.depthEnabled {
+                LabDivider()
+                LabSlider(label: "Box depth", value: bind(\.depthRatio), range: ParticleEngine.depthRatioRange, step: 0.05) {
+                    "\(Int(($0 * 100).rounded()))%"
+                }
+                LabDivider()
+                LabSlider(label: "Turn round", value: bind(\.orbitYaw), range: -180 ... 180, step: 1) {
+                    "\(Int($0.rounded()))°"
+                }
+                LabDivider()
+                LabSlider(
+                    label: "Look from above",
+                    value: bind(\.orbitPitch),
+                    range: -ParticleCamera.maximumOrbitPitch ... ParticleCamera.maximumOrbitPitch,
+                    step: 1
+                ) { "\(Int($0.rounded()))°" }
+                LabDivider()
+                LabSlider(label: "Perspective", value: bind(\.perspective), range: 0 ... 1, step: 0.05) {
+                    $0 < 0.005 ? "none" : "\(Int(($0 * 100).rounded()))%"
+                }
+                LabDivider()
+                LabSlider(label: "Fog on the far side", value: bind(\.fog), range: 0 ... 1, step: 0.05) {
+                    $0 < 0.005 ? "none" : "\(Int(($0 * 100).rounded()))%"
+                }
+                LabDivider()
+                LabToggle(label: "Show the box", isOn: bind(\.showsBox))
+                LabDivider()
+                LabToggle(label: "Glow — overlapping bodies add up into light", isOn: bind(\.glows))
+                LabDivider()
+                LabToggle(label: "Look round by moving the phone", isOn: bind(\.looksAround))
+            }
+        }
     }
 
     private var forces: some View {

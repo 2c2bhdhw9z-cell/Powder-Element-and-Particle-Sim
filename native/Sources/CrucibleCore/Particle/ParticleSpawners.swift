@@ -701,12 +701,14 @@ extension ParticleEngine {
         }
     }
 
-    /// Drops a draggable gravity well into the current scene.
-    public func placeWell(x: Double, y: Double) {
+    /// Drops a draggable gravity well into the current scene — in 3D, at a depth in the box.
+    public func placeWell(x: Double, y: Double, z: Double = 0) {
+        let limit = max(0, halfDepth - 14)
         addParticle(
             x: x, y: y, velocityX: 0, velocityY: 0, radius: 14, mass: 90,
             color: PackedColor(r: 0xFB, g: 0x71, b: 0x85),
-            isFixed: true, ignoresGravity: true, kind: .blackhole
+            isFixed: true, ignoresGravity: true, kind: .blackhole,
+            z: storedDepthEnabled ? max(-limit, min(limit, z.isFinite ? z : 0)) : 0
         )
     }
 

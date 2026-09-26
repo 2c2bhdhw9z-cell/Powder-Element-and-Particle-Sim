@@ -37,6 +37,50 @@ final class FieldView: MTKView {
         var reserved: Int32 = 0
     }
 
+    /// Mirrors `DepthUniforms` in the shader, field for field and in the same order.
+    ///
+    /// The two four-component values first, since they want sixteen-byte alignment, and then four plain floats
+    /// that fill the last sixteen bytes exactly — so there is no padding anywhere for the two sides to disagree
+    /// about.
+    private struct DepthUniforms {
+        /// The cosine and sine of the turn round the box, then of the tip above it.
+        var turn: SIMD4<Float>
+        /// How much the far side fades, in the first. The rest is spare.
+        var fog: SIMD4<Float>
+        var worldDepth: Float
+        /// Nought is no perspective.
+        var eyeDistance: Float
+        var radius: Float
+        var nearLimit: Float
+    }
+
+    /// Everything drawing in 3D needs besides what the flat drawing has.
+    ///
+    /// Made alongside the flat drawing but kept apart from it, and allowed to be missing: if any of it could not
+    /// be made, a field in 3D is drawn flat rather than the whole field failing to appear.
+    private struct DepthDrawing {
+        /// The crowd at one size: solid, and glowing.
+        var points: MTLRenderPipelineState
+        var pointsGlowing: MTLRenderPipelineState
+        /// Bodies each at their own size.
+        var bodies: MTLRenderPipelineState
+        var bodiesGlowing: MTLRenderPipelineState
+        /// Trails, streaks, the box and whatever has been drawn into it.
+        var lines: MTLRenderPipelineState
+        var linesGlowing: MTLRenderPipelineState
+        var springs: MTLRenderPipelineState
+        /// The ring and the fade, which do not move with the box but have to be drawn in the same pass as it.
+        var ring: MTLRenderPipelineState
+        var fade: MTLRenderPipelineState
+        /// Nearer hides further, and this writes how far away it is so it can hide what comes after.
+        var hidesWhatIsBehind: MTLDepthStencilState
+        /// Hidden by what is nearer, but hides nothing itself — for lines, which are too thin to hide anything
+        /// sensibly and would otherwise cut hairline gaps through bodies drawn after them.
+        var isHiddenByWhatIsNearer: MTLDepthStencilState
+        /// Neither: for glowing, and for the ring and the fade.
+        var ignoresDepth: MTLDepthStencilState
+    }
+
     /// Mirrors `RingUniforms` in the shader, field for field and in the same order.
     ///
     /// The colour is first because it needs sixteen-byte alignment: anywhere else and there is a
@@ -89,6 +133,17 @@ final class FieldView: MTKView {
     private let fieldOverPipeline: MTLRenderPipelineState
     private let glowAddPipeline: MTLRenderPipelineState
     private let smoothSampler: MTLSamplerState
+    /// Drawing in 3D, or nothing if it could not be set up — see `DepthDrawing`.
+    private let depthDrawing: DepthDrawing?
+
+    /// How far away whatever has been drawn at each pixel is, for the solid drawing in 3D.
+    ///
+    /// Only for the frame being drawn: it is cleared at the start of each and thrown away at the end, so on
+    /// the phone it never leaves the graphics card's own fast memory at all. Made the first time a field in 3D
+    /// is drawn, and never for a flat one.
+    private var depthTexture: MTLTexture?
+    private var depthTextureWidth = 0
+    private var depthTextureHeight = 0
 
     /// The two small pictures the glow is built in.
     ///
@@ -130,6 +185,8 @@ final class FieldView: MTKView {
     /// The walls and the painted wind, as lines.
     private var guidePositions: [Float] = []
     private var guideColors: [UInt32] = []
+    /// How far into the box everything is, filled only while the field is in 3D.
+    private var depthBuffers = ParticleFieldModel.DepthBuffers()
 
     /// One frame's GPU-side copies. Reallocated only when they are too small.
     private struct FrameBuffers {
@@ -144,6 +201,12 @@ final class FieldView: MTKView {
         var trailColor: MTLBuffer?
         var guidePosition: MTLBuffer?
         var guideColor: MTLBuffer?
+        /// How far into the box, in 3D. Never made for a flat field.
+        var bodyDepth: MTLBuffer?
+        var swarmDepth: MTLBuffer?
+        var springDepth: MTLBuffer?
+        var trailDepth: MTLBuffer?
+        var guideDepth: MTLBuffer?
     }
 
     /// How many frames may be on their way to the screen at once.
@@ -215,17 +278,27 @@ final class FieldView: MTKView {
             /// quarters, and with the longest trails vanished entirely, behind a picture that had become an
             /// opaque sheet of black.
             case fade
+            /// Adds light, for bodies glowing in 3D: where two overlap, the pixel is brighter than either.
+            ///
+            /// The colour is added weighted by its own opacity, and the coverage builds up the way it does for
+            /// `over`, so the kept picture still holds colours already multiplied by their opacity — which is
+            /// what laying it over the background expects.
+            case glowing
         }
 
         func pipeline(
             _ vertex: MTLFunction,
             _ fragment: MTLFunction,
-            blending: Blending = .over
+            blending: Blending = .over,
+            inDepth: Bool = false
         ) -> MTLRenderPipelineState? {
             let descriptor = MTLRenderPipelineDescriptor()
             descriptor.vertexFunction = vertex
             descriptor.fragmentFunction = fragment
             descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+            // Every drawing in a pass has to agree with the pass about whether there is a record of how far away
+            // things are, so the 3D pass has its own copy of everything drawn in it — the ring and the fade too.
+            if inDepth { descriptor.depthAttachmentPixelFormat = .depth32Float }
             let attachment = descriptor.colorAttachments[0]!
             attachment.isBlendingEnabled = blending != .replace
             attachment.rgbBlendOperation = .add
@@ -255,10 +328,61 @@ final class FieldView: MTKView {
                 attachment.sourceAlphaBlendFactor = .zero
                 attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
                 attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+            case .glowing:
+                attachment.sourceRGBBlendFactor = .sourceAlpha
+                attachment.sourceAlphaBlendFactor = .one
+                attachment.destinationRGBBlendFactor = .one
+                attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
             case .replace:
                 break
             }
             return try? device.makeRenderPipelineState(descriptor: descriptor)
+        }
+
+        /// How a drawing in 3D treats the record of how far away things are.
+        func depthState(compare: MTLCompareFunction, writes: Bool) -> MTLDepthStencilState? {
+            let descriptor = MTLDepthStencilDescriptor()
+            descriptor.depthCompareFunction = compare
+            descriptor.isDepthWriteEnabled = writes
+            return device.makeDepthStencilState(descriptor: descriptor)
+        }
+
+        /// The 3D drawing, all of it or nothing.
+        func makeDepthDrawing() -> DepthDrawing? {
+            guard let pointInDepth = library.makeFunction(name: "particleVertexInDepth"),
+                  let bodyInDepth = library.makeFunction(name: "bodyVertexInDepth"),
+                  let lineInDepth = library.makeFunction(name: "lineVertexInDepth"),
+                  let springInDepth = library.makeFunction(name: "springVertexInDepth"),
+                  let solidFragment = library.makeFunction(name: "solidParticleFragment"),
+                  let points = pipeline(pointInDepth, solidFragment, inDepth: true),
+                  let pointsGlowing = pipeline(pointInDepth, pointFragment, blending: .glowing, inDepth: true),
+                  let bodies = pipeline(bodyInDepth, solidFragment, inDepth: true),
+                  let bodiesGlowing = pipeline(bodyInDepth, pointFragment, blending: .glowing, inDepth: true),
+                  let lines = pipeline(lineInDepth, trailFragment, inDepth: true),
+                  let linesGlowing = pipeline(lineInDepth, trailFragment, blending: .glowing, inDepth: true),
+                  let springs = pipeline(springInDepth, trailFragment, inDepth: true),
+                  let ring = pipeline(ringVertex, ringFragment, inDepth: true),
+                  let fade = pipeline(ringVertex, fadeFragment, blending: .fade, inDepth: true),
+                  // Less than or equal rather than less, so two things at exactly the same depth — a body and the
+                  // end of its own trail — are both drawn rather than whichever came first winning.
+                  let hides = depthState(compare: .lessEqual, writes: true),
+                  let hidden = depthState(compare: .lessEqual, writes: false),
+                  let ignores = depthState(compare: .always, writes: false)
+            else { return nil }
+            return DepthDrawing(
+                points: points,
+                pointsGlowing: pointsGlowing,
+                bodies: bodies,
+                bodiesGlowing: bodiesGlowing,
+                lines: lines,
+                linesGlowing: linesGlowing,
+                springs: springs,
+                ring: ring,
+                fade: fade,
+                hidesWhatIsBehind: hides,
+                isHiddenByWhatIsNearer: hidden,
+                ignoresDepth: ignores
+            )
         }
 
         guard let points = pipeline(pointVertex, pointFragment),
@@ -295,6 +419,7 @@ final class FieldView: MTKView {
         self.fieldOverPipeline = fieldOver
         self.glowAddPipeline = glowAdd
         self.smoothSampler = sampler
+        self.depthDrawing = makeDepthDrawing()
         super.init(frame: .zero, device: device)
 
         colorPixelFormat = .bgra8Unorm
@@ -395,6 +520,21 @@ final class FieldView: MTKView {
             pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         }
 
+        // In 3D, drawn with a record of how far away whatever is at each pixel is, so the near side of the box
+        // hides the far side. Should that not be possible the field is drawn flat — seen straight on — rather
+        // than not drawn at all.
+        var inDepth: (view: ParticleFieldModel.DepthView, drawing: DepthDrawing)?
+        if let view = frame.depth, let drawing = depthDrawing,
+           let record = depthRecord(width: width, height: height, device: device) {
+            pass.depthAttachment.texture = record
+            // Everything starts as far away as anything can be...
+            pass.depthAttachment.loadAction = .clear
+            pass.depthAttachment.clearDepth = 1
+            // ...and none of it is wanted once the frame is drawn.
+            pass.depthAttachment.storeAction = .dontCare
+            inDepth = (view, drawing)
+        }
+
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else {
             // Committed even so, so the completion handler gives the buffers back.
             buffer.present(drawable)
@@ -403,9 +543,13 @@ final class FieldView: MTKView {
         }
 
         if model.showTrails, !cameraMoved {
-            encodeFade(frame, into: encoder)
+            encodeFade(frame, into: encoder, drawing: inDepth?.drawing)
         }
-        encode(frame, into: encoder)
+        if let inDepth {
+            encodeInDepth(frame, view: inDepth.view, drawing: inDepth.drawing, into: encoder)
+        } else {
+            encode(frame, into: encoder)
+        }
         encoder.endEncoding()
 
         // The glow, built from the field before anything is laid over it.
@@ -629,10 +773,44 @@ final class FieldView: MTKView {
         buffer.commit()
     }
 
+    /// The record of how far away things are for a field in 3D, made or reused.
+    ///
+    /// Kept only in the graphics card's own fast memory on a phone, which is possible because nothing reads it
+    /// after the frame: it costs no memory the rest of the phone could use and no time spent writing it out.
+    private func depthRecord(width: Int, height: Int, device: MTLDevice) -> MTLTexture? {
+        guard width > 0, height > 0 else { return nil }
+        if let depthTexture, depthTextureWidth == width, depthTextureHeight == height { return depthTexture }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .depth32Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.usage = .renderTarget
+        #if targetEnvironment(simulator)
+        descriptor.storageMode = .private
+        #else
+        descriptor.storageMode = .memoryless
+        #endif
+        var made = device.makeTexture(descriptor: descriptor)
+        if made == nil, descriptor.storageMode != .private {
+            descriptor.storageMode = .private
+            made = device.makeTexture(descriptor: descriptor)
+        }
+        depthTexture = made
+        depthTextureWidth = made == nil ? 0 : width
+        depthTextureHeight = made == nil ? 0 : height
+        return made
+    }
+
     /// Dims the previous frame by painting the background over it.
+    ///
+    /// - Parameter drawing: the 3D drawing, when the pass is one for a field in 3D — every drawing in a pass has
+    ///   to be made for that kind of pass, the fade included.
     private func encodeFade(
         _ frame: ParticleFieldModel.Frame,
-        into encoder: MTLRenderCommandEncoder
+        into encoder: MTLRenderCommandEncoder,
+        drawing: DepthDrawing? = nil
     ) {
         var uniforms = Self.uniforms(for: frame)
         // Nothing at all, at the fraction the reference uses. The engine owns that figure, alongside
@@ -647,7 +825,12 @@ final class FieldView: MTKView {
         var fade = FadeUniforms(
             color: SIMD4<Float>(0, 0, 0, Float(frame.trailFade))
         )
-        encoder.setRenderPipelineState(fadePipeline)
+        if let drawing {
+            encoder.setRenderPipelineState(drawing.fade)
+            encoder.setDepthStencilState(drawing.ignoresDepth)
+        } else {
+            encoder.setRenderPipelineState(fadePipeline)
+        }
         encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
         encoder.setFragmentBytes(&fade, length: MemoryLayout<FadeUniforms>.stride, index: 0)
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
@@ -752,7 +935,8 @@ final class FieldView: MTKView {
             trailPositions: &trailPositions,
             trailColors: &trailColors,
             guidePositions: &guidePositions,
-            guideColors: &guideColors
+            guideColors: &guideColors,
+            depths: &depthBuffers
         )
 
         var set = frameBuffers[frameSlot]
@@ -779,6 +963,20 @@ final class FieldView: MTKView {
         upload(&set.trailColor, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
         upload(&set.guidePosition, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
         upload(&set.guideColor, from: guideColors, count: frame.guideSegmentCount * 2, device: device)
+        // How far into the box everything is, one number per point drawn. Only in 3D: a flat field uploads exactly
+        // what it always did.
+        if frame.depth != nil {
+            upload(&set.bodyDepth, from: depthBuffers.bodies, count: frame.bodyCount, device: device)
+            upload(
+                &set.swarmDepth,
+                from: depthBuffers.swarm,
+                count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
+                device: device
+            )
+            upload(&set.springDepth, from: depthBuffers.springs, count: frame.springCount * 2, device: device)
+            upload(&set.trailDepth, from: depthBuffers.trails, count: frame.trailSegmentCount * 2, device: device)
+            upload(&set.guideDepth, from: depthBuffers.guides, count: frame.guideSegmentCount * 2, device: device)
+        }
         frameBuffers[frameSlot] = set
 
         return frame
@@ -915,20 +1113,7 @@ final class FieldView: MTKView {
         // The ring last, over everything, because it is a statement about what your finger is doing
         // rather than part of the field.
         if let ring = frame.touchRing {
-            var ringUniforms = RingUniforms(
-                color: SIMD4<Float>(
-                    Float(ring.red),
-                    Float(ring.green),
-                    Float(ring.blue),
-                    1
-                ),
-                centre: SIMD2<Float>(Float(ring.x), Float(ring.y)),
-                radius: Float(ring.radius),
-                strokeWidth: Float(ring.strokeWidth),
-                centreDotRadius: Float(ring.centreDotRadius),
-                strokeOpacity: Float(ring.strokeOpacity),
-                fillOpacity: Float(ring.fillOpacity)
-            )
+            var ringUniforms = Self.ringUniforms(for: ring)
             encoder.setRenderPipelineState(ringPipeline)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
             encoder.setFragmentBytes(
@@ -942,13 +1127,181 @@ final class FieldView: MTKView {
         }
     }
 
+    /// The ring's settings as the shader reads them.
+    private static func ringUniforms(for ring: ParticleFieldModel.TouchRing) -> RingUniforms {
+        RingUniforms(
+            color: SIMD4<Float>(Float(ring.red), Float(ring.green), Float(ring.blue), 1),
+            centre: SIMD2<Float>(Float(ring.x), Float(ring.y)),
+            radius: Float(ring.radius),
+            strokeWidth: Float(ring.strokeWidth),
+            centreDotRadius: Float(ring.centreDotRadius),
+            strokeOpacity: Float(ring.strokeOpacity),
+            fillOpacity: Float(ring.fillOpacity)
+        )
+    }
+
+    // MARK: - Drawing in 3D
+
+    /// How the box is being looked at, as the shader reads it.
+    ///
+    /// The cosines and sines are worked out once here rather than for every one of a million bodies.
+    private static func depthUniforms(for view: ParticleFieldModel.DepthView) -> DepthUniforms {
+        DepthUniforms(
+            turn: SIMD4<Float>(
+                Float(cos(view.yaw)),
+                Float(sin(view.yaw)),
+                Float(cos(view.pitch)),
+                Float(sin(view.pitch))
+            ),
+            fog: SIMD4<Float>(Float(view.fog), 0, 0, 0),
+            worldDepth: Float(view.worldDepth),
+            eyeDistance: Float(view.eyeDistance),
+            radius: Float(view.radius),
+            nearLimit: Float(ParticleCamera.depthNearLimit)
+        )
+    }
+
+    /// The field in 3D. The same passes as a flat field, with every body and each end of every line at its own
+    /// depth.
+    ///
+    /// Solid, the nearer hides the further, whatever order things are drawn in — so the crowd can hide a body
+    /// behind it, which on a flat field it never may. Glowing, nothing hides anything and overlapping bodies add
+    /// up to something brighter than either.
+    private func encodeInDepth(
+        _ frame: ParticleFieldModel.Frame,
+        view: ParticleFieldModel.DepthView,
+        drawing: DepthDrawing,
+        into encoder: MTLRenderCommandEncoder
+    ) {
+        var uniforms = Self.uniforms(for: frame)
+        var depthUniforms = Self.depthUniforms(for: view)
+        let set = frameBuffers[frameSlot]
+        let glows = view.glows
+        let uniformLength = MemoryLayout<Uniforms>.stride
+        let depthLength = MemoryLayout<DepthUniforms>.stride
+        // What the bodies do with the record of depth, and what the lines do.
+        let bodiesTreatDepth = glows ? drawing.ignoresDepth : drawing.hidesWhatIsBehind
+        let linesTreatDepth = glows ? drawing.ignoresDepth : drawing.isHiddenByWhatIsNearer
+
+        // Glowing, the box goes in first so the light is added on top of it. Solid, it goes in last, so each of
+        // its edges is hidden wherever something nearer is in the way and shows wherever it is in front.
+        if glows {
+            encodeGuidesInDepth(frame, set: set, uniforms: uniforms, depth: depthUniforms, drawing: drawing, into: encoder)
+        }
+
+        if frame.swarmCount > 0,
+           let positions = set.swarmPosition, let colours = set.swarmColor, let depths = set.swarmDepth {
+            var swarmUniforms = uniforms
+            // The crowd's one size, following the zoom, as on a flat field.
+            swarmUniforms.pointSize = Float(frame.swarmPointSize * frame.pixelRatio * frame.camera.zoom)
+            encoder.setDepthStencilState(bodiesTreatDepth)
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBuffer(colours, offset: 0, index: 1)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depthUniforms, length: depthLength, index: 5)
+            if frame.swarmIsStreaked {
+                encoder.setRenderPipelineState(glows ? drawing.linesGlowing : drawing.lines)
+                encoder.setVertexBytes(&swarmUniforms, length: uniformLength, index: 2)
+                encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.swarmCount * 2)
+            } else if frame.swarmHasSizes, let sizes = set.swarmSize {
+                encoder.setRenderPipelineState(glows ? drawing.bodiesGlowing : drawing.bodies)
+                encoder.setVertexBuffer(sizes, offset: 0, index: 3)
+                encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+                encoder.setFragmentBytes(&uniforms, length: uniformLength, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+            } else {
+                encoder.setRenderPipelineState(glows ? drawing.pointsGlowing : drawing.points)
+                encoder.setVertexBytes(&swarmUniforms, length: uniformLength, index: 2)
+                encoder.setFragmentBytes(&swarmUniforms, length: uniformLength, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+            }
+        }
+
+        if frame.trailSegmentCount > 0,
+           let positions = set.trailPosition, let colours = set.trailColor, let depths = set.trailDepth {
+            encoder.setRenderPipelineState(glows ? drawing.linesGlowing : drawing.lines)
+            encoder.setDepthStencilState(linesTreatDepth)
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBuffer(colours, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depthUniforms, length: depthLength, index: 5)
+            encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.trailSegmentCount * 2)
+        }
+
+        if frame.springCount > 0, let positions = set.spring, let depths = set.springDepth {
+            encoder.setRenderPipelineState(drawing.springs)
+            encoder.setDepthStencilState(linesTreatDepth)
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depthUniforms, length: depthLength, index: 5)
+            encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.springCount * 2)
+        }
+
+        if frame.bodyCount > 0, let positions = set.position, let colours = set.color,
+           let sizes = set.size, let depths = set.bodyDepth {
+            encoder.setRenderPipelineState(glows ? drawing.bodiesGlowing : drawing.bodies)
+            encoder.setDepthStencilState(bodiesTreatDepth)
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBuffer(colours, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            encoder.setVertexBuffer(sizes, offset: 0, index: 3)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depthUniforms, length: depthLength, index: 5)
+            encoder.setFragmentBytes(&uniforms, length: uniformLength, index: 0)
+            encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
+        }
+
+        if !glows {
+            encodeGuidesInDepth(frame, set: set, uniforms: uniforms, depth: depthUniforms, drawing: drawing, into: encoder)
+        }
+
+        // The ring over everything, as on a flat field. It is drawn on the glass, not in the box.
+        if let ring = frame.touchRing {
+            var ringUniforms = Self.ringUniforms(for: ring)
+            encoder.setRenderPipelineState(drawing.ring)
+            encoder.setDepthStencilState(drawing.ignoresDepth)
+            encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            encoder.setFragmentBytes(&ringUniforms, length: MemoryLayout<RingUniforms>.stride, index: 0)
+            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+    }
+
+    /// The box's edges and floor, and the walls, wind and glass drawn into it.
+    private func encodeGuidesInDepth(
+        _ frame: ParticleFieldModel.Frame,
+        set: FrameBuffers,
+        uniforms: Uniforms,
+        depth: DepthUniforms,
+        drawing: DepthDrawing,
+        into encoder: MTLRenderCommandEncoder
+    ) {
+        guard frame.guideSegmentCount > 0,
+              let positions = set.guidePosition, let colours = set.guideColor, let depths = set.guideDepth
+        else { return }
+        var uniforms = uniforms
+        var depth = depth
+        encoder.setRenderPipelineState(drawing.lines)
+        encoder.setDepthStencilState(frame.depth?.glows == true ? drawing.ignoresDepth : drawing.isHiddenByWhatIsNearer)
+        encoder.setVertexBuffer(positions, offset: 0, index: 0)
+        encoder.setVertexBuffer(colours, offset: 0, index: 1)
+        encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+        encoder.setVertexBuffer(depths, offset: 0, index: 4)
+        encoder.setVertexBytes(&depth, length: MemoryLayout<DepthUniforms>.stride, index: 5)
+        encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.guideSegmentCount * 2)
+    }
+
     /// Copies a slice of an array into a GPU buffer, making a bigger one only when needed.
     private func upload<T>(
         _ buffer: inout MTLBuffer?,
         from source: [T],
-        count: Int,
+        count wanted: Int,
         device: MTLDevice
     ) {
+        // Never more than the array holds, so a list that fell short could not have memory past its end copied
+        // onto the graphics card.
+        let count = min(wanted, source.count)
         guard count > 0 else { return }
         let bytes = count * MemoryLayout<T>.stride
         if buffer == nil || buffer!.length < bytes {

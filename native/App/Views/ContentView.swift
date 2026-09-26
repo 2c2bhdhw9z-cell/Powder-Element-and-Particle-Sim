@@ -278,7 +278,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingPresets) {
-            FieldPresetPicker(current: field.arrangement) { preset in
+            FieldPresetPicker(current: field.arrangement, inDepth: field.depthEnabled) { preset in
                 field.loadPreset(preset)
                 showingPresets = false
             }

@@ -22,6 +22,7 @@ struct HelpSheet: View {
             chambers
             powder
             field
+            depth
             materials
             tilting
             keeping
@@ -75,6 +76,27 @@ struct HelpSheet: View {
                     + "Cloth, rope and blob are held together by springs, so dragging one pulls the "
                     + "whole sheet. A flock is steered by its own neighbours, and pushing into it "
                     + "scatters them until they regroup."
+            )
+        }
+    }
+
+    private var depth: some View {
+        LabGroup("The field in 3D") {
+            paragraph(
+                "Tap **3D** beside the tray's heading and the bodies move in a box instead of on a flat "
+                    + "sheet. Whatever is showing is rebuilt in 3D — a galaxy becomes a disc lying level, a "
+                    + "tornado a real funnel — and undo takes it back.\n\n"
+                    + "Pick **Turn** at the front of the tools and drag to go round the box. Every other "
+                    + "tool reaches straight through it, from the front to the back, so pulling where your "
+                    + "finger is pulls everything along that line. Walls you draw are panels reaching all the "
+                    + "way through.\n\n"
+                    + "Some arrangements only exist in 3D and carry a cube: a globe, a knot, an ocean, four "
+                    + "strange attractors, a flight through the stars and a snow globe you can stir by "
+                    + "tipping the phone with Tilt on.\n\n"
+                    + "The tray's 3D section has the rest: views from the front, side, top or at an angle, "
+                    + "how deep the box is, how strong the perspective and the fog are, whether the box is "
+                    + "drawn, **Glow**, where overlapping bodies add up into light, and looking round the box "
+                    + "by moving the phone."
             )
         }
     }

@@ -260,6 +260,27 @@ static inline void shapeMetric(float2 p, int shape,
     }
 }
 
+// How much of one pixel of a point sprite is inside the body's silhouette, from nought to one.
+//
+// Shared by the flat drawing and the 3D drawing, so a body has the same outline and the same soft edge
+// either way.
+static inline float pointCoverage(float2 coordinate, float size, int shape) {
+    // A point arrives as a square. Turned into a square running from minus one to one with y upward,
+    // matching what `ParticleShape` describes — the vertical flip is because the coordinate a point
+    // hands over grows downward, and two of the ten shapes have a top and a bottom.
+    float2 p = float2(coordinate.x * 2.0 - 1.0, 1.0 - coordinate.y * 2.0);
+
+    float distance, edge, gradient;
+    shapeMetric(p, shape, distance, edge, gradient);
+
+    // The faded edge, one pixel wide whatever size the body is drawn. See `particleFragment`.
+    float softness = min(0.5, 2.0 / max(size, 1.0)) * max(gradient, 1e-6);
+    if (softness > 1e-9) {
+        return clamp((edge - distance) / softness, 0.0, 1.0);
+    }
+    return distance <= edge ? 1.0 : 0.0;
+}
+
 fragment half4 particleFragment(PointOut in [[stage_in]],
                                 float2 coordinate [[point_coord]],
                                 constant FieldUniforms &uniforms [[buffer(0)]]) {
@@ -674,4 +695,212 @@ fragment half4 glowAddFragment(RingOut in [[stage_in]],
     float3 bloom = glowSource.sample(smooth, uv).rgb * max(glow.strength, 0.0);
     // Alpha of one with an adding pipeline, so the glow brightens what is there and never dims it.
     return half4(half3(bloom), 1.0h);
+}
+
+
+
+// MARK: - In 3D
+//
+// The field as a box of bodies rather than a sheet. Every body has a depth as well as a place across and
+// down, and the box is turned round its upright, tipped toward or away from the viewer, and seen from an eye
+// some way in front of it — so the near side is drawn larger and further apart than the far side.
+//
+// **This is `ParticleCamera.projectInDepth` in `CrucibleCore`, number for number.** That copy is the one
+// that is tested: a finger is put on the screen by working the same arithmetic backwards, so if the two
+// disagree the finger lands somewhere other than on the body under it. Change that one first.
+//
+// Two ways to draw:
+//
+//   - **Solid**, the usual one. Each body writes how far away it is, and anything further away that lands
+//     on the same pixel afterwards is hidden. That is what makes a box of bodies read as a box rather than
+//     as a flat picture of dots: the near side of a ball covers its far side.
+//   - **Glowing.** Nothing hides anything, and where bodies overlap they add up and brighten. A cloud of a
+//     hundred thousand faint sparks looks like light rather than like sand.
+//
+// Kept wholly apart from the flat drawing above. A flat field is drawn by exactly the same functions it
+// always was, so nothing about 3D can change how it looks.
+
+// Laid out with the four-component values first and the plain floats filling a final sixteen bytes, so
+// there is no padding for the two languages to disagree about. Mirrors `DepthUniforms` in `FieldView`.
+struct DepthUniforms {
+    // The cosine and sine of the turn round the box, then of the tip above it.
+    float4 turn;
+    // How much the far side fades, from nought to one. The other three are spare.
+    float4 fog;
+    // How deep the box is, in the world's pixels.
+    float worldDepth;
+    // How far the eye is from the middle of the box, in the world's pixels. Nought is no perspective.
+    float eyeDistance;
+    // Half the box's diagonal: nothing in it is further from its middle than this.
+    float radius;
+    // How close to the eye something may be before it is not drawn, as a share of the eye's distance.
+    float nearLimit;
+};
+
+// A place turned and tipped: across, up, and away from the viewer, each measured from the middle of the box.
+static inline float3 turnInDepth(float2 world, float z,
+                                 constant FieldUniforms &u, constant DepthUniforms &d) {
+    float width = max(u.worldSize.x, 1e-6);
+    float height = max(u.worldSize.y, 1e-6);
+    // The world's down is the screen's down; the picture's up is the other way.
+    float across = world.x - width * 0.5;
+    float up = height * 0.5 - world.y;
+    float cy = d.turn.x, sy = d.turn.y, cp = d.turn.z, sp = d.turn.w;
+    // Round the upright first...
+    float turnedAcross = across * cy - z * sy;
+    float turnedDepth = across * sy + z * cy;
+    // ...then tipped about the sideways axis.
+    return float3(turnedAcross,
+                  up * cp + turnedDepth * sp,
+                  -up * sp + turnedDepth * cp);
+}
+
+// Whether something that far from the middle of the box is in front of the eye.
+static inline bool isInFrontOfEye(float away, constant DepthUniforms &d) {
+    return d.eyeDistance <= 0.0 || d.eyeDistance + away > d.eyeDistance * d.nearLimit;
+}
+
+struct DepthPlacement {
+    float4 position;
+    // How much bigger or smaller the perspective draws something here. One at the middle of the box.
+    float scale;
+    // How much of its colour is left once the fog has had its share.
+    float fade;
+};
+
+// Anywhere outside everything the card draws, so a thing placed here is simply not drawn.
+constant float4 kNotDrawn = float4(0.0, 0.0, 2.0, 1.0);
+
+static inline DepthPlacement placeInDepth(float2 world, float z,
+                                          constant FieldUniforms &u, constant DepthUniforms &d) {
+    float3 turned = turnInDepth(world, z, u, d);
+
+    float scale = 1.0;
+    if (d.eyeDistance > 0.0) {
+        float distance = d.eyeDistance + turned.z;
+        scale = d.eyeDistance / max(d.eyeDistance * d.nearLimit, distance);
+    }
+
+    // Zoom and pan last, exactly as on a flat field.
+    float width = max(u.worldSize.x, 1e-6);
+    float height = max(u.worldSize.y, 1e-6);
+    float2 halfView = max(u.viewSize * 0.5, float2(1e-6));
+    float2 n = float2(turned.x * scale / (width * 0.5), turned.y * scale / (height * 0.5)) * u.zoom
+             + float2(u.pan.x / halfView.x, -u.pan.y / halfView.y);
+
+    // Nought for the nearest anything in the box can be, one for the furthest. What the solid drawing keeps
+    // to decide what hides what, and what the fog fades by.
+    float radius = max(d.radius, 1.0);
+    float depth = clamp((turned.z + radius) / (2.0 * radius), 0.0, 1.0);
+
+    DepthPlacement placed;
+    // Something behind the eye is not drawn at all. Drawn anyway, the perspective would turn it inside out and
+    // throw it across the screen.
+    if (isInFrontOfEye(turned.z, d)) {
+        placed.position = float4(n, depth, 1.0);
+    } else {
+        placed.position = kNotDrawn;
+    }
+    // The same limits as `ParticleCamera.depthScaleRange`, so a body right at the eye does not fill the screen
+    // and one at the far end of a long box does not vanish.
+    placed.scale = clamp(scale, 0.2, 5.0);
+    // Never all the way out, so turning the fog up dims the far side of the box rather than cutting it off.
+    placed.fade = max(0.06, 1.0 - clamp(d.fog.x, 0.0, 1.0) * depth);
+    return placed;
+}
+
+// The crowd, each body at the crowd's one size, larger near and smaller far.
+vertex PointOut particleVertexInDepth(uint index [[vertex_id]],
+                                      const device float2 *positions [[buffer(0)]],
+                                      const device uint *colors [[buffer(1)]],
+                                      constant FieldUniforms &uniforms [[buffer(2)]],
+                                      const device float *depths [[buffer(4)]],
+                                      constant DepthUniforms &depth [[buffer(5)]]) {
+    DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    PointOut out;
+    out.position = placed.position;
+    out.size = clamp(uniforms.pointSize * placed.scale, 1.0, 511.0);
+    out.color = unpackColor(colors[index]);
+    out.color.a *= half(placed.fade);
+    return out;
+}
+
+// The object bodies, and the crowd once any of it has a size of its own, each at its own size.
+vertex PointOut bodyVertexInDepth(uint index [[vertex_id]],
+                                  const device float2 *positions [[buffer(0)]],
+                                  const device uint *colors [[buffer(1)]],
+                                  constant FieldUniforms &uniforms [[buffer(2)]],
+                                  const device float *sizes [[buffer(3)]],
+                                  const device float *depths [[buffer(4)]],
+                                  constant DepthUniforms &depth [[buffer(5)]]) {
+    DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    PointOut out;
+    out.position = placed.position;
+    out.size = clamp(sizes[index] * uniforms.pointSize * placed.scale, 1.0, 511.0);
+    out.color = unpackColor(colors[index]);
+    out.color.a *= half(placed.fade);
+    return out;
+}
+
+// A body in the solid drawing.
+//
+// Anything less than half inside the silhouette is thrown away rather than drawn faint. A body writes how far
+// away it is over the whole of whatever it draws, so a faint corner that was kept would hide whatever lies
+// behind it — every round body would carry an invisible square that cut holes in the ones behind.
+fragment half4 solidParticleFragment(PointOut in [[stage_in]],
+                                     float2 coordinate [[point_coord]],
+                                     constant FieldUniforms &uniforms [[buffer(0)]]) {
+    float coverage = pointCoverage(coordinate, in.size, uniforms.shape);
+    if (coverage < 0.5) {
+        discard_fragment();
+    }
+    half4 color = in.color;
+    color.a *= half(coverage);
+    // A body that has faded almost to nothing — one about to expire — is not allowed to hide anything either.
+    if (color.a < 0.03h) {
+        discard_fragment();
+    }
+    return color;
+}
+
+// Lines — trails, streaks, the box and whatever has been drawn into it — each end at its own depth.
+//
+// The vertices come in pairs, one line per pair, so each end can find the other. A line with either end
+// behind the eye is left out entirely: drawn, its far end would be thrown across the screen.
+vertex TrailOut lineVertexInDepth(uint index [[vertex_id]],
+                                  const device float2 *positions [[buffer(0)]],
+                                  const device uint *colors [[buffer(1)]],
+                                  constant FieldUniforms &uniforms [[buffer(2)]],
+                                  const device float *depths [[buffer(4)]],
+                                  constant DepthUniforms &depth [[buffer(5)]]) {
+    DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    uint other = index ^ 1u;
+    float otherAway = turnInDepth(positions[other], depths[other], uniforms, depth).z;
+    TrailOut out;
+    out.position = placed.position;
+    if (!isInFrontOfEye(otherAway, depth)) {
+        out.position = kNotDrawn;
+    }
+    out.color = unpackColor(colors[index]);
+    out.color.a *= half(placed.fade);
+    return out;
+}
+
+// Springs, in the same near-white as on a flat field, faded with the far side of the box.
+vertex TrailOut springVertexInDepth(uint index [[vertex_id]],
+                                    const device float2 *positions [[buffer(0)]],
+                                    constant FieldUniforms &uniforms [[buffer(2)]],
+                                    const device float *depths [[buffer(4)]],
+                                    constant DepthUniforms &depth [[buffer(5)]]) {
+    DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    uint other = index ^ 1u;
+    float otherAway = turnInDepth(positions[other], depths[other], uniforms, depth).z;
+    TrailOut out;
+    out.position = placed.position;
+    if (!isInFrontOfEye(otherAway, depth)) {
+        out.position = kNotDrawn;
+    }
+    out.color = half4(0.784h, 0.800h, 0.831h, 0.45h);
+    out.color.a *= half(placed.fade);
+    return out;
 }

@@ -74,12 +74,23 @@ struct FieldDock: View {
         )
     }
 
+    /// Whether one finger is turning the view round the box rather than working the field.
+    private var isTurning: Bool {
+        model.depthEnabled && model.turnsView
+    }
+
+    /// What a finger does now, in a word.
+    private var toolName: String {
+        if isTurning { return "Turn" }
+        return Self.tools.first(where: { $0.mode == model.mouseMode })?.name ?? "Field"
+    }
+
     /// Same arrangement as the powder tray: what is selected, and a chevron. The ways into other
     /// panels live inside the tray rather than crowding the heading.
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(Self.tools.first { $0.mode == model.mouseMode }?.name ?? "Field")
+                Text(toolName)
                     .font(.labDisplay(14))
                     .tracking(-0.2)
                     .foregroundStyle(Palette.foreground)
@@ -94,6 +105,30 @@ struct FieldDock: View {
                 .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // 3D on and off, where it can be reached with the tray shut. Everything about how the box is looked
+            // at is in the tray, under the same switch.
+            Button {
+                Haptics.firm()
+                model.depthEnabled.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "cube")
+                        .font(.labBody(11, .medium))
+                    Text("3D")
+                        .font(.labBody(12, .semiBold))
+                }
+                .foregroundStyle(model.depthEnabled ? Palette.primaryForeground : Palette.foreground)
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .background(
+                    Capsule().fill(model.depthEnabled ? Palette.primary : Color.white.opacity(0.10))
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("3D")
+            .accessibilityValue(model.depthEnabled ? "On" : "Off")
+            .accessibilityAddTraits(model.depthEnabled ? [.isSelected] : [])
 
             Button {
                 withAnimation(.easeOut(duration: 0.22)) { isOpen.toggle() }
@@ -178,9 +213,10 @@ struct FieldDock: View {
 
                 ForEach(ParticleFieldModel.presets, id: \.id) { preset in
                     let isAddition = preset.kind == .addition
+                    // The ones that only exist in 3D carry a cube, since choosing one on a flat field turns 3D on.
                     chip(
                         preset.name,
-                        symbol: isAddition ? "plus" : nil,
+                        symbol: isAddition ? "plus" : (preset.depth == .only ? "cube" : nil),
                         lit: isAddition ? flashing == preset.id : model.arrangement == preset.id
                     ) {
                         if isAddition {
@@ -194,12 +230,121 @@ struct FieldDock: View {
                 }
             }
             if let details = model.arrangementDetails {
-                Text(details.about)
+                Text(details.about(inDepth: model.depthEnabled))
                     .font(.labBody(10))
                     .foregroundStyle(Palette.subtleForeground)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// The field in 3D, and everything about how the box is looked at.
+    ///
+    /// One switch, with the rest folded in under it while it is on: one-tap views, which way round the box the
+    /// view is and how high above it, how deep the box is, how strong the perspective and the fog are, whether
+    /// the box is drawn, whether bodies glow, and looking round by moving the phone.
+    private var depthControls: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("3D")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+
+            switchAndNumbers(
+                "3D — the bodies move in a box you can look round",
+                isOn: Binding(get: { model.depthEnabled }, set: { model.depthEnabled = $0 })
+            ) {
+                Text("Pick Turn in the tools below and drag to go round the box. Every tool reaches right through "
+                    + "it, from the front to the back.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 3)
+
+                LabFlow(spacing: 6) {
+                    ForEach(ParticleFieldModel.Viewpoint.allCases) { point in
+                        let here = abs(model.orbitYaw - point.angles.yaw) < 0.5
+                            && abs(model.orbitPitch - point.angles.pitch) < 0.5
+                        chip(point.name, lit: here) {
+                            Haptics.selection()
+                            model.look(from: point)
+                        }
+                    }
+                }
+                .padding(.bottom, 3)
+
+                inlineSlider("Turn round", \.orbitYaw, -180 ... 180, step: 1, format: { Self.degrees($0) })
+                inlineSlider(
+                    "Look from above",
+                    \.orbitPitch,
+                    -ParticleCamera.maximumOrbitPitch ... ParticleCamera.maximumOrbitPitch,
+                    step: 1,
+                    format: { Self.degrees($0) }
+                )
+                inlineSlider(
+                    "Box depth",
+                    \.depthRatio,
+                    ParticleEngine.depthRatioRange,
+                    step: 0.05,
+                    format: { "\(Int(($0 * 100).rounded()))% of the width" }
+                )
+                inlineSlider("Perspective", \.perspective, 0 ... 1, step: 0.05, format: { Self.share($0) })
+                inlineSlider("Fog on the far side", \.fog, 0 ... 1, step: 0.05, format: { Self.share($0) })
+
+                VStack(alignment: .leading, spacing: 4) {
+                    smallToggle(
+                        "Show the box",
+                        isOn: Binding(get: { model.showsBox }, set: { model.showsBox = $0 })
+                    )
+                    smallToggle(
+                        "Glow — overlapping bodies add up into light",
+                        isOn: Binding(get: { model.glows }, set: { model.glows = $0 })
+                    )
+                    smallToggle(
+                        "Look round by moving the phone",
+                        isOn: Binding(get: { model.looksAround }, set: { model.looksAround = $0 })
+                    )
+                    if model.looksAround {
+                        // Whatever way the phone is held when this is pressed becomes looking straight at the view.
+                        Button {
+                            Haptics.tap()
+                            model.recentreLookingAround()
+                        } label: {
+                            Label("Hold it like this", systemImage: "scope")
+                                .font(.labBody(11, .semiBold))
+                                .foregroundStyle(Palette.foreground)
+                                .padding(.horizontal, 11)
+                                .frame(height: 28)
+                                .background(Capsule().fill(Color.white.opacity(0.10)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 2)
+                    }
+                }
+                .padding(.top, 3)
+            }
+        }
+    }
+
+    /// An angle, in whole degrees.
+    private static func degrees(_ value: Double) -> String {
+        "\(Int(value.rounded()))°"
+    }
+
+    /// A share from nought to one, as a percentage, or "None" at nought.
+    private static func share(_ value: Double) -> String {
+        value < 0.005 ? "None" : "\(Int((value * 100).rounded()))%"
+    }
+
+    /// A switch in one of the folded-in sets.
+    private func smallToggle(_ label: String, isOn: Binding<Bool>) -> some View {
+        Toggle(isOn: isOn) {
+            Text(label)
+                .font(.labBody(11))
+                .foregroundStyle(Palette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .tint(Palette.primary)
     }
 
     /// The word the field spells out, and how it is made.
@@ -528,6 +673,8 @@ struct FieldDock: View {
         VStack(alignment: .leading, spacing: 14) {
             destinations
             costWarning
+            // Before the arrangements, because it changes what every one of them is.
+            depthControls
             presetChips
             wordControls
             population
@@ -1043,6 +1190,15 @@ struct FieldDock: View {
         }
     }
 
+    /// What the fingers do to the view, for the kind of field it is.
+    private var viewHint: String {
+        guard model.depthEnabled else {
+            return "Pinch to zoom, drag with two fingers to move, twist to turn."
+        }
+        return "Pinch to zoom, drag with two fingers to move, twist to turn the box round. "
+            + "The Turn tool goes round it with one finger."
+    }
+
     /// Where the field is being looked at from.
     ///
     /// Only the two things a gesture cannot say are given controls. Zoom is a pinch, shifting is a
@@ -1060,7 +1216,7 @@ struct FieldDock: View {
                 .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
 
-            Text("Pinch to zoom, drag with two fingers to move, twist to turn.")
+            Text(viewHint)
                 .font(.labBody(10))
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1122,22 +1278,29 @@ struct FieldDock: View {
             }
             .tint(Palette.primary)
 
-            LabSlider(
-                label: "Tilt",
-                value: Binding(get: { model.cameraPitch }, set: { model.cameraPitch = $0 }),
-                range: 0 ... ParticleCamera.maximumPitch,
-                step: 1
-            ) { "\(Int($0.rounded()))°" }
-
-            Toggle(isOn: Binding(
-                get: { model.cameraAutoOrbit },
-                set: { model.cameraAutoOrbit = $0 }
-            )) {
-                Text("Turn by itself")
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.muted)
+            // Tipping the flat sheet. In 3D the box is looked at from above with the slider in the 3D section, and
+            // this one would only lean a sheet that is not being drawn.
+            if !model.depthEnabled {
+                LabSlider(
+                    label: "Tilt",
+                    value: Binding(get: { model.cameraPitch }, set: { model.cameraPitch = $0 }),
+                    range: 0 ... ParticleCamera.maximumPitch,
+                    step: 1
+                ) { "\(Int($0.rounded()))°" }
             }
-            .tint(Palette.primary)
+
+            switchAndNumbers(
+                model.depthEnabled ? "Turn round the box by itself" : "Turn by itself",
+                isOn: Binding(get: { model.cameraAutoOrbit }, set: { model.cameraAutoOrbit = $0 })
+            ) {
+                inlineSlider(
+                    "Speed",
+                    \.spinRate,
+                    0.1 ... 5,
+                    step: 0.1,
+                    format: { "\($0.formatted(.number.precision(.fractionLength(1))))×" }
+                )
+            }
 
             HStack(spacing: 8) {
                 Button {
@@ -1361,32 +1524,51 @@ struct FieldDock: View {
     private var toolStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(Self.tools, id: \.mode) { tool in
-                    let selected = model.mouseMode == tool.mode
-                    Button {
-                        Haptics.selection()
-                        model.mouseMode = tool.mode
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: tool.symbol)
-                                .font(.labBody(11))
-                            Text(tool.name)
-                                .font(.labBody(12, selected ? .semiBold : .regular))
-                        }
-                        .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 7)
-                        .background(
-                            Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10))
-                        )
+                // In 3D, first: one finger goes round the box instead of working the field. Picking any other tool
+                // puts it down again.
+                if model.depthEnabled {
+                    toolButton("Turn", symbol: "rotate.3d", selected: model.turnsView) {
+                        model.turnsView = true
                     }
-                    .buttonStyle(.plain)
+                }
+                ForEach(Self.tools, id: \.mode) { tool in
+                    toolButton(tool.name, symbol: tool.symbol, selected: !isTurning && model.mouseMode == tool.mode) {
+                        model.mouseMode = tool.mode
+                    }
                 }
             }
             .padding(.horizontal, 16)
         }
         .frame(height: 38)
         .labScrollEdges()
+    }
+
+    /// One tool in the strip, lit while it is what a finger does.
+    private func toolButton(
+        _ name: String,
+        symbol: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            Haptics.selection()
+            action()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.labBody(11))
+                Text(name)
+                    .font(.labBody(12, selected ? .semiBold : .regular))
+            }
+            .foregroundStyle(selected ? Palette.primaryForeground : Palette.foreground)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(
+                Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
     private var transport: some View {
@@ -1486,7 +1668,17 @@ struct FieldDock: View {
 struct FieldPresetPicker: View {
     /// Which arrangement is showing, to mark it.
     let current: String?
+    /// Whether the field is in 3D, so each is described the way it will be built.
+    var inDepth: Bool = false
     let onSelect: (String) -> Void
+
+    /// What a preset is called in the list: marked when it adds rather than replaces, and when it only exists
+    /// in 3D.
+    private func title(of preset: ParticleArrangement) -> String {
+        if preset.kind == .addition { return "\(preset.name) (adds)" }
+        if preset.depth == .only { return "\(preset.name) (3D)" }
+        return preset.name
+    }
 
     var body: some View {
         LabSheet(
@@ -1494,7 +1686,8 @@ struct FieldPresetPicker: View {
             subtitle: "Arrangements to start from"
         ) {
             LabGroup(footnote: "A scene replaces the field and stays chosen until you pick another or clear. "
-                + "Burst adds to whatever is there. Undo brings back what was there before.")
+                + "Burst adds to whatever is there. The ones marked 3D only exist in 3D, and choosing one turns "
+                + "3D on. Undo brings back what was there before.")
             {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(ParticleFieldModel.presets, id: \.id) { preset in
@@ -1505,10 +1698,10 @@ struct FieldPresetPicker: View {
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(preset.kind == .addition ? "\(preset.name) (adds)" : preset.name)
+                                    Text(title(of: preset))
                                         .font(.labBody(13, chosen ? .semiBold : .medium))
                                         .foregroundStyle(chosen ? Palette.primary : Palette.foreground)
-                                    Text(preset.about)
+                                    Text(preset.about(inDepth: inDepth))
                                         .font(.labBody(11))
                                         .foregroundStyle(Palette.subtleForeground)
                                         .fixedSize(horizontal: false, vertical: true)

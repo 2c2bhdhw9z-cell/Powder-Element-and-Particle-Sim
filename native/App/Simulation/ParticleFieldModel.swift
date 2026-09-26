@@ -689,7 +689,12 @@ final class ParticleFieldModel {
     /// What a touch does.
     var mouseMode: ParticleMouseMode {
         get { observeEngine(); return engine.mouseMode }
-        set { engine.mouseMode = newValue; engineDidChange() }
+        set {
+            engine.mouseMode = newValue
+            // Choosing a tool puts the Turn tool down: the two share the one finger.
+            turnsView = false
+            engineDidChange()
+        }
     }
 
     /// How far a touch reaches, as a share of the screen's height.
@@ -835,6 +840,8 @@ final class ParticleFieldModel {
             camera = state.camera ?? .identity
             // The file sets the world's size, so the reach is worked out again for it.
             applyReach()
+            if !engine.depthEnabled { turnsView = false }
+            refreshLookSensor()
         }
         afterArrangementChange()
         return applied
@@ -906,9 +913,11 @@ final class ParticleFieldModel {
     /// - Returns: its name.
     @discardableResult
     func loadDailyArrangement(day: String) -> String {
+        let wasInDepth = engine.depthEnabled
         let choice = DailyWorld.applyParticle(forDay: day, to: engine)
         todaysArrangement = engine.arrangement
         additionNote = nil
+        lookAtArrangement(wasInDepth: wasInDepth)
         afterArrangementChange()
         return choice.name
     }
@@ -952,7 +961,7 @@ final class ParticleFieldModel {
         recordUndoPoint()
         let x = engine.lastMouseActive || engine.lastMouseX != 0 ? engine.lastMouseX : engine.width / 2
         let y = engine.lastMouseActive || engine.lastMouseY != 0 ? engine.lastMouseY : engine.height / 2
-        engine.placeWell(x: x, y: y)
+        engine.placeWell(x: x, y: y, z: engine.depthEnabled ? engine.lastMouseZ : 0)
         afterArrangementChange()
     }
 
@@ -986,6 +995,15 @@ final class ParticleFieldModel {
     private var touchX: Double = 0
     private var touchY: Double = 0
     private var touchActive = false
+    /// Where the finger is on the screen, as fractions of it.
+    ///
+    /// Kept for 3D, where what the finger touches is a line through the box rather than a place, and that line
+    /// is worked out again every moment — the view may be turning under a finger held still.
+    private var touchFractionX: Double = 0.5
+    private var touchFractionY: Double = 0.5
+    /// Where a drag with the Turn tool was a moment ago, as fractions of the screen.
+    private var turnFromX: Double?
+    private var turnFromY: Double?
 
     var canUndo: Bool {
         observeEngine()
@@ -1055,6 +1073,9 @@ final class ParticleFieldModel {
         // inside one frame and freeze the interface.
         steps = min(steps, 6)
         guard steps > 0 else { return }
+
+        // In 3D, the line from the eye through the finger, as the view is now.
+        engine.fingerRay = engine.depthEnabled && touchActive ? currentFingerRay() : nil
 
         let startedAt = CFAbsoluteTimeGetCurrent()
         for _ in 0 ..< steps {
@@ -1166,6 +1187,45 @@ final class ParticleFieldModel {
         /// The two agree once the drawable has caught up, and during the frame or two where they do not, the
         /// real one is the right one.
         var pixelRatio: Double = 1
+        /// How the box is being looked at, while the field is in 3D. Nothing on a flat field, which is drawn
+        /// exactly as it always was.
+        var depth: DepthView?
+    }
+
+    /// Everything the renderer needs to draw the field in 3D, besides where each body is.
+    ///
+    /// The turn is handed over already added up — the setting, the automatic spin and however far the phone
+    /// has been turned to look round — so the picture and the finger's line use the same angle.
+    struct DepthView {
+        var worldDepth: Double
+        /// How far the eye is from the middle of the box, in the world's pixels. Nought is no perspective.
+        var eyeDistance: Double
+        /// Half the box's diagonal, which is what how far away something is gets measured against.
+        var radius: Double
+        /// The turn round the box and the tip above it, in radians.
+        var yaw: Double
+        var pitch: Double
+        /// How much the far side fades, from nought to one.
+        var fog: Double
+        /// Whether bodies glow and add together rather than the nearer hiding the further.
+        var glows: Bool
+    }
+
+    /// The renderer's lists of how far into the screen everything is, filled only while the field is in 3D.
+    ///
+    /// Apart from the positions rather than making them triples, so a flat field uploads exactly what it
+    /// always did and nothing more.
+    struct DepthBuffers {
+        /// One for each individual body.
+        var bodies: [Float] = []
+        /// One for each body of the crowd, or two when it is drawn as streaks.
+        var swarm: [Float] = []
+        /// Two for each spring.
+        var springs: [Float] = []
+        /// Two for each segment of trail.
+        var trails: [Float] = []
+        /// Two for each line of the box, the walls, the wind and anything else drawn as a guide.
+        var guides: [Float] = []
     }
 
     /// The ring round a finger.
@@ -1204,9 +1264,11 @@ final class ParticleFieldModel {
         trailPositions: inout [Float],
         trailColors: inout [UInt32],
         guidePositions: inout [Float],
-        guideColors: inout [UInt32]
+        guideColors: inout [UInt32],
+        depths: inout DepthBuffers
     ) -> Frame {
         let bodies = engine.particles
+        let inDepth = engine.depthEnabled
 
         let neededPositions = bodies.count * 2
         if positions.count < neededPositions {
@@ -1231,6 +1293,14 @@ final class ParticleFieldModel {
             let radius = body.radius.isFinite && body.radius > 0 ? body.radius : 1
             sizes[index] = Float(max(1, min(96, radius * 2 * sizeScale)))
         }
+        if inDepth {
+            if depths.bodies.count < bodies.count {
+                depths.bodies.append(contentsOf: repeatElement(0, count: bodies.count - depths.bodies.count))
+            }
+            for (index, body) in bodies.enumerated() {
+                depths.bodies[index] = body.z.isFinite ? Float(body.z) : 0
+            }
+        }
 
         // Two ends per spring, as a plain list of line endpoints.
         let springs = engine.springs
@@ -1240,6 +1310,9 @@ final class ParticleFieldModel {
                 contentsOf: repeatElement(0, count: neededSprings - springPositions.count)
             )
         }
+        if inDepth, depths.springs.count < springs.count * 2 {
+            depths.springs.append(contentsOf: repeatElement(0, count: springs.count * 2 - depths.springs.count))
+        }
         var written = 0
         for spring in springs {
             guard spring.a < bodies.count, spring.b < bodies.count else { continue }
@@ -1247,6 +1320,10 @@ final class ParticleFieldModel {
             springPositions[written * 4 + 1] = Float(bodies[spring.a].y)
             springPositions[written * 4 + 2] = Float(bodies[spring.b].x)
             springPositions[written * 4 + 3] = Float(bodies[spring.b].y)
+            if inDepth {
+                depths.springs[written * 2] = Float(bodies[spring.a].z)
+                depths.springs[written * 2 + 1] = Float(bodies[spring.b].z)
+            }
             written += 1
         }
 
@@ -1293,8 +1370,29 @@ final class ParticleFieldModel {
                 swarmPositions[at + 2] = x
                 swarmPositions[at + 3] = y
             }
+            if inDepth {
+                if depths.swarm.count < swarmCount * 2 {
+                    depths.swarm.append(contentsOf: repeatElement(0, count: swarmCount * 2 - depths.swarm.count))
+                }
+                for index in 0 ..< swarmCount {
+                    let z = engine.swarm.depths[index]
+                    let tail = z - engine.swarm.depthVelocities[index] * Float(streak)
+                    depths.swarm[index * 2] = tail.isFinite ? tail : z
+                    depths.swarm[index * 2 + 1] = z
+                }
+            }
         } else {
             for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
+            if inDepth {
+                if depths.swarm.count < swarmCount {
+                    depths.swarm.append(contentsOf: repeatElement(0, count: swarmCount - depths.swarm.count))
+                }
+                let source = engine.swarm.depths
+                depths.swarm.withUnsafeMutableBufferPointer { target in
+                    guard let base = target.baseAddress, swarmCount > 0 else { return }
+                    base.update(from: source, count: swarmCount)
+                }
+            }
         }
         // The colour ramp and the fading of bodies that will expire are both worked out here, per picture, so
         // the bodies' own colours are never overwritten.
@@ -1323,8 +1421,14 @@ final class ParticleFieldModel {
         let trailSegments = fillTrails(
             positions: &trailPositions,
             colors: &trailColors,
+            depths: &depths.trails,
+            inDepth: inDepth,
             bodies: bodies
         )
+        let drawn = drawingCamera
+        let guides = inDepth
+            ? fillGuidesInDepth(positions: &guidePositions, colors: &guideColors, depths: &depths.guides, camera: drawn)
+            : fillGuides(positions: &guidePositions, colors: &guideColors)
 
         return Frame(
             worldWidth: engine.width,
@@ -1334,7 +1438,7 @@ final class ParticleFieldModel {
             // it needs the screen.
             viewWidth: viewPixelWidth > 0 ? viewPixelWidth : engine.width,
             viewHeight: viewPixelHeight > 0 ? viewPixelHeight : engine.height,
-            camera: camera,
+            camera: drawn,
             shape: engine.particleShape,
             background: engine.backdrop,
             backgroundStrength: engine.backdropStrength,
@@ -1347,8 +1451,9 @@ final class ParticleFieldModel {
             swarmCount: swarmCount,
             trailSegmentCount: trailSegments,
             swarmIsStreaked: streaked,
-            guideSegmentCount: fillGuides(positions: &guidePositions, colors: &guideColors),
-            touchRing: currentTouchRing()
+            guideSegmentCount: guides,
+            touchRing: currentTouchRing(),
+            depth: inDepth ? depthView(for: drawn) : nil
         )
     }
 
@@ -1439,6 +1544,8 @@ final class ParticleFieldModel {
     private func fillTrails(
         positions: inout [Float],
         colors: inout [UInt32],
+        depths: inout [Float],
+        inDepth: Bool,
         bodies: [ParticleObject]
     ) -> Int {
         let trail = engine.trailSettings.sanitized
@@ -1476,6 +1583,13 @@ final class ParticleFieldModel {
                 positions[segments * 4 + 3] = to.y
                 colors[segments * 2] = colour
                 colors[segments * 2 + 1] = colour
+                if inDepth {
+                    if depths.count < (segments + 1) * 2 {
+                        depths.append(contentsOf: repeatElement(0, count: (segments + 1) * 2 - depths.count))
+                    }
+                    depths[segments * 2] = trail.depth(at: i - 1)
+                    depths[segments * 2 + 1] = trail.depth(at: i)
+                }
                 segments += 1
             }
         }
@@ -1490,6 +1604,29 @@ final class ParticleFieldModel {
     private func currentTouchRing() -> TouchRing? {
         guard engine.lastMouseActive else { return nil }
         let colour = ParticleOverlayStyle.ringColor
+
+        // In 3D, where the finger is on the glass: the circle is what the finger reaches through the whole box,
+        // drawn at its size through the middle of it.
+        if engine.depthEnabled {
+            let view = viewPixels
+            let drawn = drawingCamera
+            let reach = engine.mouseRadius
+            let radius = reach.isFinite
+                ? max(0, reach) / max(1, drawn.worldScale) * drawn.pictureScale
+                : (view.width * view.width + view.height * view.height).squareRoot()
+            return TouchRing(
+                x: touchFractionX * view.width,
+                y: touchFractionY * view.height,
+                radius: radius,
+                strokeWidth: ParticleOverlayStyle.ringStrokeWidth,
+                centreDotRadius: ParticleOverlayStyle.ringCentreDotRadius,
+                red: Double(colour.r) / 255,
+                green: Double(colour.g) / 255,
+                blue: Double(colour.b) / 255,
+                strokeOpacity: ParticleOverlayStyle.ringStrokeOpacity,
+                fillOpacity: ParticleOverlayStyle.ringFillOpacity
+            )
+        }
 
         // Where the finger is in the world, put back through the camera, so the ring follows the
         // body it is acting on rather than staying where the finger happens to be on a tilted view.
@@ -1552,14 +1689,28 @@ final class ParticleFieldModel {
     }
 
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
-        recordUndoPoint()
         strokeFromX = nil
         strokeFromY = nil
+        turnFromX = nil
+        turnFromY = nil
         placedSourceThisStroke = false
+        if engine.depthEnabled, turnsView {
+            // Turning the view changes nothing in the field, so there is nothing to undo — and while the drag
+            // lasts the readouts hold still, as they do for a two-finger turn.
+            beginCameraGesture()
+        } else {
+            recordUndoPoint()
+        }
         updateTouch(atFractionX: fx, fractionY: fy)
     }
 
     func updateTouch(atFractionX fx: Double, fractionY fy: Double) {
+        touchFractionX = fx
+        touchFractionY = fy
+        if engine.depthEnabled {
+            updateTouchInDepth()
+            return
+        }
         // Through the camera, so a tool lands where it was aimed. Without this, tilting or zooming
         // the view would leave the brush acting on a body somewhere else entirely — and a tool that
         // lands somewhere other than where it was pointed is worse than one that cannot be pointed.
@@ -1634,6 +1785,11 @@ final class ParticleFieldModel {
         touchActive = false
         strokeFromX = nil
         strokeFromY = nil
+        if turnFromX != nil {
+            turnFromX = nil
+            turnFromY = nil
+            endCameraGesture()
+        }
     }
 
     // MARK: - What has been drawn
@@ -1766,7 +1922,7 @@ final class ParticleFieldModel {
     /// to put back.
     var cameraIsMoved: Bool {
         observeEngine()
-        return !storedCamera.isIdentity
+        return engine.depthEnabled ? !storedCamera.isAtRestInDepth : !storedCamera.isIdentity
     }
 
     /// Moving the camera invalidates the faded picture left over from the previous frame.
@@ -1860,7 +2016,12 @@ final class ParticleFieldModel {
     /// Turns the view by a twist measured in radians, as a rotation gesture reports it.
     func rotateCamera(byRadians radians: Double) {
         var next = storedCamera
-        next.rotate(byYaw: radians * 180 / .pi, pitch: 0)
+        if engine.depthEnabled {
+            // In 3D a twist turns the box round its upright, the way the fingers turned.
+            next.orbit(byYaw: -radians * 180 / .pi, pitch: 0)
+        } else {
+            next.rotate(byYaw: radians * 180 / .pi, pitch: 0)
+        }
         camera = next
     }
 
@@ -1901,6 +2062,22 @@ final class ParticleFieldModel {
     /// Both stores are measured. A scene can be a handful of object bodies, a swarm of a million, or
     /// both, and fitting to only one of them would put half the field off screen.
     func fitCameraToContent() {
+        if engine.depthEnabled {
+            let box = engine.framingInDepth()
+            guard !box.isEmpty else { return }
+            var next = storedCamera
+            let view = viewPixels
+            next.fitInDepth(
+                to: box,
+                worldWidth: engine.width,
+                worldHeight: engine.height,
+                worldDepth: engine.worldDepth,
+                viewWidth: view.width,
+                viewHeight: view.height
+            )
+            camera = next
+            return
+        }
         var frame = ParticleCamera.framing(
             positions: engine.swarm.positions,
             count: engine.swarm.count,
@@ -2101,7 +2278,9 @@ final class ParticleFieldModel {
         }
         // Every scene empties the field through `clear`, which records the undo point; the one addition does
         // not, so it records its own inside the engine.
+        let wasInDepth = engine.depthEnabled
         engine.loadArrangement(id)
+        if ParticleArrangement.named(id)?.kind == .scene { lookAtArrangement(wasInDepth: wasInDepth) }
         afterArrangementChange()
     }
 
@@ -2188,14 +2367,18 @@ final class ParticleFieldModel {
     /// dock shows has to be told — this used to change the field and leave the undo and redo buttons, and
     /// every slider, exactly as they were.
     func undo() {
+        let wasInDepth = engine.depthEnabled
         _ = engine.undo()
         additionNote = nil
+        depthModeMayHaveChanged(from: wasInDepth)
         afterArrangementChange()
     }
 
     func redo() {
+        let wasInDepth = engine.depthEnabled
         _ = engine.redo()
         additionNote = nil
+        depthModeMayHaveChanged(from: wasInDepth)
         afterArrangementChange()
     }
 
@@ -2280,6 +2463,387 @@ final class ParticleFieldModel {
         let cap = Self.detailChoices.first { $0.id == detail }?.cap ?? 0
         let screen = viewScale > 0 ? viewScale : 2
         drawableScale = cap > 0 ? min(screen, cap) : screen
+    }
+
+    // MARK: - In 3D
+
+    /// Whether the field is in 3D.
+    ///
+    /// Turning it on rebuilds whatever arrangement is showing in its 3D form and turns the view to where that
+    /// is best seen from; turning it off lays the field flat again. One undo takes either back.
+    var depthEnabled: Bool {
+        get { observeEngine(); return engine.depthEnabled }
+        set { setDepthEnabled(newValue) }
+    }
+
+    func setDepthEnabled(_ enabled: Bool) {
+        guard engine.setDepthEnabled(enabled) else { return }
+        additionNote = nil
+        if enabled {
+            var next = storedCamera
+            next.look(from: engine.arrangementDetails?.view ?? .angled)
+            camera = next
+        }
+        depthModeMayHaveChanged(from: !enabled)
+        afterArrangementChange()
+    }
+
+    /// How deep the box is, as a share of the screen's width.
+    var depthRatio: Double {
+        get { observeEngine(); return engine.depthRatio }
+        set { engine.depthRatio = newValue; engineDidChange() }
+    }
+
+    /// Whether one finger turns the view rather than working the field. The Turn tool.
+    ///
+    /// Only in 3D, where there is a box to go round. A flat field is turned with two fingers.
+    var turnsView: Bool = false
+
+    /// Whether moving the phone looks round the box. See `LookSensor`.
+    var looksAround: Bool = false {
+        didSet { refreshLookSensor() }
+    }
+
+    /// Reads the phone's tilt for looking round. Made the first time it is wanted.
+    @ObservationIgnored private var lookSensor: LookSensor?
+
+    /// Starts or stops looking round, to match the switch and whether there is a box to look round.
+    private func refreshLookSensor() {
+        let wanted = looksAround && engine.depthEnabled
+        if wanted {
+            if lookSensor == nil { lookSensor = LookSensor() }
+            lookSensor?.start()
+        } else {
+            lookSensor?.stop()
+        }
+    }
+
+    /// Takes the way the phone is held now as looking straight at the view.
+    func recentreLookingAround() {
+        lookSensor?.recentre()
+    }
+
+    /// The camera as it is drawn and touched: the one set, turned by however far the phone has been moved to
+    /// look round.
+    private var drawingCamera: ParticleCamera {
+        guard engine.depthEnabled, let look = lookSensor, look.isRunning else { return storedCamera }
+        var turned = storedCamera
+        turned.orbit(byYaw: look.yaw, pitch: look.pitch)
+        return turned
+    }
+
+    /// How the box is being looked at, for the renderer.
+    private func depthView(for drawn: ParticleCamera) -> DepthView {
+        DepthView(
+            worldDepth: engine.worldDepth,
+            eyeDistance: drawn.eyeDistance(worldHeight: engine.height) ?? 0,
+            radius: ParticleCamera.depthRadius(worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth),
+            yaw: ParticleCamera.radians(drawn.effectiveOrbitYaw),
+            pitch: ParticleCamera.radians(drawn.orbitPitch),
+            fog: drawn.fog,
+            glows: drawn.glows
+        )
+    }
+
+    /// The line from the eye through the finger, as the view is now.
+    private func currentFingerRay() -> ParticleFingerRay {
+        let view = viewPixels
+        return drawingCamera.fingerRay(
+            screenX: touchFractionX * view.width,
+            screenY: touchFractionY * view.height,
+            worldWidth: engine.width,
+            worldHeight: engine.height,
+            worldDepth: engine.worldDepth,
+            viewWidth: view.width,
+            viewHeight: view.height
+        )
+    }
+
+    /// A finger on a field in 3D.
+    private func updateTouchInDepth() {
+        if turnsView {
+            touchActive = false
+            let view = viewPixels
+            if let fromX = turnFromX, let fromY = turnFromY {
+                // In points, so the same drag turns the view as far on any screen: about a third of a degree each.
+                let points = max(0.5, viewScale)
+                let across = (touchFractionX - fromX) * view.width / points
+                let down = (touchFractionY - fromY) * view.height / points
+                var next = storedCamera
+                next.orbit(byYaw: across * 0.35, pitch: down * 0.35)
+                camera = next
+            }
+            turnFromX = touchFractionX
+            turnFromY = touchFractionY
+            return
+        }
+        let ray = currentFingerRay()
+        let cursor = ray.cursor
+        touchX = cursor.x
+        touchY = cursor.y
+        if engine.mouseMode.drawsIntoTheWorld {
+            touchActive = false
+            // Walls and wind are drawn through the whole depth of the box, so what matters is where across and
+            // down the finger is. That is where its line meets the middle of the box when the box is seen from
+            // anywhere near the front, and the place under the finger when it is seen side-on.
+            let middle = abs(ray.directionZ) > 0.3 ? ray.crossing(depth: 0) : nil
+            continueStroke(toX: middle?.x ?? cursor.x, y: middle?.y ?? cursor.y)
+            return
+        }
+        touchActive = true
+    }
+
+    /// Turns the view to where the arrangement just laid out is best seen, in 3D.
+    private func lookAtArrangement(wasInDepth: Bool) {
+        guard engine.depthEnabled, let details = engine.arrangementDetails else {
+            depthModeMayHaveChanged(from: wasInDepth)
+            return
+        }
+        var next = storedCamera
+        next.look(from: details.view)
+        camera = next
+        depthModeMayHaveChanged(from: wasInDepth)
+    }
+
+    /// Keeps everything that depends on whether the field is in 3D in step after something may have switched
+    /// it — the switch, a scene that only exists in 3D, undo.
+    private func depthModeMayHaveChanged(from wasInDepth: Bool) {
+        guard wasInDepth != engine.depthEnabled else { return }
+        if !engine.depthEnabled { turnsView = false }
+        refreshLookSensor()
+        // The kept picture is of the other kind of field; what is left of it would smear across the new one.
+        trailHistoryIsStale = true
+    }
+
+    /// The places round the box the view can be sent to with one tap.
+    enum Viewpoint: String, CaseIterable, Identifiable {
+        case angled, front, side, above
+
+        var id: String { rawValue }
+
+        var name: String {
+            switch self {
+            case .angled: "Angle"
+            case .front: "Front"
+            case .side: "Side"
+            case .above: "Top"
+            }
+        }
+
+        var angles: (yaw: Double, pitch: Double) {
+            switch self {
+            case .angled: (ParticleCamera.restingOrbitYaw, ParticleCamera.restingOrbitPitch)
+            case .front: (0, 0)
+            case .side: (-90, 0)
+            case .above: (0, ParticleCamera.maximumOrbitPitch)
+            }
+        }
+    }
+
+    /// Sends the view round the box to one of the set places.
+    func look(from viewpoint: Viewpoint) {
+        var next = storedCamera
+        next.look(yaw: viewpoint.angles.yaw, pitch: viewpoint.angles.pitch)
+        camera = next
+    }
+
+    /// How far round the box the view has gone, in degrees.
+    var orbitYaw: Double {
+        get { observeEngine(); return storedCamera.orbitYaw }
+        set {
+            var next = storedCamera
+            next.look(yaw: newValue, pitch: next.orbitPitch)
+            camera = next
+        }
+    }
+
+    /// How far above the box the view is, in degrees. Below nought is from underneath.
+    var orbitPitch: Double {
+        get { observeEngine(); return storedCamera.orbitPitch }
+        set {
+            var next = storedCamera
+            next.orbitPitch = ParticleCamera.clampOrbitPitch(newValue)
+            camera = next
+        }
+    }
+
+    /// How strong the perspective is, from none to strong.
+    var perspective: Double {
+        get { observeEngine(); return storedCamera.perspective }
+        set {
+            var next = storedCamera
+            next.perspective = max(0, min(1, newValue.isFinite ? newValue : 0.7))
+            camera = next
+        }
+    }
+
+    /// How much the far side of the box fades.
+    var fog: Double {
+        get { observeEngine(); return storedCamera.fog }
+        set {
+            var next = storedCamera
+            next.fog = max(0, min(1, newValue.isFinite ? newValue : 0.45))
+            camera = next
+        }
+    }
+
+    /// Whether the box's edges and floor are drawn.
+    var showsBox: Bool {
+        get { observeEngine(); return storedCamera.showsBox }
+        set {
+            var next = storedCamera
+            next.showsBox = newValue
+            camera = next
+        }
+    }
+
+    /// Whether bodies glow and add together rather than the nearer hiding the further.
+    var glows: Bool {
+        get { observeEngine(); return storedCamera.glows }
+        set {
+            var next = storedCamera
+            next.glows = newValue
+            camera = next
+        }
+    }
+
+    /// How fast the view turns by itself.
+    var spinRate: Double {
+        get { observeEngine(); return storedCamera.spinRate }
+        set {
+            var next = storedCamera
+            next.spinRate = max(0.1, min(5, newValue.isFinite ? newValue : 1))
+            // Not through `camera`: changing the pace of a spin is not moving the view, and wiping the trails
+            // at every step of the slider would be a flicker for nothing.
+            storedCamera = next
+            engineDidChange()
+        }
+    }
+
+    /// The lines that show the box, and whatever has been drawn into it, in 3D.
+    ///
+    /// The box's twelve edges and a grid on its floor, so there is something to judge depth and angle by when
+    /// the bodies alone do not say; each wall as a panel reaching from the front of the box to the back, since
+    /// that is what a wall drawn on the screen is in depth; the painted wind on the middle of the box; and the
+    /// glass of the snow globe.
+    private func fillGuidesInDepth(
+        positions: inout [Float],
+        colors: inout [UInt32],
+        depths: inout [Float],
+        camera drawn: ParticleCamera
+    ) -> Int {
+        var segments = 0
+        let width = engine.width
+        let height = engine.height
+        let half = engine.worldDepth * 0.5
+
+        func line(
+            _ from: (x: Double, y: Double, z: Double),
+            _ to: (x: Double, y: Double, z: Double),
+            _ colour: UInt32
+        ) {
+            let neededPositions = (segments + 1) * 4
+            if positions.count < neededPositions {
+                positions.append(contentsOf: repeatElement(0, count: neededPositions - positions.count))
+            }
+            let neededPairs = (segments + 1) * 2
+            if colors.count < neededPairs {
+                colors.append(contentsOf: repeatElement(0, count: neededPairs - colors.count))
+            }
+            if depths.count < neededPairs {
+                depths.append(contentsOf: repeatElement(0, count: neededPairs - depths.count))
+            }
+            positions[segments * 4] = Float(from.x)
+            positions[segments * 4 + 1] = Float(from.y)
+            positions[segments * 4 + 2] = Float(to.x)
+            positions[segments * 4 + 3] = Float(to.y)
+            depths[segments * 2] = Float(from.z)
+            depths[segments * 2 + 1] = Float(to.z)
+            colors[segments * 2] = colour
+            colors[segments * 2 + 1] = colour
+            segments += 1
+        }
+
+        if drawn.showsBox {
+            let edge = PackedColor(r: 0xE2, g: 0xE8, b: 0xF0, a: 0x3A).packedRGBA
+            let grid = PackedColor(r: 0xE2, g: 0xE8, b: 0xF0, a: 0x1C).packedRGBA
+            let corners: [(Double, Double)] = [(0, 0), (width, 0), (width, height), (0, height)]
+            for k in 0 ..< 4 {
+                let a = corners[k]
+                let b = corners[(k + 1) % 4]
+                line((a.0, a.1, -half), (b.0, b.1, -half), edge)
+                line((a.0, a.1, half), (b.0, b.1, half), edge)
+                line((a.0, a.1, -half), (a.0, a.1, half), edge)
+            }
+            // A grid on the floor, square as nearly as the box allows.
+            let across = 8
+            let deep = max(2, Int((Double(across) * engine.worldDepth / max(1, width)).rounded()))
+            for k in 1 ..< across {
+                let x = width * Double(k) / Double(across)
+                line((x, height, -half), (x, height, half), grid)
+            }
+            for k in 1 ..< deep {
+                let z = -half + engine.worldDepth * Double(k) / Double(deep)
+                line((0, height, z), (width, height, z), grid)
+            }
+        }
+
+        let current = engine.current
+        if !current.isEmpty {
+            let reach = min(width, height) / Double(current.resolution) * 0.42
+            let arrowColour = PackedColor(r: 0x38, g: 0xBD, b: 0xF8, a: 0x8C).packedRGBA
+            for row in 0 ..< current.resolution {
+                for column in 0 ..< current.resolution {
+                    let acrossFraction = (Double(column) + 0.5) / Double(current.resolution)
+                    let downFraction = (Double(row) + 0.5) / Double(current.resolution)
+                    let push = current.sample(atFractionX: acrossFraction, y: downFraction)
+                    let length = (push.x * push.x + push.y * push.y).squareRoot()
+                    guard length > 0.04 else { continue }
+                    let atX = acrossFraction * width
+                    let atY = downFraction * height
+                    line(
+                        (atX - push.x * reach * 0.5, atY - push.y * reach * 0.5, 0),
+                        (atX + push.x * reach * 0.5, atY + push.y * reach * 0.5, 0),
+                        arrowColour
+                    )
+                }
+            }
+        }
+
+        let wallColour = PackedColor(r: 0xFB, g: 0xBF, b: 0x24, a: 0xD9).packedRGBA
+        let wallBack = PackedColor(r: 0xFB, g: 0xBF, b: 0x24, a: 0x70).packedRGBA
+        for wall in engine.walls {
+            let from = (wall.fromX * width, wall.fromY * height)
+            let to = (wall.toX * width, wall.toY * height)
+            line((from.0, from.1, -half), (to.0, to.1, -half), wallColour)
+            line((from.0, from.1, half), (to.0, to.1, half), wallBack)
+            line((from.0, from.1, -half), (from.0, from.1, half), wallBack)
+            line((to.0, to.1, -half), (to.0, to.1, half), wallBack)
+            line((from.0, from.1, 0), (to.0, to.1, 0), wallBack)
+        }
+
+        if engine.arrangement == "snowglobe" {
+            let glass = PackedColor(r: 0xBA, g: 0xE6, b: 0xFD, a: 0x55).packedRGBA
+            let radius = engine.snowGlobeRadius
+            let centre = (x: width * 0.5, y: height * 0.5)
+            let steps = 60
+            for circle in 0 ..< 3 {
+                for k in 0 ..< steps {
+                    let a = Double(k) / Double(steps) * 2 * Double.pi
+                    let b = Double(k + 1) / Double(steps) * 2 * Double.pi
+                    func point(_ angle: Double) -> (x: Double, y: Double, z: Double) {
+                        switch circle {
+                        case 0: return (centre.x + cos(angle) * radius, centre.y + sin(angle) * radius, 0)
+                        case 1: return (centre.x + cos(angle) * radius, centre.y, sin(angle) * radius)
+                        default: return (centre.x, centre.y + cos(angle) * radius, sin(angle) * radius)
+                        }
+                    }
+                    line(point(a), point(b), glass)
+                }
+            }
+        }
+
+        return segments
     }
 
     // MARK: - Size
