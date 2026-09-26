@@ -72,6 +72,19 @@ public final class Swarm {
     /// Whether any body has a size of its own, so a crowd with none sends no sizes to the screen.
     public private(set) var hasSizes = false
 
+    /// How far into the screen each body is, for the field in 3D. Nought for every body in a flat field.
+    ///
+    /// Kept apart from ``positions`` rather than making those triples, so that a flat field — every recorded
+    /// comparison, and everything built before there was depth — reads and writes exactly the numbers it
+    /// always has. Positive is away from somebody looking at the field from the front; nought is the middle.
+    public private(set) var depths: UnsafeMutablePointer<Float>
+    /// How fast each body is moving into or out of the screen.
+    public private(set) var depthVelocities: UnsafeMutablePointer<Float>
+    /// How far into the screen the place a shape-holding body belongs is. See ``Home/anchorZ``.
+    public private(set) var homeDepths: UnsafeMutablePointer<Float>
+    /// Whether any body might be anywhere but the middle, so a flat crowd saves and copies no depths.
+    public internal(set) var hasDepth = false
+
     /// What a body in the crowd does, as a set of flags.
     ///
     /// ## Why the crowd needed these
@@ -90,6 +103,20 @@ public final class Swarm {
         public static let orbits = Role(rawValue: 1)
         /// Drawn back to a place in a shape. See ``Home``.
         public static let holds = Role(rawValue: 2)
+        /// Its place turns round a level circle rather than one in the plane of the screen, so a shape in 3D
+        /// turns the way a globe turns on its stand. See ``Home``.
+        ///
+        /// In a flat field only the sideways half of that circle can be seen, so the body swings from side to
+        /// side — which is exactly how a turning globe looks from the front when it is drawn flat.
+        public static let upright = Role(rawValue: 4)
+        /// Its place goes round a circle standing across the screen — up, down, and in and out of it — so the
+        /// body rises and falls. Squashed to a line, it bobs straight up and down, which with each body a little
+        /// behind its neighbour is a wave running over a surface.
+        public static let bobs = Role(rawValue: 8)
+
+        /// Every role this build understands. Anything else in a file from a later build is dropped.
+        static let known: UInt8 = Role.orbits.rawValue | Role.holds.rawValue | Role.upright.rawValue
+            | Role.bobs.rawValue
     }
 
     /// Where a shape-holding body belongs.
@@ -115,6 +142,8 @@ public final class Swarm {
         /// chase a place moving round a funnel several times a second, and a soft spring cannot keep up — it
         /// lags, then overshoots, and near its own natural rhythm it swings wider and wider.
         public var stiffness: Double
+        /// How far into the screen the anchor is, for the field in 3D. Nought in a flat field.
+        public var anchorZ: Double
 
         public init(
             anchorX: Double,
@@ -123,7 +152,8 @@ public final class Swarm {
             angle: Double = 0,
             spin: Double = 0,
             squash: Double = 1,
-            stiffness: Double = Swarm.holdStiffness
+            stiffness: Double = Swarm.holdStiffness,
+            anchorZ: Double = 0
         ) {
             self.anchorX = anchorX
             self.anchorY = anchorY
@@ -132,6 +162,7 @@ public final class Swarm {
             self.spin = spin
             self.squash = squash
             self.stiffness = stiffness
+            self.anchorZ = anchorZ
         }
 
         /// A place that does not move.
@@ -139,9 +170,37 @@ public final class Swarm {
             Home(anchorX: x, anchorY: y)
         }
 
+        /// A place that does not move, somewhere in depth.
+        public static func fixed(_ x: Double, _ y: Double, _ z: Double) -> Home {
+            Home(anchorX: x, anchorY: y, anchorZ: z)
+        }
+
         /// Where the body belongs right now.
         public var point: (x: Double, y: Double) {
             (anchorX + jsCos(angle) * radius, anchorY + jsSin(angle) * radius * squash)
+        }
+
+        /// Where the body belongs right now, depth included.
+        ///
+        /// - Parameter role: which way its circle stands. A level circle — ``Role/upright`` — goes round
+        ///   through depth and leaves the height alone; one standing across the screen — ``Role/bobs`` — rises
+        ///   and falls. Otherwise the circle is in the plane of the screen, as it is in a flat field.
+        public func point(for role: Role) -> (x: Double, y: Double, z: Double) {
+            if role.contains(.upright) {
+                return (anchorX + jsCos(angle) * radius, anchorY, anchorZ + jsSin(angle) * radius * squash)
+            }
+            if role.contains(.bobs) {
+                return (anchorX, anchorY + jsSin(angle) * radius, anchorZ + jsCos(angle) * radius * squash)
+            }
+            let flat = point
+            return (flat.x, flat.y, anchorZ)
+        }
+
+        /// Where the body belongs on a flat field: what can be seen of its circle from the front.
+        public func flatPoint(for role: Role) -> (x: Double, y: Double) {
+            if role.contains(.upright) { return (anchorX + jsCos(angle) * radius, anchorY) }
+            if role.contains(.bobs) { return (anchorX, anchorY + jsSin(angle) * radius) }
+            return point
         }
     }
 
@@ -169,6 +228,9 @@ public final class Swarm {
     /// inside the data structure.
     public private(set) var generation: Int = 0
 
+    /// The cubes the collision pass files bodies under in a field with depth. Made the first time it is needed.
+    lazy var depthHash = SwarmHash3D()
+
     /// Spatial hash used by the collision pass. Allocated on demand.
     private var bucketHead: UnsafeMutablePointer<Int32>?
     private var bucketHeadCount: Int = 0
@@ -193,6 +255,12 @@ public final class Swarm {
         self.maxLives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.sizes = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.sizes.initialize(repeating: 0, count: 1)
+        self.depths = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.depths.initialize(repeating: 0, count: 1)
+        self.depthVelocities = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.depthVelocities.initialize(repeating: 0, count: 1)
+        self.homeDepths = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.homeDepths.initialize(repeating: 0, count: 1)
         self.roles = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
         self.homes = UnsafeMutablePointer<Float>.allocate(capacity: Self.homeStride)
         self.roles.initialize(repeating: 0, count: 1)
@@ -225,6 +293,12 @@ public final class Swarm {
         homes.deallocate()
         sizes.deinitialize(count: allocated)
         sizes.deallocate()
+        depths.deinitialize(count: allocated)
+        depths.deallocate()
+        depthVelocities.deinitialize(count: allocated)
+        depthVelocities.deallocate()
+        homeDepths.deinitialize(count: allocated)
+        homeDepths.deallocate()
         if let bucketHead {
             bucketHead.deinitialize(count: bucketHeadCount)
             bucketHead.deallocate()
@@ -242,6 +316,7 @@ public final class Swarm {
         count = 0
         hasRoles = false
         hasSizes = false
+        hasDepth = false
         generation += 1
     }
 
@@ -270,6 +345,12 @@ public final class Swarm {
         let newMaxLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
         let newSizes = UnsafeMutablePointer<Float>.allocate(capacity: target)
         newSizes.initialize(repeating: 0, count: target)
+        let newDepths = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        newDepths.initialize(repeating: 0, count: target)
+        let newDepthVelocities = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        newDepthVelocities.initialize(repeating: 0, count: target)
+        let newHomeDepths = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        newHomeDepths.initialize(repeating: 0, count: target)
         let newRoles = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
         let newHomes = UnsafeMutablePointer<Float>.allocate(capacity: target * Self.homeStride)
         newRoles.initialize(repeating: 0, count: target)
@@ -293,6 +374,9 @@ public final class Swarm {
             newRoles.update(from: roles, count: count)
             newSizes.update(from: sizes, count: count)
             newHomes.update(from: homes, count: count * Self.homeStride)
+            newDepths.update(from: depths, count: count)
+            newDepthVelocities.update(from: depthVelocities, count: count)
+            newHomeDepths.update(from: homeDepths, count: count)
         }
 
         let previous = max(1, capacity)
@@ -314,7 +398,16 @@ public final class Swarm {
         sizes.deallocate()
         homes.deinitialize(count: previous * Self.homeStride)
         homes.deallocate()
+        depths.deinitialize(count: previous)
+        depths.deallocate()
+        depthVelocities.deinitialize(count: previous)
+        depthVelocities.deallocate()
+        homeDepths.deinitialize(count: previous)
+        homeDepths.deallocate()
 
+        depths = newDepths
+        depthVelocities = newDepthVelocities
+        homeDepths = newHomeDepths
         positions = newPositions
         velocities = newVelocities
         colors = newColors
@@ -345,7 +438,8 @@ public final class Swarm {
         budget: Int,
         rng: inout Mulberry32,
         span requestedSpan: Double? = nil,
-        size: Double = 0
+        size: Double = 0,
+        inDepth depth: Double = 0
     ) {
         let room = max(0, min(Self.maximumCount, budget) - count)
         let adding = min(requested, room)
@@ -364,12 +458,51 @@ public final class Swarm {
         if ownSize > 0 { hasSizes = true }
 
         let start = count
+        // In 3D the ring becomes a ball: the same spread from the middle, in every direction rather than only
+        // across the screen, and kept inside however deep the world is.
+        if depth > 0, depth.isFinite {
+            let halfDepth = depth * 0.5 - 2
+            for i in start ..< (start + actual) {
+                let angle = rng.next() * Double.pi * 2
+                let distance = rng.next() * span + 20
+                // Evenly over the sphere: the height is even, and the circle at that height is as wide as the
+                // sphere is there.
+                let rise = rng.next() * 2 - 1
+                let across = (1 - rise * rise).squareRoot()
+                let pair = i * 2
+                positions[pair] = JS.toFloat32(centreX + jsCos(angle) * across * distance)
+                positions[pair + 1] = JS.toFloat32(centreY + rise * distance)
+                depths[i] = JS.toFloat32(max(-halfDepth, min(halfDepth, jsSin(angle) * across * distance)))
+                velocities[pair] = JS.toFloat32((rng.next() - 0.5) * 6)
+                velocities[pair + 1] = JS.toFloat32((rng.next() - 0.5) * 6)
+                depthVelocities[i] = JS.toFloat32((rng.next() - 0.5) * 6)
+                homeDepths[i] = 0
+                masses[i] = 1
+                lives[i] = -1
+                maxLives[i] = 1
+                roles[i] = 0
+                sizes[i] = ownSize
+                colors[i] = color != 0
+                    ? color
+                    : 0xFF00_0000 | UInt32((i * 97) & 255)
+                        | (UInt32((i * 57) & 255) << 8)
+                        | (UInt32((i * 13) & 255) << 16)
+            }
+            hasDepth = true
+            count = start + actual
+            generation += 1
+            return
+        }
+
         for i in start ..< (start + actual) {
             let angle = rng.next() * Double.pi * 2
             let distance = rng.next() * span + 20
             let pair = i * 2
             positions[pair] = JS.toFloat32(centreX + jsCos(angle) * distance)
             positions[pair + 1] = JS.toFloat32(centreY + jsSin(angle) * distance)
+            depths[i] = 0
+            depthVelocities[i] = 0
+            homeDepths[i] = 0
             velocities[pair] = JS.toFloat32((rng.next() - 0.5) * 6)
             velocities[pair + 1] = JS.toFloat32((rng.next() - 0.5) * 6)
             // `!= 0`, not truthiness: a deliberately black or transparent colour is a
@@ -433,7 +566,9 @@ public final class Swarm {
         life: Double = -1,
         role: Role = [],
         home: Home? = nil,
-        size: Double = 0
+        size: Double = 0,
+        z: Double = 0,
+        velocityZ: Double = 0
     ) -> Bool {
         guard count < min(Self.maximumCount, budget) else { return false }
         reserve(count + 1)
@@ -442,11 +577,16 @@ public final class Swarm {
         let index = count
         // A body that holds a shape with nowhere to hold it would be pulled toward the top-left corner, so
         // without a home it holds where it was put.
-        let place = home ?? Home.fixed(x, y)
+        let usableZ = z.isFinite ? z : 0
+        let usableVelocityZ = velocityZ.isFinite ? velocityZ : 0
+        let place = home ?? Home.fixed(x, y, usableZ)
         writeRole(role, home: place, at: index)
         let ownSize = size.isFinite ? max(0, min(400, size)) : 0
         sizes[index] = Float(ownSize)
         if ownSize > 0 { hasSizes = true }
+        depths[index] = JS.toFloat32(usableZ)
+        depthVelocities[index] = JS.toFloat32(usableVelocityZ)
+        if usableZ != 0 || usableVelocityZ != 0 || homeDepths[index] != 0 { hasDepth = true }
         let pair = index * 2
         positions[pair] = JS.toFloat32(x)
         positions[pair + 1] = JS.toFloat32(y)
@@ -469,6 +609,8 @@ public final class Swarm {
         roles[index] = role.rawValue
         if !role.isEmpty { hasRoles = true }
         let at = index * Self.homeStride
+        homeDepths[index] = role.contains(.holds) && home.anchorZ.isFinite ? JS.toFloat32(home.anchorZ) : 0
+        if homeDepths[index] != 0 { hasDepth = true }
         if role.contains(.holds) {
             homes[at] = JS.toFloat32(home.anchorX.isFinite ? home.anchorX : 0)
             homes[at + 1] = JS.toFloat32(home.anchorY.isFinite ? home.anchorY : 0)
@@ -490,7 +632,7 @@ public final class Swarm {
         let pair = index * 2
         writeRole(
             role,
-            home: home ?? Home.fixed(Double(positions[pair]), Double(positions[pair + 1])),
+            home: home ?? Home.fixed(Double(positions[pair]), Double(positions[pair + 1]), Double(depths[index])),
             at: index
         )
     }
@@ -512,8 +654,44 @@ public final class Swarm {
             angle: Double(homes[at + 3]),
             spin: Double(homes[at + 4]),
             squash: Double(homes[at + 5]),
-            stiffness: Double(homes[at + 6])
+            stiffness: Double(homes[at + 6]),
+            anchorZ: Double(homeDepths[index])
         )
+    }
+
+    /// Sets how far into the screen one body is, and how fast it is moving that way.
+    public func setDepth(_ z: Double, velocity: Double = 0, at index: Int) {
+        guard index >= 0, index < count else { return }
+        let usable = z.isFinite ? z : 0
+        let moving = velocity.isFinite ? velocity : 0
+        depths[index] = JS.toFloat32(usable)
+        depthVelocities[index] = JS.toFloat32(moving)
+        if usable != 0 || moving != 0 { hasDepth = true }
+    }
+
+    /// Moves the place a shape-holding body belongs into or out of the screen.
+    public func setHomeDepth(_ z: Double, at index: Int) {
+        guard index >= 0, index < count, Role(rawValue: roles[index]).contains(.holds) else { return }
+        homeDepths[index] = JS.toFloat32(z.isFinite ? z : 0)
+        if homeDepths[index] != 0 { hasDepth = true }
+    }
+
+    /// Puts every body on the middle sheet, still in depth, as a flat field has them.
+    ///
+    /// What turning 3D off does to a crowd with nothing to be rebuilt as. Nothing else about a body changes:
+    /// where it is across and down the screen, its speed there, its colour and its place in a shape all stay.
+    public func flattenDepth() {
+        guard hasDepth || count > 0 else { return }
+        depths.update(repeating: 0, count: max(1, count))
+        depthVelocities.update(repeating: 0, count: max(1, count))
+        homeDepths.update(repeating: 0, count: max(1, count))
+        hasDepth = false
+        generation += 1
+    }
+
+    /// Notes that the bodies may now be off the middle sheet — the step in depth moves them there.
+    func noteDepthInUse() {
+        if count > 0 { hasDepth = true }
     }
 
     /// Sets one body's own size, as a diameter at the size slider's resting value. Nought means none.
@@ -600,6 +778,9 @@ public final class Swarm {
                     maxLives[index] = maxLives[last]
                     roles[index] = roles[last]
                     sizes[index] = sizes[last]
+                    depths[index] = depths[last]
+                    depthVelocities[index] = depthVelocities[last]
+                    homeDepths[index] = homeDepths[last]
                     let homeHere = index * Self.homeStride
                     let homeThere = last * Self.homeStride
                     for k in 0 ..< Self.homeStride { homes[homeHere + k] = homes[homeThere + k] }
@@ -661,6 +842,12 @@ public final class Swarm {
         public var freezeX: Double = 0
         public var freezeY: Double = 0
         public var freezeReach: Double = 0
+        /// How deep the world is, for the field in 3D. Nought is a flat field, which moves exactly as it always
+        /// has; anything more moves every body through depth too, inside a box that deep.
+        public var depth: Double = 0
+        /// In 3D, the line from the eye through the finger that is freezing, if there is one. A frozen body is
+        /// anything that appears inside the finger's circle, however far away — not only what is level with it.
+        public var freezeRay: ParticleFingerRay?
 
         public init(
             width: Double,
@@ -676,8 +863,12 @@ public final class Swarm {
             deferAgeing: Bool = false,
             freezeX: Double = 0,
             freezeY: Double = 0,
-            freezeReach: Double = 0
+            freezeReach: Double = 0,
+            depth: Double = 0,
+            freezeRay: ParticleFingerRay? = nil
         ) {
+            self.depth = depth.isFinite ? max(0, depth) : 0
+            self.freezeRay = freezeRay
             self.width = width
             self.height = height
             self.gravityX = gravityX
@@ -698,6 +889,13 @@ public final class Swarm {
     /// Advances every body one tick.
     public func step(_ options: StepOptions) {
         guard count > 0 else { return }
+        // In 3D, a pass of its own. The flat pass below is left exactly as it was — rather than sharing one loop
+        // full of "and in depth" — so that nothing about depth can change a flat field by so much as a rounding.
+        if options.depth > 0 {
+            moveInDepth(options)
+            settle(options)
+            return
+        }
 
         let width = options.width
         let height = options.height
@@ -717,6 +915,8 @@ public final class Swarm {
         let anyRoles = hasRoles
         let holdsBit = Role.holds.rawValue
         let orbitsBit = Role.orbits.rawValue
+        let uprightBit = Role.upright.rawValue
+        let turnsInDepthBits = Role.upright.rawValue | Role.bobs.rawValue
         let freezeX = options.freezeX
         let freezeY = options.freezeY
         let freezing = options.freezeReach > 0 && freezeX.isFinite && freezeY.isFinite
@@ -743,8 +943,16 @@ public final class Swarm {
                     var homeX = homes[at].asDouble
                     var homeY = homes[at + 1].asDouble
                     if radius != 0 {
-                        homeX += jsCos(angle) * radius
-                        homeY += jsSin(angle) * radius * homes[at + 5].asDouble
+                        if role & turnsInDepthBits == 0 {
+                            homeX += jsCos(angle) * radius
+                            homeY += jsSin(angle) * radius * homes[at + 5].asDouble
+                        } else if role & uprightBit != 0 {
+                            // A level circle seen from the front: all of it is sideways.
+                            homeX += jsCos(angle) * radius
+                        } else {
+                            // A circle standing across the screen, seen from the front: all of it is up and down.
+                            homeY += jsSin(angle) * radius
+                        }
                     }
                     if spin != 0 {
                         // Kept inside one turn, so a shape left spinning for an hour does not lose the
@@ -818,8 +1026,11 @@ public final class Swarm {
                 let y = positions[pair + 1].asDouble
                 if x < -10 || x > width + 10 || y < -10 || y > height + 10 {
                     markForRemoval(at: i)
-                    continue
                 }
+                // And nothing else. The edges below used to catch every body still within ten pixels of the
+                // world and bounce it back, so anything moving slower than that never left — the edge that
+                // makes things disappear was a wall for everything but the fastest.
+                continue
             }
 
             if positions[pair].asDouble < 1 {
@@ -844,20 +1055,212 @@ public final class Swarm {
         // Only when something can expire. This used to sweep every body looking for the dead on every moment
         // even when nothing could die — a million-body scan a frame that never found anything, since marking
         // a body for removal already says that something might.
+        settle(options)
+    }
+
+    /// What follows the move in either pass: ageing, then pushing overlapping bodies apart.
+    private func settle(_ options: StepOptions) {
         if hasMortalBodies, !options.deferAgeing { age(by: 1) }
 
         if options.collide, count > 1 {
             // More than once, because moving one pair apart pushes each of them into somebody else — one
             // pass leaves stacks overlapping. Twice was the old fixed behaviour and is still the default.
             let contact = options.contact.sanitized
+            // Where things disappear at the edge, pushing a body apart from its neighbours must not also put it
+            // back inside the world — which is what kept slow bodies from ever leaving.
+            let keepsInside = options.boundaryMode != .void
             for _ in 0 ..< contact.passes {
-                resolveCollisions(width: width, height: height, contact: contact)
+                if options.depth > 0 {
+                    resolveCollisionsInDepth(
+                        width: options.width,
+                        height: options.height,
+                        depth: options.depth,
+                        contact: contact,
+                        hash: depthHash,
+                        keepsInside: keepsInside
+                    )
+                } else {
+                    resolveCollisions(width: options.width, height: options.height, contact: contact, keepsInside: keepsInside)
+                }
             }
         }
     }
 
+    /// One moment for every body in a field with depth.
+    ///
+    /// The flat pass, with a third direction added throughout: held bodies are drawn back to their place in
+    /// depth as well, the air slows movement into the screen as it slows movement across it, the speed limit
+    /// counts all three directions, and the world is a box rather than a rectangle — so a body reaching its
+    /// front or back bounces, wraps round or vanishes as it would at any other edge. Gravity stays downward.
+    private func moveInDepth(_ options: StepOptions) {
+        let width = options.width
+        let height = options.height
+        let halfDepth = options.depth * 0.5
+        let damping = options.damping
+        let bounce = options.elasticity
+        let maxSpeed = options.maxSpeed > 0 ? options.maxSpeed : Double.infinity
+        let maxSpeedSquared = maxSpeed * maxSpeed
+        let wrapping = options.boundaryMode == .wrap
+        let vanishing = options.boundaryMode == .void
+
+        let anyRoles = hasRoles
+        let holdsBit = Role.holds.rawValue
+        let orbitsBit = Role.orbits.rawValue
+        let uprightBit = Role.upright.rawValue
+        let bobsBit = Role.bobs.rawValue
+
+        let freezeRay = options.freezeRay
+        let freezeReach = options.freezeReach
+        let freezing = freezeReach > 0
+        let freezesEverything = freezing && !freezeReach.isFinite
+        let freezeReachSquared = freezing && !freezesEverything ? freezeReach * freezeReach : 0
+
+        for i in 0 ..< count {
+            let pair = i * 2
+            var velX = velocities[pair].asDouble
+            var velY = velocities[pair + 1].asDouble
+            var velZ = depthVelocities[i].asDouble
+
+            let role = anyRoles ? roles[i] : 0
+            if role & holdsBit != 0 {
+                let at = i * Self.homeStride
+                let radius = homes[at + 2].asDouble
+                let angle = homes[at + 3].asDouble
+                let spin = homes[at + 4].asDouble
+                var homeX = homes[at].asDouble
+                var homeY = homes[at + 1].asDouble
+                var homeZ = homeDepths[i].asDouble
+                if radius != 0 {
+                    let squash = homes[at + 5].asDouble
+                    if role & uprightBit != 0 {
+                        homeX += jsCos(angle) * radius
+                        homeZ += jsSin(angle) * radius * squash
+                    } else if role & bobsBit != 0 {
+                        homeY += jsSin(angle) * radius
+                        homeZ += jsCos(angle) * radius * squash
+                    } else {
+                        homeX += jsCos(angle) * radius
+                        homeY += jsSin(angle) * radius * squash
+                    }
+                }
+                if spin != 0 {
+                    var next = angle + spin
+                    if next > 6.283185307179586 { next -= 6.283185307179586 }
+                    if next < -6.283185307179586 { next += 6.283185307179586 }
+                    homes[at + 3] = JS.toFloat32(next)
+                }
+                let stiffness = homes[at + 6].asDouble
+                velX = (velX + (homeX - positions[pair].asDouble) * stiffness) * Self.holdFriction
+                velY = (velY + (homeY - positions[pair + 1].asDouble) * stiffness) * Self.holdFriction
+                velZ = (velZ + (homeZ - depths[i].asDouble) * stiffness) * Self.holdFriction
+            }
+            if role & orbitsBit == 0 {
+                velX = velX * damping + options.gravityX
+                velY = velY * damping + options.gravityY
+                velZ *= damping
+            }
+
+            if freezing {
+                let x = positions[pair].asDouble
+                let y = positions[pair + 1].asDouble
+                let z = depths[i].asDouble
+                var inside = freezesEverything
+                if !inside {
+                    if let ray = freezeRay {
+                        inside = ray.reaches(x: x, y: y, z: z, within: freezeReach)
+                    } else {
+                        // No line was given, which is a field seen from the front: everything level with the
+                        // finger's circle, whatever its depth.
+                        let dx = x - options.freezeX
+                        let dy = y - options.freezeY
+                        inside = dx * dx + dy * dy < freezeReachSquared
+                    }
+                }
+                if inside {
+                    velX = 0
+                    velY = 0
+                    velZ = 0
+                }
+            }
+
+            let speedSquared = velX * velX + velY * velY + velZ * velZ
+            if speedSquared > maxSpeedSquared && speedSquared > 0 {
+                let scale = maxSpeed / speedSquared.squareRoot()
+                velX *= scale
+                velY *= scale
+                velZ *= scale
+            }
+            velocities[pair] = JS.toFloat32(velX)
+            velocities[pair + 1] = JS.toFloat32(velY)
+            depthVelocities[i] = JS.toFloat32(velZ)
+
+            positions[pair] = JS.toFloat32(positions[pair].asDouble + velocities[pair].asDouble)
+            positions[pair + 1] = JS.toFloat32(positions[pair + 1].asDouble + velocities[pair + 1].asDouble)
+            depths[i] = JS.toFloat32(depths[i].asDouble + depthVelocities[i].asDouble)
+
+            if wrapping {
+                if width > 0 {
+                    let x = positions[pair].asDouble
+                    positions[pair] = JS.toFloat32(
+                        ((x.truncatingRemainder(dividingBy: width)) + width).truncatingRemainder(dividingBy: width)
+                    )
+                }
+                if height > 0 {
+                    let y = positions[pair + 1].asDouble
+                    positions[pair + 1] = JS.toFloat32(
+                        ((y.truncatingRemainder(dividingBy: height)) + height)
+                            .truncatingRemainder(dividingBy: height)
+                    )
+                }
+                let span = halfDepth * 2
+                let z = depths[i].asDouble + halfDepth
+                depths[i] = JS.toFloat32(
+                    ((z.truncatingRemainder(dividingBy: span)) + span).truncatingRemainder(dividingBy: span)
+                        - halfDepth
+                )
+                continue
+            }
+
+            if vanishing {
+                let x = positions[pair].asDouble
+                let y = positions[pair + 1].asDouble
+                let z = depths[i].asDouble
+                if x < -10 || x > width + 10 || y < -10 || y > height + 10 || z < -halfDepth - 10
+                    || z > halfDepth + 10
+                {
+                    markForRemoval(at: i)
+                }
+                // Not bounced: see the same line in the flat pass.
+                continue
+            }
+
+            if positions[pair].asDouble < 1 {
+                positions[pair] = 1
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
+            } else if positions[pair].asDouble > width - 1 {
+                positions[pair] = JS.toFloat32(width - 1)
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
+            }
+            if positions[pair + 1].asDouble < 1 {
+                positions[pair + 1] = 1
+                velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
+            } else if positions[pair + 1].asDouble > height - 1 {
+                positions[pair + 1] = JS.toFloat32(height - 1)
+                velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
+            }
+            if depths[i].asDouble < -halfDepth + 1 {
+                depths[i] = JS.toFloat32(-halfDepth + 1)
+                depthVelocities[i] = JS.toFloat32(depthVelocities[i].asDouble * -bounce)
+            } else if depths[i].asDouble > halfDepth - 1 {
+                depths[i] = JS.toFloat32(halfDepth - 1)
+                depthVelocities[i] = JS.toFloat32(depthVelocities[i].asDouble * -bounce)
+            }
+        }
+        hasDepth = true
+    }
+
     /// Pushes overlapping bodies apart, using a uniform grid to find neighbours.
-    private func resolveCollisions(width: Double, height: Double, contact: ContactSettings) {
+    private func resolveCollisions(width: Double, height: Double, contact: ContactSettings, keepsInside: Bool = true) {
         let bodies = count
         guard bodies > 1, width > 0, height > 0 else { return }
 
@@ -997,19 +1400,21 @@ public final class Swarm {
             velX *= 0.996
             velY *= 0.996
 
-            if posX < 1 {
-                posX = 1
-                velX *= -0.55
-            } else if posX > width - 1 {
-                posX = width - 1
-                velX *= -0.55
-            }
-            if posY < 1 {
-                posY = 1
-                velY *= -0.55
-            } else if posY > height - 1 {
-                posY = height - 1
-                velY *= -0.55
+            if keepsInside {
+                if posX < 1 {
+                    posX = 1
+                    velX *= -0.55
+                } else if posX > width - 1 {
+                    posX = width - 1
+                    velX *= -0.55
+                }
+                if posY < 1 {
+                    posY = 1
+                    velY *= -0.55
+                } else if posY > height - 1 {
+                    posY = height - 1
+                    velY *= -0.55
+                }
             }
 
             positions[pair] = JS.toFloat32(posX)
@@ -1044,6 +1449,11 @@ public final class Swarm {
         public var homes: [Float] = []
         /// Sizes of their own, left empty when no body has one.
         public var sizes: [Float] = []
+        /// How far into the screen each body is, how fast it is moving that way, and how far in its place in a
+        /// shape is. All three left empty in a flat field.
+        public var depths: [Float] = []
+        public var depthVelocities: [Float] = []
+        public var homeDepths: [Float] = []
         public var count: Int { colors.count }
 
         /// Moves every body in the copy by the same amount, and the places the held ones belong along with
@@ -1078,7 +1488,10 @@ public final class Swarm {
             maxLives: [Float] = [],
             roles: [UInt8] = [],
             homes: [Float] = [],
-            sizes: [Float] = []
+            sizes: [Float] = [],
+            depths: [Float] = [],
+            depthVelocities: [Float] = [],
+            homeDepths: [Float] = []
         ) {
             self.positions = positions
             self.velocities = velocities
@@ -1089,6 +1502,9 @@ public final class Swarm {
             self.roles = roles
             self.homes = homes
             self.sizes = sizes
+            self.depths = depths
+            self.depthVelocities = depthVelocities
+            self.homeDepths = homeDepths
         }
     }
 
@@ -1109,7 +1525,10 @@ public final class Swarm {
             maxLives: hasMortalBodies ? Array(UnsafeBufferPointer(start: maxLives, count: taken)) : [],
             roles: hasRoles ? Array(UnsafeBufferPointer(start: roles, count: taken)) : [],
             homes: hasRoles ? Array(UnsafeBufferPointer(start: homes, count: taken * Self.homeStride)) : [],
-            sizes: hasSizes ? Array(UnsafeBufferPointer(start: sizes, count: taken)) : []
+            sizes: hasSizes ? Array(UnsafeBufferPointer(start: sizes, count: taken)) : [],
+            depths: hasDepth ? Array(UnsafeBufferPointer(start: depths, count: taken)) : [],
+            depthVelocities: hasDepth ? Array(UnsafeBufferPointer(start: depthVelocities, count: taken)) : [],
+            homeDepths: hasDepth ? Array(UnsafeBufferPointer(start: homeDepths, count: taken)) : []
         )
     }
 
@@ -1171,7 +1590,7 @@ public final class Swarm {
                 let raw = index < usable ? snapshot.roles[index] : 0
                 // Only the roles this build understands, so a file from a later one cannot switch on
                 // behaviour that does not exist here.
-                roles[index] = raw & (Role.orbits.rawValue | Role.holds.rawValue)
+                roles[index] = raw & Role.known
                 if roles[index] != 0 { hasRoles = true }
             }
             let homeCount = actual * Self.homeStride
@@ -1205,6 +1624,20 @@ public final class Swarm {
         } else {
             sizes.update(repeating: 0, count: actual)
         }
+        hasDepth = false
+        func fill(_ target: UnsafeMutablePointer<Float>, from source: [Float], limit: Float) {
+            for index in 0 ..< actual {
+                let value = index < source.count ? source[index] : 0
+                target[index] = value.isFinite ? max(-limit, min(limit, value)) : 0
+                if target[index] != 0 { hasDepth = true }
+            }
+        }
+        // Kept within a generous margin, as positions are: nothing legitimate is anywhere near it, and an
+        // enormous number would reach whole-number conversions downstream that cannot hold it.
+        let depthLimit: Float = 1_000_000
+        fill(depths, from: snapshot.depths, limit: depthLimit)
+        fill(depthVelocities, from: snapshot.depthVelocities, limit: 10_000)
+        fill(homeDepths, from: snapshot.homeDepths, limit: depthLimit)
         count = actual
         generation += 1
     }
@@ -1219,14 +1652,97 @@ public final class Swarm {
         public var radius: Double
         /// Pushes rather than pulls.
         public var repels: Bool
+        /// How far into the screen it is, in a field with depth.
+        public var z: Double
 
-        public init(x: Double, y: Double, mass: Double, radius: Double, repels: Bool) {
+        public init(x: Double, y: Double, mass: Double, radius: Double, repels: Bool, z: Double = 0) {
             self.x = x
             self.y = y
             self.mass = mass
             self.radius = radius
             self.repels = repels
+            self.z = z.isFinite ? z : 0
         }
+    }
+
+    /// The black holes and repulsors, in a field with depth.
+    ///
+    /// The same law, measured in all three directions. What differs is where a body goes when it reaches a
+    /// black hole's edge. In a flat field there is only one plane to throw it back out into. In depth there is
+    /// a choice, and it is the level one: the discs of every arrangement built in 3D lie level, as a galaxy's
+    /// does, so a body re-emitted into a level orbit rejoins the disc — and the jets, now and then, go straight
+    /// up and down out of it, which is where a real black hole's go.
+    public func applyAttractorsInDepth(_ attractors: [Attractor], span: Double, rng: inout Mulberry32) {
+        guard !attractors.isEmpty, count > 0 else { return }
+        for i in 0 ..< count {
+            let pair = i * 2
+            var x = positions[pair].asDouble
+            var y = positions[pair + 1].asDouble
+            var z = depths[i].asDouble
+            var velX = velocities[pair].asDouble
+            var velY = velocities[pair + 1].asDouble
+            var velZ = depthVelocities[i].asDouble
+            var moved = false
+
+            for attractor in attractors {
+                let dx = attractor.x - x
+                let dy = attractor.y - y
+                let dz = attractor.z - z
+                let distanceSquared = dx * dx + dy * dy + dz * dz + 10
+                let distance = distanceSquared.squareRoot()
+                let mass = attractor.mass == 0 ? 80 : attractor.mass
+                if attractor.repels {
+                    let force = (mass * 150) / distanceSquared
+                    velX -= (dx / distance) * force
+                    velY -= (dy / distance) * force
+                    velZ -= (dz / distance) * force
+                    continue
+                }
+                let edge = (attractor.radius == 0 ? 12 : attractor.radius) + 4
+                if distance < edge {
+                    let pull = mass * 200
+                    if rng.chance(0.15) {
+                        // A jet: up or down, spreading a little.
+                        let up: Double = rng.next() < 0.5 ? -1 : 1
+                        let speed = (pull / 40).squareRoot() * 1.2
+                        let lean = rng.next() * Double.pi * 2
+                        let spread = 0.12 * rng.next()
+                        x = attractor.x + jsCos(lean) * spread * edge
+                        y = attractor.y + up * (edge + 4)
+                        z = attractor.z + jsSin(lean) * spread * edge
+                        velX = jsCos(lean) * spread * speed
+                        velY = up * speed
+                        velZ = jsSin(lean) * spread * speed
+                    } else {
+                        let orbit = rng.next() * (span * 0.4) + 40
+                        let angle = rng.next() * Double.pi * 2
+                        let speed = (pull / orbit).squareRoot()
+                        x = attractor.x + jsCos(angle) * orbit
+                        y = attractor.y
+                        z = attractor.z + jsSin(angle) * orbit
+                        velX = -jsSin(angle) * speed
+                        velY = 0
+                        velZ = jsCos(angle) * speed
+                    }
+                    moved = true
+                    break
+                }
+                let force = (mass * 200) / distanceSquared
+                velX += (dx / distance) * force
+                velY += (dy / distance) * force
+                velZ += (dz / distance) * force
+            }
+
+            if moved {
+                positions[pair] = JS.toFloat32(x)
+                positions[pair + 1] = JS.toFloat32(y)
+                depths[i] = JS.toFloat32(z)
+            }
+            velocities[pair] = JS.toFloat32(velX)
+            velocities[pair + 1] = JS.toFloat32(velY)
+            depthVelocities[i] = JS.toFloat32(velZ)
+        }
+        hasDepth = true
     }
 
     /// Pulls every body in the crowd toward the black holes, and pushes it away from the repulsors.
@@ -1309,6 +1825,7 @@ public final class Swarm {
             let pair = i * 2
             if !positions[pair].isFinite || !positions[pair + 1].isFinite
                 || !velocities[pair].isFinite || !velocities[pair + 1].isFinite
+                || !depths[i].isFinite || !depthVelocities[i].isFinite
             {
                 corrupt += 1
             }
@@ -1323,8 +1840,9 @@ public final class Swarm {
             let pair = i * 2
             let vx = velocities[pair].asDouble
             let vy = velocities[pair + 1].asDouble
-            guard vx.isFinite, vy.isFinite else { continue }
-            let speed = (vx * vx + vy * vy).squareRoot()
+            let vz = hasDepth ? depthVelocities[i].asDouble : 0
+            guard vx.isFinite, vy.isFinite, vz.isFinite else { continue }
+            let speed = (vx * vx + vy * vy + vz * vz).squareRoot()
             if speed > fastest { fastest = speed }
         }
         return fastest

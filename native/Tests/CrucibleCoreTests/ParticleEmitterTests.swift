@@ -435,6 +435,19 @@ struct ParticleEmitterTests {
         #expect(engine.swarm.count < before / 2, "\(engine.swarm.count) of \(before) are still here")
     }
 
+    @Test("A slow body at a Disappear edge leaves, rather than being bounced back")
+    func slowBodiesVanish() {
+        // Everything within ten pixels of the world used to be caught by the ordinary edge and bounced back, so
+        // only a body fast enough to jump that far in one moment ever disappeared.
+        let engine = ParticleEngine(width: 400, height: 700, seed: 1)
+        engine.boundaryMode = .void
+        engine.gravityY = 0
+        engine.collisionsEnabled = true
+        engine.swarm.append(x: 395, y: 350, velocityX: 1, velocityY: 0, color: 0xFFFF_FFFF, budget: 100)
+        for _ in 0 ..< 40 { engine.step() }
+        #expect(engine.swarm.count == 0, "a slow body was bounced back at a Disappear edge")
+    }
+
     @Test("Bouncing and wrapping still keep every body")
     func otherEdgesKeepEverything() {
         for mode in [ParticleBoundaryMode.bounce, .wrap] {

@@ -35,6 +35,28 @@ public struct ParticleArrangement: Sendable, Hashable {
         case none
     }
 
+    /// Whether an arrangement has a flat form, a 3D one, or both.
+    public enum Depth: Sendable, Hashable {
+        /// Built flat on a flat field and in depth in 3D.
+        case both
+        /// Exists only in depth — a globe, a strange attractor, a flight through the stars. Choosing one on a
+        /// flat field turns 3D on.
+        case only
+    }
+
+    /// Where an arrangement is best looked at from in 3D, which the app turns the view to when it is chosen.
+    public enum View: Sendable, Hashable {
+        /// A little from one side and a little from above: what shows most things' depth best.
+        case angled
+        /// From above, for the things lying level — a galaxy's disc, a sea — whose shape is only seen from
+        /// higher up.
+        case above
+        /// Straight on, for a flight through the stars, which only works looking the way it is going.
+        case front
+        /// Low and to one side, for the things that stand up — a fire, a fountain, a tornado.
+        case low
+    }
+
     public var id: String
     public var name: String
     public var kind: Kind
@@ -43,6 +65,13 @@ public struct ParticleArrangement: Sendable, Hashable {
     public var about: String
     /// What adding bodies does while joining is on, in plain words.
     public var joinDescription: String
+    /// Whether it has a flat form, a 3D one or both.
+    public var depth: Depth
+    /// Where it is best looked at from in 3D.
+    public var view: View
+    /// What it is in 3D, in a sentence, where that is not what it is flat. Empty when it is the same thing
+    /// with depth added.
+    public var aboutInDepth: String
 
     public init(
         _ id: String,
@@ -50,7 +79,10 @@ public struct ParticleArrangement: Sendable, Hashable {
         kind: Kind = .scene,
         joining: Joining,
         about: String,
-        join: String
+        join: String,
+        depth: Depth = .both,
+        view: View = .angled,
+        inDepth: String = ""
     ) {
         self.id = id
         self.name = name
@@ -58,6 +90,14 @@ public struct ParticleArrangement: Sendable, Hashable {
         self.joining = joining
         self.about = about
         self.joinDescription = join
+        self.depth = depth
+        self.view = view
+        self.aboutInDepth = inDepth
+    }
+
+    /// What it is, for a field that is flat or in 3D.
+    public func about(inDepth: Bool) -> String {
+        inDepth && !aboutInDepth.isEmpty ? aboutInDepth : about
     }
 
     /// Every arrangement, in the order the interface shows them.
@@ -66,62 +106,76 @@ public struct ParticleArrangement: Sendable, Hashable {
         ParticleArrangement(
             "galaxy", "Galaxy", joining: .orbit,
             about: "A spiral disc orbiting a black hole.",
-            join: "New bodies go into orbit round the black hole."
+            join: "New bodies go into orbit round the black hole.",
+            view: .above,
+            inDepth: "A disc lying level round a black hole, with a little thickness to it."
         ),
         ParticleArrangement(
             "blackhole", "Black hole", joining: .orbit,
             about: "A heavier hole with a tighter, faster disc.",
-            join: "New bodies go into orbit round the black hole."
+            join: "New bodies go into orbit round the black hole.",
+            view: .above,
+            inDepth: "A tight level disc, with jets thrown straight up and down out of the hole."
         ),
         ParticleArrangement(
             "vortex", "Double vortex", joining: .orbit,
             about: "Two wells spinning opposite ways.",
-            join: "New bodies orbit whichever well they start nearest."
+            join: "New bodies orbit whichever well they start nearest.",
+            view: .above
         ),
         ParticleArrangement(
             "synchrotron", "Synchrotron", joining: .orbit,
             about: "Two wells far enough apart to fling bodies between them.",
-            join: "New bodies join the orbit round both wells."
+            join: "New bodies join the orbit round both wells.",
+            view: .above
         ),
         ParticleArrangement(
             "flare", "Solar flare", joining: .objects,
             about: "A glowing core throwing off flares that fall back into it.",
-            join: "New bodies are thrown off the core and come back to it."
+            join: "New bodies are thrown off the core and come back to it.",
+            inDepth: "A glowing core throwing flares out in every direction."
         ),
         ParticleArrangement(
             "shockwave", "Shockwave", joining: .objects,
             about: "A ring blasted outward from the middle.",
-            join: "New bodies ride along with the ring."
+            join: "New bodies ride along with the ring.",
+            inDepth: "A ball of bodies blasted outward from the middle."
         ),
         ParticleArrangement(
             "fountain", "Cosmic fountain", joining: .objects,
             about: "A jet from the floor that falls back and is launched again.",
-            join: "New bodies join the jet."
+            join: "New bodies join the jet.",
+            view: .low
         ),
         ParticleArrangement(
             "waterfall", "Waterfall", joining: .objects,
             about: "Water falling from the top, caught and poured again.",
-            join: "New bodies join the falls."
+            join: "New bodies join the falls.",
+            view: .low
         ),
         ParticleArrangement(
             "pour", "Pour", joining: .crowd,
             about: "Liquid poured into an empty tank, splashing and settling.",
-            join: "New bodies become more of the liquid."
+            join: "New bodies become more of the liquid.",
+            view: .low
         ),
         ParticleArrangement(
             "water", "Water", joining: .crowd,
             about: "A still pool with an inlet pouring into it.",
-            join: "New bodies become more of the pool."
+            join: "New bodies become more of the pool.",
+            view: .low
         ),
         ParticleArrangement(
             "lattice", "Quantum lattice", joining: .objects,
             about: "A charged grid, every point held in place by a spring.",
-            join: "New bodies are held to the grid's points."
+            join: "New bodies are held to the grid's points.",
+            inDepth: "A charged block of points, every one held in place by a spring."
         ),
         ParticleArrangement(
             "helix", "DNA helix", joining: .objects,
             about: "Two strands winding across the field.",
-            join: "New bodies join the two strands."
+            join: "New bodies join the two strands.",
+            inDepth: "Two strands winding round each other, a real double helix."
         ),
         ParticleArrangement(
             "flock", "Flock", joining: .objects,
@@ -131,22 +185,26 @@ public struct ParticleArrangement: Sendable, Hashable {
         ParticleArrangement(
             "nbody", "N-body", joining: .crowd,
             about: "A disc of heavy and light bodies, every one pulling on every other.",
-            join: "New bodies are pulled into the disc, and pull on it."
+            join: "New bodies are pulled into the disc, and pull on it.",
+            view: .above
         ),
         ParticleArrangement(
             "cloth", "Cloth", joining: .structure,
             about: "A sheet of joined points, pinned along the top.",
-            join: "Each tap hangs another sheet."
+            join: "Each tap hangs another sheet.",
+            inDepth: "A sheet pinned along one edge, falling and swinging through the box."
         ),
         ParticleArrangement(
             "rope", "Rope", joining: .structure,
             about: "A chain hanging from a pin.",
-            join: "Each tap hangs another rope."
+            join: "Each tap hangs another rope.",
+            inDepth: "A chain held out from a pin, swinging down through the box."
         ),
         ParticleArrangement(
             "blob", "Blob", joining: .structure,
             about: "A soft ball held together by springs.",
-            join: "Each tap drops another blob."
+            join: "Each tap drops another blob.",
+            inDepth: "A soft round ball held together by springs, dropped to bounce."
         ),
         ParticleArrangement(
             "molecules", "Molecules", joining: .structure,
@@ -156,43 +214,52 @@ public struct ParticleArrangement: Sendable, Hashable {
         ParticleArrangement(
             "swarm", "Swarm", joining: .crowd,
             about: "A hundred and twenty thousand bodies loose in the field.",
-            join: "New bodies join the swarm."
+            join: "New bodies join the swarm.",
+            inDepth: "A hundred and twenty thousand bodies loose in the box."
         ),
         // Built round a shape.
         ParticleArrangement(
             "sunflower", "Sunflower", joining: .crowd,
             about: "Seeds placed a golden turn apart, turning slowly.",
-            join: "New bodies take a place among the seeds."
+            join: "New bodies take a place among the seeds.",
+            inDepth: "A domed seed head, seeds a golden turn apart, turning slowly."
         ),
         ParticleArrangement(
             "mandala", "Mandala", joining: .crowd,
             about: "Eight petals, three rings and eight spikes, turning slowly.",
-            join: "New bodies take a place in the pattern."
+            join: "New bodies take a place in the pattern.",
+            inDepth: "Petals, rings and spikes in layers one behind another, turning."
         ),
         ParticleArrangement(
             "snowflakes", "Snowflakes", joining: .crowd,
             about: "Six-armed flakes, each turning on its own.",
-            join: "New bodies take a place in a flake."
+            join: "New bodies take a place in a flake.",
+            inDepth: "Six-armed flakes hanging at every depth, each turning on its own."
         ),
         ParticleArrangement(
             "sierpinski", "Sierpinski", joining: .crowd,
             about: "The triangle made of triangles, drawn by a random walk.",
-            join: "New bodies take a place in the triangle."
+            join: "New bodies take a place in the triangle.",
+            inDepth: "The pyramid made of pyramids, drawn by a random walk, turning."
         ),
         ParticleArrangement(
             "ring", "Ring", joining: .crowd,
             about: "A band of bodies circling, seen at a slight angle.",
-            join: "New bodies circle with the ring."
+            join: "New bodies circle with the ring.",
+            inDepth: "A ringed planet: a turning ball with a level band circling it."
         ),
         ParticleArrangement(
             "tornado", "Tornado", joining: .crowd,
             about: "A funnel, fast and narrow at the bottom, wide and slow at the top.",
-            join: "New bodies spin in the funnel."
+            join: "New bodies spin in the funnel.",
+            view: .low,
+            inDepth: "A real funnel, every body circling round it, fast at the bottom and slow at the top."
         ),
         ParticleArrangement(
             "aurora", "Aurora", joining: .crowd,
             about: "Five curtains of light, rippling.",
-            join: "New bodies ripple in the curtains."
+            join: "New bodies ripple in the curtains.",
+            inDepth: "Five curtains of light one behind another, rippling."
         ),
         ParticleArrangement(
             "lightning", "Lightning", joining: .crowd,
@@ -202,17 +269,21 @@ public struct ParticleArrangement: Sendable, Hashable {
         ParticleArrangement(
             "fireworks", "Fireworks", joining: .crowd,
             about: "A display: shells burst, fall and fade, and more go up.",
-            join: "New bodies burst with the shells."
+            join: "New bodies burst with the shells.",
+            view: .low,
+            inDepth: "A display: shells burst into balls of sparks, fall and fade, and more go up."
         ),
         ParticleArrangement(
             "supernova", "Supernova", joining: .crowd,
             about: "A star coming apart: a fast bright shell and a glowing remnant.",
-            join: "New bodies fly out with the blast, or glow in the remnant."
+            join: "New bodies fly out with the blast, or glow in the remnant.",
+            inDepth: "A star coming apart: a fast bright ball of a shell and a glowing remnant."
         ),
         ParticleArrangement(
             "magma", "Magma", joining: .crowd,
             about: "A churning molten pool throwing up embers.",
-            join: "New bodies churn in the pool or rise as embers."
+            join: "New bodies churn in the pool or rise as embers.",
+            view: .low
         ),
         ParticleArrangement(
             "confetti", "Confetti", joining: .crowd,
@@ -222,17 +293,78 @@ public struct ParticleArrangement: Sendable, Hashable {
         ParticleArrangement(
             "fire", "Fire", joining: .crowd,
             about: "A column of flame that keeps burning.",
-            join: "New bodies rise and burn with the flame."
+            join: "New bodies rise and burn with the flame.",
+            view: .low
         ),
         ParticleArrangement(
             "smoke", "Smoke", joining: .crowd,
             about: "A slow grey plume that keeps rising.",
-            join: "New bodies drift up with the smoke."
+            join: "New bodies drift up with the smoke.",
+            view: .low
         ),
         ParticleArrangement(
             "text", "Word", joining: .crowd,
             about: "The word typed below, spelt out in bodies.",
-            join: "New bodies take a place in the letters."
+            join: "New bodies take a place in the letters.",
+            inDepth: "The word typed below, spelt out as solid letters with a thickness to them."
+        ),
+        // Only in 3D.
+        ParticleArrangement(
+            "globe", "Globe", joining: .crowd,
+            about: "Seeds a golden turn apart all over a ball, turning like a globe on its stand.",
+            join: "New bodies take a place on the globe.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "knot", "Knot", joining: .crowd,
+            about: "A trefoil knot of bodies, turning slowly so it can be seen from every side.",
+            join: "New bodies take a place in the knot.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "ocean", "Ocean", joining: .crowd,
+            about: "A sheet of bodies with waves rolling across it, each body turning in its own small circle.",
+            join: "New bodies ride the waves.",
+            depth: .only,
+            view: .above
+        ),
+        ParticleArrangement(
+            "lorenz", "Lorenz", joining: .crowd,
+            about: "Bodies following the Lorenz flow, the butterfly-shaped path of the weather sum that gave chaos "
+                + "its name.",
+            join: "New bodies follow the flow.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "aizawa", "Aizawa", joining: .crowd,
+            about: "A flow that wraps round a ball, with a tube running up through the middle of it.",
+            join: "New bodies follow the flow.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "thomas", "Thomas", joining: .crowd,
+            about: "A flow that wanders forever through a knot of loops, the same whichever way it is turned.",
+            join: "New bodies follow the flow.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "halvorsen", "Halvorsen", joining: .crowd,
+            about: "A flow with three looping arms, each a third of the way round from the last.",
+            join: "New bodies follow the flow.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "warp", "Warp", joining: .crowd,
+            about: "Stars rushing past, as though flying through space.",
+            join: "New stars rush past with the rest.",
+            depth: .only,
+            view: .front
+        ),
+        ParticleArrangement(
+            "snowglobe", "Snow globe", joining: .crowd,
+            about: "Snow drifting down inside a glass ball. With Tilt on, tip the phone to stir it up.",
+            join: "New bodies fall as more snow.",
+            depth: .only
         ),
         // Added to whatever is there.
         ParticleArrangement(
@@ -250,6 +382,9 @@ public struct ParticleArrangement: Sendable, Hashable {
 
     /// The scenes, which are what can be selected.
     public static var scenes: [ParticleArrangement] { all.filter { $0.kind == .scene } }
+
+    /// The scenes that have a flat form.
+    public static var flatScenes: [ParticleArrangement] { scenes.filter { $0.depth == .both } }
 }
 
 extension ParticleEngine {
@@ -319,6 +454,16 @@ extension ParticleEngine {
     ///   out on its own, because drawing letters needs fonts; the app draws them and hands over the picture.
     @discardableResult
     public func loadArrangement(_ id: String) -> Bool {
+        // Something that only exists in depth turns 3D on. The field is kept as it was for undo first, flat, so
+        // one press brings back the flat field and not its bodies in a box.
+        if !storedDepthEnabled, ParticleArrangement.named(id)?.depth == .only {
+            pushUndo()
+            storedDepthEnabled = true
+            let wasSuppressed = undoSuppressed
+            undoSuppressed = true
+            defer { undoSuppressed = wasSuppressed }
+            return loadArrangement(id)
+        }
         let count = arrangementBodyCount
         switch id {
         case "galaxy": spawnGalaxy(count: count)
@@ -355,6 +500,12 @@ extension ParticleEngine {
         case "water": spawnWaterPool()
         case "fire": spawnFire()
         case "smoke": spawnSmoke()
+        case "globe": spawnGlobe()
+        case "knot": spawnKnot()
+        case "ocean": spawnOcean()
+        case "lorenz", "aizawa", "thomas", "halvorsen": spawnStrangeAttractor(id)
+        case "warp": spawnWarp()
+        case "snowglobe": spawnSnowGlobe()
         default: return false
         }
         return true
@@ -370,7 +521,9 @@ extension ParticleEngine {
             color: 0,
             budget: max(0, maxParticles - particles.count),
             rng: &rng,
-            span: patternSpan * 0.42
+            span: patternSpan * 0.42,
+            // In 3D, a ball rather than a ring, kept inside the box.
+            inDepth: worldDepth
         )
     }
 

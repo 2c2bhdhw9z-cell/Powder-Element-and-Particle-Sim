@@ -99,6 +99,34 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     /// adds to whatever the slider says and both work.
     public var autoOrbitAngle: Double
 
+    // MARK: - In 3D
+
+    /// Which way round the box the view has gone, in degrees, for the field in 3D. Nought is from the front.
+    ///
+    /// Kept apart from ``yaw`` and ``pitch``, which tip a flat field's sheet, because the two mean different
+    /// things: those lean a picture, these go round a box. A field switched between flat and 3D keeps each.
+    public var orbitYaw: Double
+    /// How far above the box the view is, in degrees. Nought is level; ninety would be straight down.
+    public var orbitPitch: Double
+    /// How strong the perspective is, from nought — none, so near and far are drawn the same size — to one.
+    public var perspective: Double
+    /// How much the far side of the box fades into the background, from nought to one.
+    public var fog: Double
+    /// Whether the edges of the box and its floor are drawn.
+    public var showsBox: Bool
+    /// Whether bodies glow and add together where they overlap, rather than the nearer hiding the further.
+    public var glows: Bool
+    /// How fast the view turns by itself, as a multiple of the usual pace.
+    public var spinRate: Double
+
+    /// Where a field in 3D is looked at from until somebody turns it: a little from the left and a little from
+    /// above, which is where depth shows best.
+    public static let restingOrbitYaw = -30.0
+    public static let restingOrbitPitch = 22.0
+    /// How far above or below the box the view can go. Stopping short of straight up and down keeps the turn
+    /// about the upright meaningful — at ninety degrees it would only spin the picture.
+    public static let maximumOrbitPitch = 88.0
+
     public init(
         zoom: Double = 1,
         panX: Double = 0,
@@ -107,7 +135,14 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         pitch: Double = 0,
         growsWorldWhenZoomedOut: Bool = true,
         autoOrbit: Bool = false,
-        autoOrbitAngle: Double = 0
+        autoOrbitAngle: Double = 0,
+        orbitYaw: Double = ParticleCamera.restingOrbitYaw,
+        orbitPitch: Double = ParticleCamera.restingOrbitPitch,
+        perspective: Double = 0.7,
+        fog: Double = 0.45,
+        showsBox: Bool = true,
+        glows: Bool = false,
+        spinRate: Double = 1
     ) {
         self.growsWorldWhenZoomedOut = growsWorldWhenZoomedOut
         self.zoom = Self.clampZoom(zoom)
@@ -117,10 +152,29 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         self.pitch = Self.clampPitch(pitch)
         self.autoOrbit = autoOrbit
         self.autoOrbitAngle = Self.wrapDegrees(autoOrbitAngle)
+        self.orbitYaw = Self.wrapDegrees(orbitYaw)
+        self.orbitPitch = Self.clampOrbitPitch(orbitPitch)
+        self.perspective = Self.unit(perspective, fallback: 0.7)
+        self.fog = Self.unit(fog, fallback: 0.45)
+        self.showsBox = showsBox
+        self.glows = glows
+        self.spinRate = spinRate.isFinite ? max(0.1, min(5, spinRate)) : 1
+    }
+
+    /// Public for the same reason as ``clampPitch(_:)``.
+    public static func clampOrbitPitch(_ value: Double) -> Double {
+        guard value.isFinite else { return restingOrbitPitch }
+        return max(-maximumOrbitPitch, min(maximumOrbitPitch, value))
+    }
+
+    static func unit(_ value: Double, fallback: Double) -> Double {
+        guard value.isFinite else { return fallback }
+        return max(0, min(1, value))
     }
 
     private enum CodingKeys: String, CodingKey {
         case zoom, panX, panY, yaw, pitch, growsWorldWhenZoomedOut, autoOrbit, autoOrbitAngle
+        case orbitYaw, orbitPitch, perspective, fog, showsBox, glows, spinRate
     }
 
     /// Read from a file with anything missing taken as its resting value.
@@ -139,7 +193,14 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
             pitch: (try? c.decodeIfPresent(Double.self, forKey: .pitch)) ?? 0,
             growsWorldWhenZoomedOut: (try? c.decodeIfPresent(Bool.self, forKey: .growsWorldWhenZoomedOut)) ?? true,
             autoOrbit: (try? c.decodeIfPresent(Bool.self, forKey: .autoOrbit)) ?? false,
-            autoOrbitAngle: (try? c.decodeIfPresent(Double.self, forKey: .autoOrbitAngle)) ?? 0
+            autoOrbitAngle: (try? c.decodeIfPresent(Double.self, forKey: .autoOrbitAngle)) ?? 0,
+            orbitYaw: (try? c.decodeIfPresent(Double.self, forKey: .orbitYaw)) ?? Self.restingOrbitYaw,
+            orbitPitch: (try? c.decodeIfPresent(Double.self, forKey: .orbitPitch)) ?? Self.restingOrbitPitch,
+            perspective: (try? c.decodeIfPresent(Double.self, forKey: .perspective)) ?? 0.7,
+            fog: (try? c.decodeIfPresent(Double.self, forKey: .fog)) ?? 0.45,
+            showsBox: (try? c.decodeIfPresent(Bool.self, forKey: .showsBox)) ?? true,
+            glows: (try? c.decodeIfPresent(Bool.self, forKey: .glows)) ?? false,
+            spinRate: (try? c.decodeIfPresent(Double.self, forKey: .spinRate)) ?? 1
         )
     }
 
@@ -153,6 +214,13 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         try c.encode(growsWorldWhenZoomedOut, forKey: .growsWorldWhenZoomedOut)
         try c.encode(autoOrbit, forKey: .autoOrbit)
         try c.encode(autoOrbitAngle, forKey: .autoOrbitAngle)
+        try c.encode(orbitYaw, forKey: .orbitYaw)
+        try c.encode(orbitPitch, forKey: .orbitPitch)
+        try c.encode(perspective, forKey: .perspective)
+        try c.encode(fog, forKey: .fog)
+        try c.encode(showsBox, forKey: .showsBox)
+        try c.encode(glows, forKey: .glows)
+        try c.encode(spinRate, forKey: .spinRate)
     }
 
     /// Looking straight down at the whole world, centred.
@@ -248,7 +316,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     ///   second after the app came back from the background does not jump the view a long way round.
     public mutating func advance(bySeconds seconds: Double) {
         guard autoOrbit, seconds.isFinite, seconds > 0 else { return }
-        let step = min(0.1, seconds) * Self.autoOrbitDegreesPerSecond
+        let step = min(0.1, seconds) * Self.autoOrbitDegreesPerSecond * spinRate
         autoOrbitAngle = Self.wrapDegrees(autoOrbitAngle + step)
     }
 
@@ -266,6 +334,10 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         yaw = 0
         pitch = 0
         autoOrbitAngle = 0
+        // And round the box to where a field in 3D starts. How strong the perspective and fog are, whether the
+        // box is drawn and whether bodies glow are choices about how it looks, so they are left alone.
+        orbitYaw = Self.restingOrbitYaw
+        orbitPitch = Self.restingOrbitPitch
     }
 
     // MARK: - The projection

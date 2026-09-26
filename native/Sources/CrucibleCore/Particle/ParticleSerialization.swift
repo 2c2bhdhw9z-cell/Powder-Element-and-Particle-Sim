@@ -49,6 +49,11 @@ public struct ParticleRecord: Codable, Sendable {
     public var lat: Int?
     /// Which strand of the helix, if any.
     public var helix: Double?
+    /// How far into the screen it is, how fast it is moving that way, and how far in its origin is — for a
+    /// field in 3D. Absent on a flat one.
+    public var z: Double?
+    public var vz: Double?
+    public var oz: Double?
 }
 
 /// A spring, as saved: two positions in the body list, a rest length and a stiffness.
@@ -81,6 +86,11 @@ public struct SwarmRecord: Codable, Sendable {
     public var home: [Float]?
     /// Each body's own size. Absent when none has one.
     public var size: [Float]?
+    /// How far into the screen each body is, how fast it is moving that way, and how far in its place in a
+    /// shape is. Absent on a flat field.
+    public var z: [Float]?
+    public var vz: [Float]?
+    public var hz: [Float]?
 }
 
 /// A whole particle field, as saved.
@@ -157,6 +167,10 @@ public struct ParticleState: Codable, Sendable {
     public var camera: ParticleCamera?
     /// Which arrangement the field was showing, so its chip lights up again and adding to it still joins it.
     public var arrangement: String?
+    /// Whether the field was in 3D, and how deep its box was. Absent in files from before there was depth,
+    /// which were all flat.
+    public var depthEnabled: Bool?
+    public var depthRatio: Double?
     public var swarm: SwarmRecord?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
@@ -220,6 +234,8 @@ extension ParticleEngine {
             // stay distinguishable.
             camera: nil,
             arrangement: storedArrangement,
+            depthEnabled: storedDepthEnabled ? true : nil,
+            depthRatio: storedDepthEnabled ? storedDepthRatio : nil,
             swarm: swarm.count > 0 ? swarmRecord(limit: Self.saveSwarmLimit) : nil,
             // Only springs whose two ends both survived the cap, since a position past the
             // end of what was written is exactly the stale index that makes a reloaded
@@ -248,7 +264,10 @@ extension ParticleEngine {
                     ox: body.originX.flatMap { $0.isFinite ? $0 : nil },
                     oy: body.originY.flatMap { $0.isFinite ? $0 : nil },
                     lat: body.latticeBound ? 1 : nil,
-                    helix: body.helixStrand
+                    helix: body.helixStrand,
+                    z: storedDepthEnabled && body.z.isFinite && body.z != 0 ? body.z : nil,
+                    vz: storedDepthEnabled && body.velocityZ.isFinite && body.velocityZ != 0 ? body.velocityZ : nil,
+                    oz: storedDepthEnabled && body.originZ.isFinite && body.originZ != 0 ? body.originZ : nil
                 )
             }
         )
@@ -298,6 +317,14 @@ extension ParticleEngine {
         if swarm.hasSizes {
             ownSizes = (0 ..< taken).map { swarm.sizes[$0] }
         }
+        var depths: [Float]?
+        var depthVelocities: [Float]?
+        var homeDepths: [Float]?
+        if storedDepthEnabled, swarm.hasDepth {
+            depths = (0 ..< taken).map { swarm.depths[$0].isFinite ? swarm.depths[$0] : 0 }
+            depthVelocities = (0 ..< taken).map { swarm.depthVelocities[$0].isFinite ? swarm.depthVelocities[$0] : 0 }
+            homeDepths = (0 ..< taken).map { swarm.homeDepths[$0].isFinite ? swarm.homeDepths[$0] : 0 }
+        }
         return SwarmRecord(
             n: taken,
             x: x,
@@ -310,7 +337,10 @@ extension ParticleEngine {
             maxLife: started.isEmpty ? nil : started,
             role: roles.isEmpty ? nil : roles,
             home: homes.isEmpty ? nil : homes,
-            size: ownSizes.isEmpty ? nil : ownSizes
+            size: ownSizes.isEmpty ? nil : ownSizes,
+            z: depths,
+            vz: depthVelocities,
+            hz: homeDepths
         )
     }
 
@@ -408,6 +438,10 @@ extension ParticleEngine {
         fluidEnabled = state.fluidEnabled ?? false
         _ = setMaxParticles(state.maxParticles)
 
+        // Before the bodies, so they are put back into the right kind of world.
+        storedDepthEnabled = state.depthEnabled ?? false
+        storedDepthRatio = Self.usableDepthRatio(state.depthRatio ?? 1)
+
         // Cleared through the path that drops the springs with the world they belonged to.
         replaceParticles([])
         swarm.removeAll()
@@ -445,7 +479,10 @@ extension ParticleEngine {
                 originY: record.oy.flatMap { $0.isFinite ? place($0) : nil },
                 latticeBound: record.lat == 1,
                 helixStrand: record.helix,
-                kind: record.t.flatMap(ParticleKind.init(rawValue:)) ?? .standard
+                kind: record.t.flatMap(ParticleKind.init(rawValue:)) ?? .standard,
+                z: storedDepthEnabled ? place(record.z ?? 0) : 0,
+                velocityZ: storedDepthEnabled ? speed(record.vz ?? 0) : 0,
+                originZ: storedDepthEnabled ? (record.oz.flatMap { $0.isFinite ? place($0) : nil } ?? 0) : 0
             )
         }
 
@@ -516,6 +553,21 @@ extension ParticleEngine {
                 let value = i < saved.count ? saved[i] : 0
                 return value.isFinite ? max(0, min(400, value)) : 0
             }
+        }
+        // Depth only into a field that is in 3D. A flat field reading a 3D file's depths would be drawing flat
+        // bodies that behave as though they were somewhere else.
+        if storedDepthEnabled {
+            let reach = Float(max(width, height) * 4 + 1_000)
+            func read(_ saved: [Float]?, limit: Float) -> [Float] {
+                guard let saved, !saved.isEmpty else { return [] }
+                return (0 ..< taken).map { i in
+                    let value = i < saved.count ? saved[i] : 0
+                    return value.isFinite ? max(-limit, min(limit, value)) : 0
+                }
+            }
+            snapshot.depths = read(record.z, limit: reach)
+            snapshot.depthVelocities = read(record.vz, limit: 10_000)
+            snapshot.homeDepths = read(record.hz, limit: reach)
         }
         swarm.restore(from: snapshot, budget: max(0, maxParticles - particles.count))
     }

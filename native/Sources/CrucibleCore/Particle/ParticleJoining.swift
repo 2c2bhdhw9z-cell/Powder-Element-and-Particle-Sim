@@ -155,6 +155,8 @@ extension ParticleEngine {
             var y: Double
             var velX: Double
             var velY: Double
+            var z = 0.0
+            var velZ = 0.0
             var colour: UInt32
             var ownSize = 0.0
 
@@ -164,13 +166,16 @@ extension ParticleEngine {
                 // synchrotron's bodies circle the midpoint between its wells — and otherwise the nearest hole.
                 let centreX: Double
                 let centreY: Double
+                let centreZ: Double
                 if let originX = member.originX, let originY = member.originY {
                     centreX = originX
                     centreY = originY
+                    centreZ = member.originZ
                 } else {
                     let hole = nearestHole(toX: member.x, y: member.y)
                     centreX = hole.x
                     centreY = hole.y
+                    centreZ = hole.z
                 }
                 let turn = rng.next() * Double.pi * 2
                 let c = jsCos(turn)
@@ -178,13 +183,25 @@ extension ParticleEngine {
                 // A little further in or out, with the speed adjusted to match, so the new bodies fill the
                 // disc rather than landing exactly on the orbits that already exist.
                 let stretch = 0.92 + rng.next() * 0.16
-                let offsetX = (member.x - centreX) * stretch
-                let offsetY = (member.y - centreY) * stretch
-                x = centreX + offsetX * c - offsetY * s
-                y = centreY + offsetX * s + offsetY * c
                 let slow = 1 / stretch.squareRoot()
-                velX = (member.velocityX * c - member.velocityY * s) * slow
-                velY = (member.velocityX * s + member.velocityY * c) * slow
+                if storedDepthEnabled {
+                    // In depth every disc lies level, so the copy is turned round the upright through its centre.
+                    let offsetX = (member.x - centreX) * stretch
+                    let offsetZ = (member.z - centreZ) * stretch
+                    x = centreX + offsetX * c - offsetZ * s
+                    z = centreZ + offsetX * s + offsetZ * c
+                    y = centreY + (member.y - centreY) * stretch
+                    velX = (member.velocityX * c - member.velocityZ * s) * slow
+                    velZ = (member.velocityX * s + member.velocityZ * c) * slow
+                    velY = member.velocityY * slow
+                } else {
+                    let offsetX = (member.x - centreX) * stretch
+                    let offsetY = (member.y - centreY) * stretch
+                    x = centreX + offsetX * c - offsetY * s
+                    y = centreY + offsetX * s + offsetY * c
+                    velX = (member.velocityX * c - member.velocityY * s) * slow
+                    velY = (member.velocityX * s + member.velocityY * c) * slow
+                }
                 colour = member.color.packedRGBA
                 if storedMatchesArrangementSize, member.radius.isFinite, member.radius > 0 {
                     ownSize = member.radius * 2
@@ -194,10 +211,19 @@ extension ParticleEngine {
                 let distance = rng.next() * (patternSpan * 0.4) + 30 * sceneScale
                 let angle = rng.next() * Double.pi * 2
                 let speed = (hole.mass * 200 / distance).squareRoot()
-                x = hole.x + jsCos(angle) * distance
-                y = hole.y + jsSin(angle) * distance
-                velX = -jsSin(angle) * speed
-                velY = jsCos(angle) * speed
+                if storedDepthEnabled {
+                    x = hole.x + jsCos(angle) * distance
+                    y = hole.y
+                    z = hole.z + jsSin(angle) * distance
+                    velX = -jsSin(angle) * speed
+                    velY = 0
+                    velZ = jsCos(angle) * speed
+                } else {
+                    x = hole.x + jsCos(angle) * distance
+                    y = hole.y + jsSin(angle) * distance
+                    velX = -jsSin(angle) * speed
+                    velY = jsCos(angle) * speed
+                }
                 colour = PackedColor(hue: (distance * 2.8).truncatingRemainder(dividingBy: 360), saturation: 0.95, lightness: 0.7)
                     .packedRGBA
                 if storedMatchesArrangementSize { ownSize = fallbackSize }
@@ -211,7 +237,9 @@ extension ParticleEngine {
                 color: colour,
                 budget: budget,
                 role: .orbits,
-                size: ownSize
+                size: ownSize,
+                z: z,
+                velocityZ: velZ
             ) else { return }
         }
     }
@@ -235,7 +263,8 @@ extension ParticleEngine {
                 budget: maxParticles - particles.count,
                 rng: &rng,
                 span: patternSpan * 0.42,
-                size: storedMatchesArrangementSize ? arrangementBodySize : 0
+                size: storedMatchesArrangementSize ? arrangementBodySize : 0,
+                inDepth: worldDepth
             )
             return
         }
@@ -259,6 +288,8 @@ extension ParticleEngine {
             let ownSize = storedMatchesArrangementSize ? Double(swarm.sizes[source]) : 0
             var x: Double
             var y: Double
+            var z = 0.0
+            var velZ = 0.0
             if var place = home {
                 if place.radius > 0 {
                     place.radius *= 0.98 + rng.next() * 0.04
@@ -266,20 +297,34 @@ extension ParticleEngine {
                 } else {
                     place.anchorX += (rng.next() - 0.5) * 2 * nudge
                     place.anchorY += (rng.next() - 0.5) * 2 * nudge
+                    if storedDepthEnabled { place.anchorZ += (rng.next() - 0.5) * 2 * nudge }
                 }
                 home = place
-                let point = place.point
-                x = point.x
-                y = point.y
+                if storedDepthEnabled {
+                    let point = place.point(for: role)
+                    x = point.x
+                    y = point.y
+                    z = point.z
+                } else {
+                    let point = place.flatPoint(for: role)
+                    x = point.x
+                    y = point.y
+                }
             } else {
                 x = Double(swarm.positions[pair]) + (rng.next() - 0.5) * 2 * nudge
                 y = Double(swarm.positions[pair + 1]) + (rng.next() - 0.5) * 2 * nudge
+                if storedDepthEnabled { z = Double(swarm.depths[source]) + (rng.next() - 0.5) * 2 * nudge }
             }
-            if !x.isFinite || !y.isFinite {
+            if storedDepthEnabled {
+                velZ = Double(swarm.depthVelocities[source]) + (rng.next() - 0.5) * 0.2
+            }
+            if !x.isFinite || !y.isFinite || !z.isFinite {
                 x = width * 0.5
                 y = height * 0.5
+                z = 0
                 velX = 0
                 velY = 0
+                velZ = 0
             }
             guard swarm.append(
                 x: x,
@@ -292,7 +337,9 @@ extension ParticleEngine {
                 life: life,
                 role: role,
                 home: home,
-                size: ownSize
+                size: ownSize,
+                z: z,
+                velocityZ: velZ
             ) else { return }
         }
     }
@@ -322,11 +369,21 @@ extension ParticleEngine {
                 let longest = max(1, member.maxLife ?? 100)
                 return max(1, Int((rng.next() * Double(longest)).rounded(.down)))
             }
+            let x = member.x + (rng.next() - 0.5) * 2 * nudge
+            let y = member.y + (rng.next() - 0.5) * 2 * nudge
+            let velX = member.velocityX + (rng.next() - 0.5) * 0.3
+            let velY = member.velocityY + (rng.next() - 0.5) * 0.3
+            var z = 0.0
+            var velZ = 0.0
+            if storedDepthEnabled {
+                z = member.z + (rng.next() - 0.5) * 2 * nudge
+                velZ = member.velocityZ + (rng.next() - 0.5) * 0.3
+            }
             addParticle(
-                x: member.x + (rng.next() - 0.5) * 2 * nudge,
-                y: member.y + (rng.next() - 0.5) * 2 * nudge,
-                velocityX: member.velocityX + (rng.next() - 0.5) * 0.3,
-                velocityY: member.velocityY + (rng.next() - 0.5) * 0.3,
+                x: x,
+                y: y,
+                velocityX: velX,
+                velocityY: velY,
                 // The size of the body it copies, or with matching off, one drawn at the size slider's size.
                 radius: storedMatchesArrangementSize ? member.radius : 1,
                 mass: member.mass,
@@ -339,7 +396,10 @@ extension ParticleEngine {
                 originY: member.originY,
                 latticeBound: member.latticeBound,
                 helixStrand: member.helixStrand,
-                kind: .standard
+                kind: .standard,
+                z: z,
+                velocityZ: velZ,
+                originZ: member.originZ
             )
         }
     }
@@ -347,6 +407,26 @@ extension ParticleEngine {
     // MARK: - Structures
 
     private func joinStructure(_ id: String) {
+        if storedDepthEnabled {
+            switch id {
+            case "rope":
+                addRopeInDepth(length: 32, atX: across(0.12 + rng.next() * 0.76))
+            case "blob":
+                addBlobInDepth(
+                    nodes: 42,
+                    centreX: across(0.2 + rng.next() * 0.6),
+                    centreY: down(0.15 + rng.next() * 0.3),
+                    centreZ: (rng.next() - 0.5) * halfDepth
+                )
+            case "cloth":
+                addClothInDepth(cols: 10, rows: 8, centreX: across(0.25 + rng.next() * 0.5), top: down(0.05 + rng.next() * 0.35))
+            case "molecules":
+                addMoleculesInDepth(count: 60, laidOut: false)
+            default:
+                break
+            }
+            return
+        }
         switch id {
         case "rope":
             addRope(length: 32, atX: across(0.12 + rng.next() * 0.76))

@@ -27,6 +27,21 @@ extension ParticleEngine {
         pushUndo()
         let centreX = x ?? width / 2
         let centreY = y ?? height / 2
+        // In 3D, a ball thrown out in every direction rather than a ring.
+        if storedDepthEnabled {
+            for i in 0 ..< count {
+                let direction = randomDirection()
+                let speed = rng.next() * 8 + 2
+                let radius = rng.next() * 3 + 2
+                addParticle(
+                    x: centreX, y: centreY,
+                    velocityX: direction.x * speed, velocityY: direction.y * speed,
+                    radius: radius, charge: i % 2 == 0 ? 1 : -1,
+                    velocityZ: direction.z * speed
+                )
+            }
+            return
+        }
 
         for i in 0 ..< count {
             let angle = rng.next() * Double.pi * 2
@@ -44,6 +59,7 @@ extension ParticleEngine {
 
     /// A spiral disc orbiting a central black hole.
     public func spawnGalaxy(count: Int = 300) {
+        if storedDepthEnabled { return spawnGalaxyInDepth(count: count) }
         beginScene("galaxy", gravityY: 0)
 
         let centreX = width / 2
@@ -79,6 +95,7 @@ extension ParticleEngine {
 
     /// Water falling from the top and recycled at the bottom.
     public func spawnWaterfall(count: Int = 250) {
+        if storedDepthEnabled { return spawnWaterfallInDepth(count: count) }
         beginScene("waterfall", gravityY: 0.4)
 
         let startX = across(0.3)
@@ -102,6 +119,7 @@ extension ParticleEngine {
 
     /// An expanding ring, evenly spaced in angle.
     public func spawnShockwave(count: Int = 300) {
+        if storedDepthEnabled { return spawnShockwaveInDepth(count: count) }
         beginScene("shockwave", gravityY: 0)
 
         let centreX = width / 2
@@ -126,6 +144,7 @@ extension ParticleEngine {
 
     /// A heavier black hole with a tighter accretion disc.
     public func spawnBlackHole(count: Int = 250) {
+        if storedDepthEnabled { return spawnBlackHoleInDepth(count: count) }
         beginScene("blackhole", gravityY: 0)
 
         let centreX = width / 2
@@ -161,6 +180,7 @@ extension ParticleEngine {
 
     /// Two counter-rotating wells side by side.
     public func spawnDoubleVortex(count: Int = 300) {
+        if storedDepthEnabled { return spawnDoubleVortexInDepth(count: count) }
         beginScene("vortex", gravityY: 0)
 
         let leftX = across(0.35)
@@ -236,6 +256,7 @@ extension ParticleEngine {
 
     /// A glowing core throwing off short-lived flares.
     public func spawnSolarFlare(count: Int = 350) {
+        if storedDepthEnabled { return spawnSolarFlareInDepth(count: count) }
         beginScene("flare", gravityY: 0)
 
         let centreX = width / 2
@@ -271,6 +292,7 @@ extension ParticleEngine {
 
     /// A charged grid, each node held to its own position by a spring.
     public func spawnQuantumLattice(rows: Int = 18, cols: Int = 24) {
+        if storedDepthEnabled { return spawnQuantumLatticeInDepth() }
         beginScene("lattice", gravityY: 0)
 
         guard rows > 0, cols > 0 else { return }
@@ -309,6 +331,7 @@ extension ParticleEngine {
 
     /// Two counter-phase strands travelling left to right.
     public func spawnDnaHelix(count: Int = 280) {
+        if storedDepthEnabled { return spawnDnaHelixInDepth(count: count) }
         beginScene("helix", gravityY: 0)
 
         guard count > 0 else { return }
@@ -359,6 +382,7 @@ extension ParticleEngine {
 
     /// A jet from the floor that falls back and is relaunched.
     public func spawnCosmicFountain(count: Int = 250) {
+        if storedDepthEnabled { return spawnCosmicFountainInDepth(count: count) }
         beginScene("fountain", gravityY: 0.3)
 
         let centreX = width / 2
@@ -385,6 +409,7 @@ extension ParticleEngine {
 
     /// Two wells far enough apart to fling particles between them.
     public func spawnSynchrotron(count: Int = 300) {
+        if storedDepthEnabled { return spawnSynchrotronInDepth(count: count) }
         beginScene("synchrotron", gravityY: 0)
 
         let centreX = width / 2
@@ -434,8 +459,12 @@ extension ParticleEngine {
     /// The poured bodies last twenty-five seconds. Without a lifetime a pour left running fills the tank to
     /// the brim and then fills the rest of the field; with one it reaches a level and stays there.
     public func spawnPour(count: Int = 1_200) {
+        if storedDepthEnabled { return spawnPourInDepth(count: count) }
         beginScene("pour", gravityY: 0.38)
         fluidEnabled = true
+        // The flat liquid's own spacing, rather than whatever the last liquid was set to — in 3D the liquid is
+        // coarser (see `depthLiquid`), and carried back here it would make the flat pour a different liquid.
+        fluidSettings = .default
         let budget = maxParticles - particles.count
         let centreX = width * 0.5
         let column = patternSpan * 0.035
@@ -470,6 +499,7 @@ extension ParticleEngine {
 
     /// A scattered flock that finds its own formation.
     public func spawnFlock(count: Int = 220) {
+        if storedDepthEnabled { return spawnFlockInDepth(count: count) }
         beginScene("flock", gravityY: 0)
         flockEnabled = true
         for _ in 0 ..< count {
@@ -499,6 +529,7 @@ extension ParticleEngine {
     /// slowed by the air, as orbiting bodies do everywhere else in the field; otherwise the disc would spiral
     /// into its core within a minute.
     public func spawnNbody(count: Int = 1_400) {
+        if storedDepthEnabled { return spawnNbodyInDepth(count: count) }
         beginScene("nbody", gravityY: 0)
         nbodyEnabled = true
         let budget = maxParticles - particles.count
@@ -552,6 +583,7 @@ extension ParticleEngine {
 
     /// A pinned sheet of sprung nodes.
     public func spawnCloth(cols: Int = 16, rows: Int = 12) {
+        if storedDepthEnabled { return spawnClothInDepth(cols: cols, rows: rows) }
         beginScene("cloth", gravityY: 0.35)
         springs.removeAll(keepingCapacity: true)
         addCloth(cols: cols, rows: rows, centreX: width / 2, top: 36 * sceneScale)
@@ -596,6 +628,7 @@ extension ParticleEngine {
 
     /// A chain hanging from a pinned top node.
     public func spawnRope(length: Int = 32) {
+        if storedDepthEnabled { return spawnRopeInDepth(length: length) }
         beginScene("rope", gravityY: 0.4)
         springs.removeAll(keepingCapacity: true)
         addRope(length: length, atX: width / 2)
@@ -626,6 +659,7 @@ extension ParticleEngine {
 
     /// A ring of nodes held in a blob by rim and cross springs.
     public func spawnBlob(nodes: Int = 24) {
+        if storedDepthEnabled { return spawnBlobInDepth() }
         beginScene("blob", gravityY: 0.22)
         springs.removeAll(keepingCapacity: true)
         addBlob(nodes: nodes, centreX: width / 2, centreY: down(0.4))
@@ -702,7 +736,9 @@ extension ParticleEngine {
                 // The screen's span rather than the world's, so a crowd added after zooming out is the size it
                 // would have been, with room round it. The same number whenever the world is the screen.
                 span: patternSpan * 0.42,
-                size: ownSize
+                size: ownSize,
+                // And in 3D, a ball in the box rather than a ring.
+                inDepth: worldDepth
             )
             return
         }
@@ -723,6 +759,11 @@ extension ParticleEngine {
             holeX = hole.x
             holeY = hole.y
             gravitationalConstant = hole.mass * 200
+        }
+
+        if storedDepthEnabled {
+            addBatchInDepth(count: toSpawn, color: color, ownSize: ownSize)
+            return
         }
 
         for i in 0 ..< toSpawn {

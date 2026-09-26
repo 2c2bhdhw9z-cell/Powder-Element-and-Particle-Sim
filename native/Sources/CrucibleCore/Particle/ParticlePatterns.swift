@@ -137,6 +137,7 @@ extension ParticleEngine {
     /// the seeds the same distance apart all the way out — area grows as the square of radius, so
     /// spacing stays even only if radius grows as the square root of the number placed.
     public func spawnSunflower(count requested: Int = 4_200) {
+        if storedDepthEnabled { return spawnSunflowerInDepth(count: requested) }
         beginScene("sunflower", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -181,6 +182,7 @@ extension ParticleEngine {
     /// comes from taking the cosine of four times the angle: that goes positive and negative four times
     /// round the circle, and taking its size regardless of sign doubles it to eight.
     public func spawnMandala(count requested: Int = 3_600) {
+        if storedDepthEnabled { return spawnMandalaInDepth(count: requested) }
         beginScene("mandala", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -285,6 +287,7 @@ extension ParticleEngine {
     /// toward the tip. Six arms because that is how ice crystallises, and the barbs at sixty degrees for
     /// the same reason — it is the one angle that makes the shape read as ice rather than as a star.
     public func spawnSnowflakes(count requested: Int = 3_600) {
+        if storedDepthEnabled { return spawnSnowflakesInDepth(count: requested) }
         beginScene("snowflakes", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -417,6 +420,7 @@ extension ParticleEngine {
     /// It used to be laid out once with a push sideways and then left alone, so it drifted apart and slid to
     /// the floor within a couple of seconds. A tornado that does not turn is not a tornado.
     public func spawnTornado(count requested: Int = 2_600) {
+        if storedDepthEnabled { return spawnTornadoInDepth(count: requested) }
         beginScene("tornado", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -479,6 +483,7 @@ extension ParticleEngine {
     /// stops every bolt looking the same, and the branches are shorter and dimmer than the trunk so the
     /// shape reads as one bolt with offshoots rather than as several bolts.
     func strikeLightning(count requested: Int) {
+        if storedDepthEnabled { return strikeLightningInDepth(count: requested) }
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
 
@@ -562,6 +567,7 @@ extension ParticleEngine {
     /// Each body sways from side to side about its place in the curtain, a little behind the one above it,
     /// so a ripple runs down every curtain. It used to be laid out once and then left to drift and fall.
     public func spawnAurora(count requested: Int = 4_000) {
+        if storedDepthEnabled { return spawnAuroraInDepth(count: requested) }
         beginScene("aurora", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -610,6 +616,7 @@ extension ParticleEngine {
     /// end as four thousand dots bouncing round the edges of the field for ever, which is what a supernova
     /// looks like for about a second and then not at all.
     public func spawnSupernova(count requested: Int = 3_200) {
+        if storedDepthEnabled { return spawnSupernovaInDepth(count: requested) }
         beginScene("supernova", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -677,6 +684,7 @@ extension ParticleEngine {
     ///
     /// Every body holds its place, and the whole triangle turns very slowly about its middle.
     public func spawnSierpinski(count requested: Int = 3_600) {
+        if storedDepthEnabled { return spawnSierpinskiInDepth(count: requested) }
         beginScene("sierpinski", gravityY: 0)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -736,6 +744,7 @@ extension ParticleEngine {
     /// `stepArrangement`. It used to be one volley, after which three thousand sparks lay bouncing on the
     /// floor for ever.
     public func spawnFireworks(count requested: Int = 2_800) {
+        if storedDepthEnabled { return spawnFireworksInDepth(count: requested) }
         beginScene("fireworks", gravityY: 0.05)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -749,6 +758,7 @@ extension ParticleEngine {
 
     /// One shell bursting, somewhere in the upper half of the sky.
     func launchShell(count requested: Int) {
+        if storedDepthEnabled { return launchShellInDepth(count: requested) }
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
         let span = patternSpan
@@ -779,6 +789,7 @@ extension ParticleEngine {
     /// ever — which is not magma, it is orange sand. The pool now holds its level and heaves from side to
     /// side in slow waves, and three vents along it keep throwing up embers that arc, fade and are gone.
     public func spawnMagma(count requested: Int = 3_600) {
+        if storedDepthEnabled { return spawnMagmaInDepth(count: requested) }
         beginScene("magma", gravityY: 0.05)
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
@@ -837,6 +848,7 @@ extension ParticleEngine {
     /// after the party. Each piece now lasts a while and then goes, and three sources across the top keep
     /// more coming.
     public func spawnConfetti(count requested: Int = 3_200) {
+        if storedDepthEnabled { return spawnConfettiInDepth(count: requested) }
         beginScene("confetti", gravityY: 0.025)
         storedFlowEnabled = true
         storedFlowSettings = SwarmFlow.Settings(strength: 0.3, scale: max(60, patternSpan * 0.2), drift: 0.15)
@@ -892,6 +904,7 @@ extension ParticleEngine {
     /// upright*, which puts the angle between them at seventy-five degrees rather than the hundred and
     /// four and a half it names. Here the angle between them is the angle.
     public func spawnMolecules(count requested: Int = 900) {
+        if storedDepthEnabled { return spawnMoleculesInDepth(count: requested) }
         beginScene("molecules", gravityY: 0)
         addMolecules(count: requested, laidOut: true)
     }
@@ -1059,6 +1072,7 @@ extension ParticleEngine {
     /// The smallest of the four and the one that shows off the camera's tilt: a ring seen from straight on is
     /// a circle, and leaning the plane over turns it into a proper ellipse with the near side drawn larger.
     public func spawnRing(count requested: Int = 3_200) {
+        if storedDepthEnabled { return spawnRingInDepth(count: requested) }
         beginScene("ring", gravityY: 0)
         let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
         guard total > 0 else { return }
@@ -1103,11 +1117,14 @@ extension ParticleEngine {
     /// body has four neighbours at the spacing and four more at the diagonal, so the fluid immediately
     /// rearranges it into a honeycomb anyway, with a visible shudder. Starting where it wants to be skips that.
     public func spawnWaterPool(count requested: Int = 6_000) {
+        if storedDepthEnabled { return spawnWaterPoolInDepth(count: requested) }
         beginScene("water", gravityY: 0.35)
         let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
         guard total > 0 else { return }
 
         fluidEnabled = true
+        // The flat liquid's own spacing: see the same line in `spawnPour`.
+        fluidSettings = .default
 
         let spacing = (1 / max(1e-6, fluidSettings.sanitized.restDensity)).squareRoot()
         // Four fifths of the budget in the pool, the rest falling into it.
@@ -1167,6 +1184,7 @@ extension ParticleEngine {
     /// forever is a jet, and a body that fades out part of the way up is a flame. That needed the crowd to
     /// carry lifetimes at all, which until now it did not.
     public func spawnFire(count requested: Int = 2_400) {
+        if storedDepthEnabled { return spawnFireInDepth(count: requested) }
         // Upward, so gravity has to point the other way. Fire rises because it is hotter than the air round
         // it, and the cheapest honest way to say that here is negative gravity.
         beginScene("fire", gravityY: -0.22)
@@ -1209,6 +1227,7 @@ extension ParticleEngine {
 
     /// Smoke: slower, wider and lighter than fire, and lasting far longer.
     public func spawnSmoke(count requested: Int = 2_400) {
+        if storedDepthEnabled { return spawnSmokeInDepth(count: requested) }
         beginScene("smoke", gravityY: -0.1)
         let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
         guard total > 0 else { return }

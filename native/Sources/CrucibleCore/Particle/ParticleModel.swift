@@ -101,11 +101,14 @@ public struct TrailBuffer: Sendable, Hashable {
         Float, Float, Float, Float, Float, Float,
         Float, Float, Float, Float, Float, Float
     ) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    /// How far into the screen each point was, for a field with depth. Nought on a flat field.
+    private var depthStorage: (Float, Float, Float, Float, Float, Float) = (0, 0, 0, 0, 0, 0)
 
     public init() {}
 
     /// Adds a point, discarding the oldest once full.
-    public mutating func append(x: Float, y: Float) {
+    public mutating func append(x: Float, y: Float, z: Float = 0) {
+        let wasFull = count >= Self.capacity
         withUnsafeMutablePointer(to: &storage) { tuple in
             let slots = UnsafeMutableRawPointer(tuple).assumingMemoryBound(to: Float.self)
             if count < Self.capacity {
@@ -121,6 +124,23 @@ public struct TrailBuffer: Sendable, Hashable {
                 slots[(Self.capacity - 1) * 2] = x
                 slots[(Self.capacity - 1) * 2 + 1] = y
             }
+        }
+        withUnsafeMutablePointer(to: &depthStorage) { tuple in
+            let slots = UnsafeMutableRawPointer(tuple).assumingMemoryBound(to: Float.self)
+            if wasFull {
+                for i in 0 ..< (Self.capacity - 1) { slots[i] = slots[i + 1] }
+                slots[Self.capacity - 1] = z
+            } else {
+                slots[count - 1] = z
+            }
+        }
+    }
+
+    /// How far into the screen the point at an index was. Nought on a flat field.
+    public func depth(at index: Int) -> Float {
+        guard index >= 0, index < count else { return 0 }
+        return withUnsafePointer(to: depthStorage) { tuple in
+            UnsafeRawPointer(tuple).assumingMemoryBound(to: Float.self)[index]
         }
     }
 
@@ -152,6 +172,7 @@ public struct TrailBuffer: Sendable, Hashable {
         for index in 0 ..< lhs.count {
             guard let left = lhs.point(at: index), let right = rhs.point(at: index) else { return false }
             if left.x != right.x || left.y != right.y { return false }
+            if lhs.depth(at: index) != rhs.depth(at: index) { return false }
         }
         return true
     }
@@ -189,6 +210,10 @@ public struct ParticleObject: Sendable, Hashable {
     public var y: Double
     public var velocityX: Double
     public var velocityY: Double
+    /// How far into the screen it is, for a field with depth. Nought — the middle — on a flat field.
+    public var z: Double = 0
+    /// How fast it is moving into or out of the screen.
+    public var velocityZ: Double = 0
 
     /// Drawn size, and the distance kept from a wall when bouncing.
     public var radius: Double
@@ -214,6 +239,8 @@ public struct ParticleObject: Sendable, Hashable {
     /// Where it returns to when recycled. `nil` means it simply expires.
     public var originX: Double?
     public var originY: Double?
+    /// How far into the screen that place is, for a field with depth. Nought is the middle.
+    public var originZ: Double = 0
 
     /// Held to its origin by a spring. Only the lattice preset sets this.
     public var latticeBound: Bool
@@ -286,7 +313,7 @@ public struct ParticleObject: Sendable, Hashable {
     /// not-a-number, manufacturing the corruption it existed to remove.
     @inlinable
     public var isFinite: Bool {
-        x.isFinite && y.isFinite && velocityX.isFinite && velocityY.isFinite
+        x.isFinite && y.isFinite && velocityX.isFinite && velocityY.isFinite && z.isFinite && velocityZ.isFinite
     }
 }
 

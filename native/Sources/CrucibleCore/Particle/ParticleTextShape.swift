@@ -199,10 +199,30 @@ extension ParticleEngine {
         let topEdge = height * 0.5 - drawnHeight * 0.5
 
         var placed = 0
+        // In 3D the letters are solid: each body is somewhere through a thickness, so the word can be looked at
+        // from the side and is a block of letters rather than a sheet of paper.
+        let thickness = storedDepthEnabled ? min(halfDepth, 0.07 * patternSpan) : 0
         for sample in picked {
             let x = leftEdge + (sample.x - minX) * Double(pictureWidth) * scale
             let y = topEdge + (sample.y - minY) * Double(pictureHeight) * scale
             let acrossWord = (sample.x - minX) * Double(pictureWidth) / inkWidth
+            if storedDepthEnabled {
+                let z = (rng.next() - 0.5) * thickness
+                let placedOne = swarm.append(
+                    x: x,
+                    y: y,
+                    velocityX: 0,
+                    velocityY: 0,
+                    color: PackedColor(hue: 190 + acrossWord * 120, saturation: 0.78, lightness: 0.66).packedRGBA,
+                    budget: maxParticles - particles.count,
+                    role: .holds,
+                    home: Swarm.Home(anchorX: x, anchorY: y, stiffness: 0.01, anchorZ: z),
+                    z: z
+                )
+                guard placedOne else { break }
+                placed += 1
+                continue
+            }
             let placedOne = swarm.append(
                 x: x,
                 y: y,

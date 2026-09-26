@@ -66,7 +66,18 @@ public final class ParticleEngine {
     public var mouseForceMultiplier: Double = 1.0
     public private(set) var lastMouseX: Double = 0
     public private(set) var lastMouseY: Double = 0
+    /// How far into the screen the finger was last, in a field with depth: the depth of the place under it
+    /// that tools like the emitter put things at. Nought on a flat field.
+    public private(set) var lastMouseZ: Double = 0
     public private(set) var lastMouseActive: Bool = false
+    /// Where the finger points, in a field with depth. Set by the app from its camera before each moment
+    /// while a finger is down, since only the camera knows where the eye is. Ignored on a flat field.
+    ///
+    /// When nothing has set it, a finger at a place is taken as looking straight at the box from the front.
+    public var fingerRay: ParticleFingerRay?
+    /// The line this moment's tools act along: the one set, or the straight-on one. Nothing while no finger is
+    /// down, or on a flat field.
+    var activeFingerRay: ParticleFingerRay?
 
     // MARK: - Presentation and limits
 
@@ -145,6 +156,14 @@ public final class ParticleEngine {
     /// ``screenHeight``; nought means the whole world.
     var storedScreenWidth = 0.0
     var storedScreenHeight = 0.0
+    /// Whether the field is in 3D. Reached through ``depthEnabled``; changed through ``setDepthEnabled(_:)``,
+    /// which also rebuilds what is showing in its other form.
+    var storedDepthEnabled = false
+    /// How deep the box is, as a share of the world's shorter side. Reached through ``depthRatio``.
+    var storedDepthRatio = 1.0
+    /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
+    let depthFluid = SwarmDepthFluid()
+    let depthGravity = SwarmDepthGravity()
 
     /// Sources pouring into the world. Reached through ``emitters``.
     var storedEmitters: [ParticleEmitter] = []
@@ -226,6 +245,8 @@ public final class ParticleEngine {
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
     private let maximumUndoSteps = 20
+    /// Set while a change made of several steps is under way. See ``pushUndo()``.
+    var undoSuppressed = false
 
     // MARK: - Lifetime
 
@@ -401,7 +422,10 @@ public final class ParticleEngine {
         originY: Double? = nil,
         latticeBound: Bool = false,
         helixStrand: Double? = nil,
-        kind: ParticleKind = .standard
+        kind: ParticleKind = .standard,
+        z: Double = 0,
+        velocityZ: Double = 0,
+        originZ: Double = 0
     ) -> Int {
         if bodyCount >= maxParticles, !particles.isEmpty {
             // Evicted through removeParticles so spring endpoints follow the shift.
@@ -416,7 +440,7 @@ public final class ParticleEngine {
 
         let resolvedColor = color ?? PackedColor(hue: rng.next() * 360, saturation: 0.85, lightness: 0.65)
 
-        let particle = ParticleObject(
+        var particle = ParticleObject(
             id: id,
             x: x ?? width / 2,
             y: y ?? height / 2,
@@ -438,6 +462,9 @@ public final class ParticleEngine {
             helixStrand: helixStrand,
             kind: kind
         )
+        particle.z = z.isFinite ? z : 0
+        particle.velocityZ = velocityZ.isFinite ? velocityZ : 0
+        particle.originZ = originZ.isFinite ? originZ : 0
         particles.append(particle)
         return id
     }
@@ -565,6 +592,9 @@ public final class ParticleEngine {
         public var current: ParticleCurrentField = ParticleCurrentField()
         public var arrangement: String?
         public var arrangementAge: Int = 0
+        /// Whether the field was in 3D, so undoing the switch puts the field back the way it was and not
+        /// flat bodies in a 3D box.
+        public var depthEnabled: Bool = false
     }
 
     /// Largest swarm that is worth copying into an undo entry.
@@ -593,7 +623,8 @@ public final class ParticleEngine {
             emitters: storedEmitters,
             current: storedCurrent,
             arrangement: storedArrangement,
-            arrangementAge: arrangementAge
+            arrangementAge: arrangementAge,
+            depthEnabled: storedDepthEnabled
         )
     }
 
@@ -615,6 +646,7 @@ public final class ParticleEngine {
         storedCurrent = snapshot.current
         storedArrangement = snapshot.arrangement
         arrangementAge = snapshot.arrangementAge
+        storedDepthEnabled = snapshot.depthEnabled
         if let swarmSnapshot = snapshot.swarm {
             swarm.restore(from: swarmSnapshot, budget: max(0, maxParticles - particles.count))
         } else {
@@ -624,6 +656,9 @@ public final class ParticleEngine {
 
     /// Records the current field as an undo point. Call before mutating.
     public func pushUndo() {
+        // While one change is being made of several steps — turning 3D on rebuilds the arrangement, which
+        // clears the field — only its first point is kept, so undo takes it back in one press.
+        guard !undoSuppressed else { return }
         // Cleared first, so a failure while capturing cannot leave a redo entry
         // describing a future that never happened.
         redoStack.removeAll(keepingCapacity: true)
@@ -669,6 +704,27 @@ public final class ParticleEngine {
     ///     its hue. Supplied by the caller because the engine has no clock of its own
     ///     — a simulation that reads the wall clock cannot be replayed.
     public func step(mouseX: Double? = nil, mouseY: Double? = nil, mouseActive: Bool = false, now: Double = 0) {
+        var mouseX = mouseX
+        var mouseY = mouseY
+        // In depth, the place under the finger is where its line reaches the middle of what is being looked
+        // at, which the ray carries. Tools that put something at a place — the emitter, the drawing tools —
+        // use that; the tools that push use the whole line.
+        activeFingerRay = nil
+        if storedDepthEnabled, mouseActive {
+            if let ray = fingerRay {
+                activeFingerRay = ray
+            } else if let mouseX, let mouseY {
+                activeFingerRay = .straightIn(x: mouseX, y: mouseY, fromDepth: -halfDepth - 10)
+            }
+            if let ray = activeFingerRay {
+                let cursor = ray.cursor
+                mouseX = cursor.x
+                mouseY = cursor.y
+                lastMouseZ = cursor.z
+            }
+        } else if !storedDepthEnabled {
+            lastMouseZ = 0
+        }
         if let mouseX { lastMouseX = mouseX }
         if let mouseY { lastMouseY = mouseY }
         lastMouseActive = mouseActive
@@ -687,22 +743,37 @@ public final class ParticleEngine {
         stepArrangement()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
-            spawnEmitter(at: mouseX, y: mouseY)
+            if storedDepthEnabled {
+                spawnEmitterInDepth(at: mouseX, y: mouseY, z: lastMouseZ)
+            } else {
+                spawnEmitter(at: mouseX, y: mouseY)
+            }
         }
 
+        // In 3D, passes of their own — see `ParticleStepDepth.swift` for why they are kept apart.
         if !particles.isEmpty {
-            stepParticles(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
-            stepSprings()
-            if flockEnabled { stepFlock() }
+            if storedDepthEnabled {
+                stepParticlesInDepth(mouseActive: mouseActive, now: now)
+                stepSpringsInDepth()
+                if flockEnabled { stepFlockInDepth() }
+            } else {
+                stepParticles(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+                stepSprings()
+                if flockEnabled { stepFlock() }
+            }
         }
 
         // Before the crowd moves, so a body poured this moment is carried along by this moment's forces
         // rather than sitting still for one frame and then starting.
-        stepEmitters()
+        if storedDepthEnabled { stepEmittersInDepth() } else { stepEmitters() }
 
         // Before the swarm moves, so the walls can tell which side of themselves each body came from.
         rememberSwarmPositions()
-        stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+        if storedDepthEnabled {
+            stepSwarmInDepth(mouseActive: mouseActive, now: now)
+        } else {
+            stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+        }
 
         // The colour ramp is no longer painted into the crowd here: it is worked out as each picture is
         // drawn, so the bodies keep their own colours. See `fillSwarmDrawColors`.
