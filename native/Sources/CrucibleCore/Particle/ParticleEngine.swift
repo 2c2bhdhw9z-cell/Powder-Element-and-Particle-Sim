@@ -42,6 +42,21 @@ public final class ParticleEngine {
     public var gravityX: Double = 0
     public var gravityY: Double = 0.3
     /// Air friction, applied to everything that does not ignore gravity.
+    /// How big a thing happened in the last moment, from nought for nothing to one for a lightning strike.
+    ///
+    /// The field knows when something worth noticing happens — a bolt striking, a shell bursting — and nothing
+    /// outside it could work that out without watching every body. Reported here so the app can put it in your
+    /// hand as a knock, which is the one way a phone can tell you about something you might have looked away from.
+    ///
+    /// Cleared at the start of every moment, so it is only ever about the moment just gone.
+    public var bigMomentStrength: Double { storedBigMoment }
+
+    /// Says that something worth noticing just happened. The strongest claim in a moment wins.
+    func noteBigMoment(_ strength: Double) {
+        guard strength.isFinite else { return }
+        storedBigMoment = max(storedBigMoment, max(0, min(1, strength)))
+    }
+
     /// Gravity into the box, in 3D.
     ///
     /// Nought means down is down the screen, as it always is. Laid flat, a phone's down points into the screen
@@ -180,6 +195,8 @@ public final class ParticleEngine {
     var storedKaleidoscopeMirrors = true
     /// Gravity into the box, for when the phone is laid flat. See `gravityZ`.
     var storedGravityZ = 0.0
+    /// How big a thing just happened, from nought to one. See `bigMomentStrength`.
+    var storedBigMoment = 0.0
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -773,6 +790,9 @@ public final class ParticleEngine {
         // Before the forces, so a moment's physics uses the settings the timeline has just chosen for it
         // rather than the previous moment's.
         advanceTimeline()
+
+        // Nothing has happened yet this moment.
+        storedBigMoment = 0
 
         // Whatever the arrangement does by itself — a storm striking again, another shell going up.
         stepArrangement()

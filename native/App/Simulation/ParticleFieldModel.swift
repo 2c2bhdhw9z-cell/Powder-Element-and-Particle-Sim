@@ -1094,6 +1094,12 @@ final class ParticleFieldModel {
         }
         simulationSeconds += CFAbsoluteTimeGetCurrent() - startedAt
 
+        // Anything worth feeling, put in the hand. The field is the only thing that knows a bolt has struck or a
+        // shell has burst; a knock is how a phone says so when you have looked away.
+        if feelsBigMoments, engine.bigMomentStrength > 0 {
+            Haptics.impact(strength: engine.bigMomentStrength)
+        }
+
         ticksSinceSample += steps
         let sampledAt = CFAbsoluteTimeGetCurrent()
         let elapsed = sampledAt - lastSampleTime
@@ -2509,6 +2515,12 @@ final class ParticleFieldModel {
         get { observeEngine(); return engine.depthRatio }
         set { engine.depthRatio = newValue; engineDidChange() }
     }
+
+    /// Whether big moments in the field are felt in the hand.
+    ///
+    /// On by default, and the same switch the powder world's explosions already answer to, so the two halves of
+    /// the app agree about whether the phone is allowed to knock.
+    var feelsBigMoments: Bool = true
 
     // MARK: - Relax mode
 

@@ -6,6 +6,7 @@ Not shipped. Not in the UI. Pick from chat.
 
 Built:
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
+- Feel it: a knock in the hand when a bolt strikes or a shell bursts
 - Relax mode: the field drifts between scenes by itself, turning slowly
 - Real down: laid flat, the phone makes things fall into the box (3D)
 - A slice through the box, colour by how far away things are, and shadows on the floor (3D)

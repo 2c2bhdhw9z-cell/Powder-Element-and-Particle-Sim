@@ -596,10 +596,12 @@ extension ParticleEngine {
             // metronome.
             if arrangementAge % 84 == 0 || (arrangementAge % 84 == 41 && rng.chance(0.35)) {
                 strikeLightning(count: 900)
+                noteBigMoment(0.85)
             }
         case "fireworks":
             if arrangementAge % 38 == 0 {
                 launchShell(count: 220)
+                noteBigMoment(0.35)
             }
         default:
             break

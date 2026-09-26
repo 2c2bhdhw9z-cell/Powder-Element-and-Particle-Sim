@@ -512,6 +512,36 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("The field says when something worth feeling happens")
+    func bigMomentsAreReported() {
+        let engine = field()
+        // Nothing to report on a quiet field.
+        #expect(engine.bigMomentStrength == 0)
+        #expect(engine.loadArrangement("swarm"))
+        for _ in 0 ..< 120 { engine.step() }
+        #expect(engine.bigMomentStrength == 0, "a quiet crowd claimed something happened")
+
+        // A storm does, when a bolt strikes — and only on the moments it strikes.
+        #expect(engine.loadArrangement("lightning"))
+        var struck = 0
+        var quiet = 0
+        for _ in 0 ..< 200 {
+            engine.step()
+            if engine.bigMomentStrength > 0.5 { struck += 1 } else if engine.bigMomentStrength == 0 { quiet += 1 }
+        }
+        #expect(struck >= 2, "the storm struck \(struck) times in over three seconds")
+        #expect(quiet > 150, "the storm claimed something was happening on \(200 - quiet) of 200 moments")
+
+        // Fireworks report too, and more gently than lightning: a shell is not a bolt.
+        #expect(engine.loadArrangement("fireworks"))
+        var strongest = 0.0
+        for _ in 0 ..< 120 {
+            engine.step()
+            strongest = max(strongest, engine.bigMomentStrength)
+        }
+        #expect(strongest > 0.1 && strongest < 0.6, "a shell reported \(strongest)")
+    }
+
     @Test("Laid flat, down points into the box")
     func gravityIntoTheBox() {
         // The phone held up to be looked at: down is down the screen and nothing falls into the box.
