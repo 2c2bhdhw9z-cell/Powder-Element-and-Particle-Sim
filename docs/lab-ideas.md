@@ -5,6 +5,7 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- Galaxy crash, Solar system, Pendulum wave, Marbling and Atom — five scenes from Rounds 5 and 6 (build-79)
 - Particle collisions that stack
 - Fast path for high particle counts
 - Gyro gravity

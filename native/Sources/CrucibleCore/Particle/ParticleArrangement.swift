@@ -130,6 +130,21 @@ public struct ParticleArrangement: Sendable, Hashable {
             view: .above
         ),
         ParticleArrangement(
+            "crash", "Galaxy crash", joining: .orbit,
+            about: "Two galaxies passing close enough to tear long tails of stars out of each other.",
+            join: "New stars join whichever disc they start nearest.",
+            view: .above,
+            inDepth: "Two discs lying at different angles, sweeping past each other through the box."
+        ),
+        ParticleArrangement(
+            "solar", "Solar system", joining: .orbit,
+            about: "The Sun, all eight planets in order, and the asteroid belt between Mars and Jupiter. The "
+                + "inner planets race round; the outer ones crawl.",
+            join: "New bodies join the belt, going round the Sun.",
+            view: .above,
+            inDepth: "The Sun and the planets on one level plane, best looked down on from above."
+        ),
+        ParticleArrangement(
             "flare", "Solar flare", joining: .objects,
             about: "A glowing core throwing off flares that fall back into it.",
             join: "New bodies are thrown off the core and come back to it.",
@@ -166,6 +181,14 @@ public struct ParticleArrangement: Sendable, Hashable {
             view: .low
         ),
         ParticleArrangement(
+            "marbling", "Marbling", joining: .crowd,
+            about: "A tray of liquid with bands of colour laid across it. Drag a finger through to comb them "
+                + "into marbled paper — the pattern stays where you leave it.",
+            join: "New drops of ink join the tray.",
+            view: .above,
+            inDepth: "A real tray of liquid lying level in the box, best looked down on."
+        ),
+        ParticleArrangement(
             "lattice", "Quantum lattice", joining: .objects,
             about: "A charged grid, every point held in place by a spring.",
             join: "New bodies are held to the grid's points.",
@@ -193,6 +216,14 @@ public struct ParticleArrangement: Sendable, Hashable {
             about: "A sheet of joined points, pinned along the top.",
             join: "Each tap hangs another sheet.",
             inDepth: "A sheet pinned along one edge, falling and swinging through the box."
+        ),
+        ParticleArrangement(
+            "pendulums", "Pendulum wave", joining: .structure,
+            about: "A row of weights on strings, each string a little longer than the last, let go together. "
+                + "They drift in and out of snake patterns, then line back up.",
+            join: "Adding hangs another weight in the row.",
+            view: .front,
+            inDepth: "The row runs away from you into the box, so the snake travels into the distance."
         ),
         ParticleArrangement(
             "rope", "Rope", joining: .structure,
@@ -313,6 +344,13 @@ public struct ParticleArrangement: Sendable, Hashable {
             "globe", "Globe", joining: .crowd,
             about: "Seeds a golden turn apart all over a ball, turning like a globe on its stand.",
             join: "New bodies take a place on the globe.",
+            depth: .only
+        ),
+        ParticleArrangement(
+            "atom", "Atom", joining: .crowd,
+            about: "The shapes an electron is really found in — a ball, and three dumbbells at right angles — "
+                + "round a knot of a nucleus, turning so every lobe comes round.",
+            join: "New bodies take a place in the clouds.",
             depth: .only
         ),
         ParticleArrangement(
@@ -471,6 +509,11 @@ extension ParticleEngine {
         case "vortex": spawnDoubleVortex(count: count)
         case "flare": spawnSolarFlare(count: count)
         case "synchrotron": spawnSynchrotron(count: count)
+        case "crash": spawnGalaxyCrash()
+        case "solar": spawnSolarSystem()
+        case "pendulums": spawnPendulumWave()
+        case "marbling": spawnMarbling()
+        case "atom": spawnAtom()
         case "shockwave": spawnShockwave(count: count)
         case "fountain": spawnCosmicFountain(count: count)
         case "waterfall": spawnWaterfall(count: count)

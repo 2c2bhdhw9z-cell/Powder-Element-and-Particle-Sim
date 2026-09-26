@@ -422,6 +422,16 @@ extension ParticleEngine {
                 addClothInDepth(cols: 10, rows: 8, centreX: across(0.25 + rng.next() * 0.5), top: down(0.05 + rng.next() * 0.35))
             case "molecules":
                 addMoleculesInDepth(count: 60, laidOut: false)
+            case "pendulums":
+                buildPendulum(
+                    atX: across(0.3 + rng.next() * 0.4),
+                    top: layoutTop + layoutHeight * 0.08,
+                    length: layoutHeight * (0.3 + rng.next() * 0.32),
+                    scale: sceneScale,
+                    share: rng.next(),
+                    z: (rng.next() - 0.5) * halfDepth * 1.56,
+                    lean: pendulumLean(longest: layoutHeight * 0.62)
+                )
             default:
                 break
             }
@@ -430,6 +440,17 @@ extension ParticleEngine {
         switch id {
         case "rope":
             addRope(length: 32, atX: across(0.12 + rng.next() * 0.76))
+        case "pendulums":
+            let length = layoutHeight * (0.3 + rng.next() * 0.32)
+            buildPendulum(
+                atX: across(0.14 + rng.next() * 0.72),
+                top: layoutTop + layoutHeight * 0.08,
+                length: length,
+                scale: sceneScale,
+                share: rng.next(),
+                z: 0,
+                lean: pendulumLean(longest: layoutHeight * 0.62)
+            )
         case "blob":
             addBlob(nodes: 24, centreX: across(0.2 + rng.next() * 0.6), centreY: down(0.15 + rng.next() * 0.3))
         case "cloth":
