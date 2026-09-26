@@ -203,6 +203,8 @@ extension ParticleEngine {
         // rather than being dragged down by the world's gravity, so a stream aimed across a galaxy curls round
         // the hole instead of falling through the disc.
         let pouredRole: Swarm.Role = storedJoinsArrangement && arrangementDetails?.joining == .orbit ? .orbits : []
+        // And the size of the arrangement's own bodies, when adding is set to match them.
+        let pouredSize = storedMatchesArrangementSize && storedArrangement != nil ? arrangementBodySize : 0
 
         for index in storedEmitters.indices {
             var emitter = storedEmitters[index].sanitized
@@ -237,7 +239,8 @@ extension ParticleEngine {
                     budget: budget,
                     mass: weight,
                     life: emitter.lifespan > 0 ? emitter.lifespan : -1,
-                    role: pouredRole
+                    role: pouredRole,
+                    size: pouredSize
                 )
                 // Full. Stop, rather than spinning through the rest of the count for nothing — and keep what
                 // is owed at nought so it does not build up into a burst the moment room appears.

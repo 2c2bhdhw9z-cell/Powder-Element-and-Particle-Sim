@@ -59,7 +59,7 @@ extension ParticleEngine {
         )
 
         for _ in 0 ..< count {
-            let distance = rng.next() * (min(width, height) * 0.42) + 30
+            let distance = rng.next() * (patternSpan * 0.42) + 30
             let angle = rng.next() * Double.pi * 2
             let orbitalSpeed = (gravitationalConstant / distance).squareRoot() * (0.96 + rng.next() * 0.08)
 
@@ -81,12 +81,12 @@ extension ParticleEngine {
     public func spawnWaterfall(count: Int = 250) {
         beginScene("waterfall", gravityY: 0.4)
 
-        let startX = width * 0.3
-        let spread = width * 0.4
+        let startX = across(0.3)
+        let spread = layoutWidth * 0.4
 
         for _ in 0 ..< count {
             let dropX = startX + rng.next() * spread
-            let dropY = rng.next() * (height * 0.9) + 10
+            let dropY = rng.next() * (layoutHeight * 0.9) + 10
             addParticle(
                 x: dropX,
                 y: dropY,
@@ -141,7 +141,7 @@ extension ParticleEngine {
         )
 
         for _ in 0 ..< count {
-            let distance = rng.next() * (min(width, height) * 0.4) + 35
+            let distance = rng.next() * (patternSpan * 0.4) + 35
             let angle = rng.next() * Double.pi * 2
             let orbitalSpeed = (gravitationalConstant / distance).squareRoot() * (0.95 + rng.next() * 0.1)
 
@@ -163,8 +163,8 @@ extension ParticleEngine {
     public func spawnDoubleVortex(count: Int = 300) {
         beginScene("vortex", gravityY: 0)
 
-        let leftX = width * 0.35
-        let rightX = width * 0.65
+        let leftX = across(0.35)
+        let rightX = across(0.65)
         let centreY = height * 0.5
         let holeMass = 50.0
         let gravitationalConstant = holeMass * 200
@@ -274,10 +274,10 @@ extension ParticleEngine {
         beginScene("lattice", gravityY: 0)
 
         guard rows > 0, cols > 0 else { return }
-        let startX = width * 0.2
-        let startY = height * 0.2
-        let stepX = (width * 0.6) / Double(cols)
-        let stepY = (height * 0.6) / Double(rows)
+        let startX = across(0.2)
+        let startY = down(0.2)
+        let stepX = (layoutWidth * 0.6) / Double(cols)
+        let stepY = (layoutHeight * 0.6) / Double(rows)
 
         for row in 0 ..< rows {
             for column in 0 ..< cols {
@@ -312,8 +312,8 @@ extension ParticleEngine {
         beginScene("helix", gravityY: 0)
 
         guard count > 0 else { return }
-        let startX = width * 0.1
-        let endX = width * 0.9
+        let startX = across(0.1)
+        let endX = across(0.9)
         let centreY = height / 2
         // The strand marker carries the scale as well as the side, so the tick draws the wave at the same
         // size it was laid out at. See `sceneScale`.
@@ -370,7 +370,7 @@ extension ParticleEngine {
             let maxLife = 120 + Int((rng.next() * 150).rounded(.down))
             addParticle(
                 x: centreX + (rng.next() - 0.5) * 30,
-                y: floorY - rng.next() * (height * 0.6),
+                y: floorY - rng.next() * (layoutHeight * 0.6),
                 velocityX: jsCos(angle) * speed,
                 velocityY: jsSin(angle) * speed,
                 radius: rng.next() * 2.5 + 1.5,
@@ -441,7 +441,7 @@ extension ParticleEngine {
         let column = patternSpan * 0.035
         for _ in 0 ..< count {
             let x = centreX + between(-column, column)
-            let y = height * between(0.04, 0.4)
+            let y = aboveFloor(between(0.04, 0.4))
             guard swarm.append(
                 x: x,
                 y: y,
@@ -465,7 +465,7 @@ extension ParticleEngine {
             weightVariation: 0,
             hue: 206
         )
-        addEmitter(atX: width * 0.5, y: height * 0.03)
+        addEmitter(atX: width * 0.5, y: aboveFloor(0.03))
     }
 
     /// A scattered flock that finds its own formation.
@@ -474,8 +474,8 @@ extension ParticleEngine {
         flockEnabled = true
         for _ in 0 ..< count {
             addParticle(
-                x: rng.next() * width,
-                y: rng.next() * height,
+                x: across(rng.next()),
+                y: down(rng.next()),
                 velocityX: (rng.next() - 0.5) * 3,
                 velocityY: (rng.next() - 0.5) * 3,
                 radius: 2.2,
@@ -561,7 +561,7 @@ extension ParticleEngine {
     func addCloth(cols: Int, rows: Int, centreX: Double, top: Double) {
         guard cols > 0, rows > 0 else { return }
         let scale = sceneScale
-        let gap = min(18 * scale, (width / Double(cols + 2)).rounded(.down))
+        let gap = min(18 * scale, (layoutWidth / Double(cols + 2)).rounded(.down))
         let originX = centreX - Double(cols) * gap / 2
         let originY = top
         let start = particles.count
@@ -628,7 +628,7 @@ extension ParticleEngine {
     public func spawnBlob(nodes: Int = 24) {
         beginScene("blob", gravityY: 0.22)
         springs.removeAll(keepingCapacity: true)
-        addBlob(nodes: nodes, centreX: width / 2, centreY: height * 0.4)
+        addBlob(nodes: nodes, centreX: width / 2, centreY: down(0.4))
     }
 
     /// Drops a blob into whatever is there.
@@ -678,8 +678,13 @@ extension ParticleEngine {
 
     /// Scatters a large number of bodies into the swarm, or into the object list when
     /// the count is small enough to be worth the extra per-body behaviour.
-    public func spawnBatch(count: Int, color: PackedColor? = nil) {
+    ///
+    /// - Parameter size: how big each body is, as a diameter at the size slider's resting value. Nought, the
+    ///   default, leaves them at the slider's size — and for the few that go into the object list, at the size
+    ///   they have always been.
+    public func spawnBatch(count: Int, color: PackedColor? = nil, size: Double = 0) {
         pushUndo()
+        let ownSize = size.isFinite ? max(0, size) : 0
 
         // Above this it goes to the swarm, which is the whole reason the swarm exists.
         if count >= 4000 {
@@ -693,7 +698,11 @@ extension ParticleEngine {
                 height: height,
                 color: color?.packedRGBA ?? 0,
                 budget: budget,
-                rng: &rng
+                rng: &rng,
+                // The screen's span rather than the world's, so a crowd added after zooming out is the size it
+                // would have been, with room round it. The same number whenever the world is the screen.
+                span: patternSpan * 0.42,
+                size: ownSize
             )
             return
         }
@@ -718,7 +727,7 @@ extension ParticleEngine {
 
         for i in 0 ..< toSpawn {
             let angle = rng.next() * Double.pi * 2
-            let distance = rng.next() * (min(width, height) * 0.42) + 25
+            let distance = rng.next() * (patternSpan * 0.42) + 25
             let pointX = min(width - 2, max(2, holeX + jsCos(angle) * distance))
             let pointY = min(height - 2, max(2, holeY + jsSin(angle) * distance))
 
@@ -738,7 +747,7 @@ extension ParticleEngine {
                 y: pointY,
                 velocityX: velocityX,
                 velocityY: velocityY,
-                radius: 1.5,
+                radius: ownSize > 0 ? ownSize * 0.5 : 1.5,
                 mass: 1,
                 charge: i % 2 == 0 ? 1 : -1,
                 color: color ?? PackedColor(

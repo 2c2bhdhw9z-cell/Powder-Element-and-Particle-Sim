@@ -79,6 +79,8 @@ public struct SwarmRecord: Codable, Sendable {
     public var role: [UInt8]?
     /// Where each shape-holding body belongs, seven numbers a body. Absent when no body has a role.
     public var home: [Float]?
+    /// Each body's own size. Absent when none has one.
+    public var size: [Float]?
 }
 
 /// A whole particle field, as saved.
@@ -276,6 +278,7 @@ extension ParticleEngine {
         var started: [Float] = []
         var roles: [UInt8] = []
         var homes: [Float] = []
+        var ownSizes: [Float] = []
         var anyWeighted = false
         for i in 0 ..< taken where swarm.masses[i] != 1 {
             anyWeighted = true
@@ -292,6 +295,9 @@ extension ParticleEngine {
             roles = (0 ..< taken).map { swarm.roles[$0] }
             homes = (0 ..< taken * Swarm.homeStride).map { swarm.homes[$0] }
         }
+        if swarm.hasSizes {
+            ownSizes = (0 ..< taken).map { swarm.sizes[$0] }
+        }
         return SwarmRecord(
             n: taken,
             x: x,
@@ -303,7 +309,8 @@ extension ParticleEngine {
             life: lives.isEmpty ? nil : lives,
             maxLife: started.isEmpty ? nil : started,
             role: roles.isEmpty ? nil : roles,
-            home: homes.isEmpty ? nil : homes
+            home: homes.isEmpty ? nil : homes,
+            size: ownSizes.isEmpty ? nil : ownSizes
         )
     }
 
@@ -502,6 +509,12 @@ extension ParticleEngine {
             snapshot.homes = (0 ..< taken * Swarm.homeStride).map { k in
                 let value = k < homes.count ? homes[k] : 0
                 return value.isFinite ? max(-limit, min(limit, value)) : 0
+            }
+        }
+        if let saved = record.size, !saved.isEmpty {
+            snapshot.sizes = (0 ..< taken).map { i in
+                let value = i < saved.count ? saved[i] : 0
+                return value.isFinite ? max(0, min(400, value)) : 0
             }
         }
         swarm.restore(from: snapshot, budget: max(0, maxParticles - particles.count))

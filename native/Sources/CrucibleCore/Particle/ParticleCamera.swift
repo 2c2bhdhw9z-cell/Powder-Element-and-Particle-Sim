@@ -596,6 +596,41 @@ extension ParticleCamera {
             return
         }
 
+        let usableRoom = 1 - (margin.isFinite ? max(0, min(0.4, margin)) : Self.fitMargin)
+        // Where the content is, measured from the middle of the world — which is what stays put when the world
+        // grows or shrinks, since it grows and shrinks about its middle.
+        let offsetX = (framing.minX + framing.maxX) * 0.5 - worldWidth * 0.5
+        let offsetY = (framing.minY + framing.maxY) * 0.5 - worldHeight * 0.5
+        let reachX = max(abs(framing.minX - worldWidth * 0.5), abs(framing.maxX - worldWidth * 0.5))
+        let reachY = max(abs(framing.minY - worldHeight * 0.5), abs(framing.maxY - worldHeight * 0.5))
+        // How many screens across the world has to be to hold all of it, with the margin. Above one, only a world
+        // grown by zooming out can hold it.
+        let screensNeeded = max(
+            2 * reachX / (usableRoom * viewWidth),
+            2 * reachY / (usableRoom * viewHeight)
+        )
+
+        // With zooming out adding room, the zoom decides how big the world is — so fitting has to choose a world
+        // that still holds everything, or the bodies outside it would be squashed against its new edges. It used
+        // to refuse to zoom out at all in that case and could shrink the room somebody had just made.
+        if growsWorldWhenZoomedOut, !isRotated {
+            if screensNeeded > 1 {
+                zoom = Self.clampZoom(1 / screensNeeded)
+                // The whole grown world is on screen, so a shift in the world is a smaller one on screen.
+                let scale = worldScale
+                panX = -offsetX / scale
+                panY = -offsetY / scale
+            } else {
+                // It fits inside a world the size of the screen, so this is an ordinary magnification.
+                let contentWidth = max(1e-6, framing.maxX - framing.minX)
+                let contentHeight = max(1e-6, framing.maxY - framing.minY)
+                zoom = Self.clampZoom(max(1, min(viewWidth / contentWidth, viewHeight / contentHeight) * usableRoom))
+                panX = -offsetX * zoom
+                panY = -offsetY * zoom
+            }
+            return
+        }
+
         // Projected with the zoom and pan taken out, so what comes back is the shape of the content
         // in the turned view rather than the shape of the view we already have.
         var flat = self
@@ -632,11 +667,13 @@ extension ParticleCamera {
         // The screen is two units across and two tall, so fitting a span means dividing two by it.
         // The smaller of the two, so both axes fit rather than one overflowing.
         zoom = Self.clampZoom(min(2 / spanX, 2 / spanY) * room)
-        // With zooming out set to add room, pulling back does not make anything smaller — it grows the world
-        // — so it can never help fit what is already there, and asking for it resized the world under the
-        // framing that had just been measured, so a second fit disagreed with the first. Everything in the
-        // field is inside the world, so the whole world at its true size always fits: never below one.
-        if growsWorldWhenZoomedOut { zoom = max(1, zoom) }
+        // Turned or tipped with zooming out adding room: whatever the view wants, the world it implies has to
+        // hold everything.
+        if growsWorldWhenZoomedOut, screensNeeded > 1 {
+            zoom = Self.clampZoom(min(zoom, 1 / screensNeeded))
+        } else if growsWorldWhenZoomedOut {
+            zoom = max(1, zoom)
+        }
 
         // And centre it. The middle of the projected content, moved to the middle of the screen, in
         // screen points — which is the reverse of what `project` does with the pan.

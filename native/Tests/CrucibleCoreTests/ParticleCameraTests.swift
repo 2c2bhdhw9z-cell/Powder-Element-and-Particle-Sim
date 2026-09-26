@@ -635,6 +635,58 @@ struct ParticleCameraTests {
         #expect(camera.panY.isFinite)
     }
 
+    @Test("Fitting a crowd that has spread into a grown world keeps enough room to hold it")
+    func fitKeepsTheRoomZoomingOutMade() {
+        // Zoomed out to a half, so the world is twice the screen each way, and the crowd has spread into it.
+        var camera = ParticleCamera(zoom: 0.5)
+        let grown = (width: view.width * camera.worldScale, height: view.height * camera.worldScale)
+        let content = ParticleFraming(minX: 40, minY: 70, maxX: 760, maxY: 1_330, bodyCount: 5_000)
+        camera.fit(
+            to: content,
+            worldWidth: grown.width,
+            worldHeight: grown.height,
+            viewWidth: view.width,
+            viewHeight: view.height
+        )
+        #expect(camera.zoom < 1, "fitting shrank the room back to the screen, squashing the crowd against its edges")
+
+        // The world that zoom makes, with everything moved to stay in its middle, as the app does.
+        let fitted = (width: view.width * camera.worldScale, height: view.height * camera.worldScale)
+        let shiftX = (fitted.width - grown.width) * 0.5
+        let shiftY = (fitted.height - grown.height) * 0.5
+        for corner in [
+            (content.minX, content.minY), (content.maxX, content.minY),
+            (content.minX, content.maxY), (content.maxX, content.maxY),
+        ] {
+            let x = corner.0 + shiftX
+            let y = corner.1 + shiftY
+            #expect(x >= 0 && x <= fitted.width && y >= 0 && y <= fitted.height, "corner \(corner) is outside the world")
+            let placed = camera.project(
+                x: x,
+                y: y,
+                worldWidth: fitted.width,
+                worldHeight: fitted.height,
+                viewWidth: view.width,
+                viewHeight: view.height
+            )
+            #expect(abs(placed.x) <= 1.0001 && abs(placed.y) <= 1.0001, "corner \(corner) is off the screen")
+        }
+    }
+
+    @Test("Fitting something small in a grown world magnifies it")
+    func fitMagnifiesInAGrownWorld() {
+        var camera = ParticleCamera(zoom: 0.5)
+        let grown = (width: view.width * camera.worldScale, height: view.height * camera.worldScale)
+        camera.fit(
+            to: ParticleFraming(minX: 380, minY: 680, maxX: 420, maxY: 720, bodyCount: 500),
+            worldWidth: grown.width,
+            worldHeight: grown.height,
+            viewWidth: view.width,
+            viewHeight: view.height
+        )
+        #expect(camera.zoom > 4, "a forty-pixel cluster should fill the screen, not \(camera.zoom)")
+    }
+
     // MARK: - Saving
 
     @Test("A camera survives being written down and read back")
@@ -740,15 +792,14 @@ struct ParticleWorldGrowthTests {
     }
 
     @Test("Growing the world moves anchors and clears remembered positions")
-    func growingMovesAnchorsAndTrails() {
+    func growingMovesAnchorsAndTrails() throws {
         // A lattice snaps back to where the world used to be the moment it is touched, if its anchors do not
         // follow. And a remembered position left behind draws one long streak across the field on the frame
         // the world changed size.
         let field = ParticleEngine(width: 400, height: 700, seed: 1)
         field.spawnQuantumLattice(rows: 4, cols: 4)
         let anchored = field.particles.firstIndex { $0.originX != nil }
-        let index = try? #require(anchored)
-        guard let index else { return }
+        let index = try #require(anchored)
         let before = field.particles[index].originX ?? 0
 
         field.resizeKeepingContentsCentred(width: 800, height: 1_400)

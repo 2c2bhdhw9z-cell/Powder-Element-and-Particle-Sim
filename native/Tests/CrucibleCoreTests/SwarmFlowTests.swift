@@ -201,8 +201,7 @@ struct SwarmFlowTests {
             field.step(Swarm.StepOptions(
                 width: 400, height: 700, gravityX: 0, gravityY: 0,
                 damping: 0.96, elasticity: 0.5, collide: false, maxSpeed: 30,
-                boundaryMode: .wrap, mouseX: 0, mouseY: 0, mouseActive: false,
-                mouseForce: 0, mouseRadius: 0, attract: false
+                boundaryMode: .wrap
             ))
         }
         for index in 0 ..< field.count {
@@ -286,15 +285,15 @@ struct SwarmFlowTests {
     }
 
     @Test("Everything a body knows about itself can be read")
-    func variablesAreReadable() {
+    func variablesAreReadable() throws {
         #expect(value("x", x: 0.25) == 0.25)
         #expect(value("y", y: 0.75) == 0.75)
         #expect(value("vx", vx: -3.5) == -3.5)
         #expect(value("vy", vy: 7) == 7)
         #expect(value("t", t: 2.5) == 2.5)
         #expect(value("r", x: 0.5, y: 0.5) == 0, "the middle is no distance from the middle")
-        let corner = try? #require(value("r", x: 1, y: 1))
-        #expect(abs((corner ?? 0) - 0.7071067811865476) < 1e-12)
+        let corner = try #require(value("r", x: 1, y: 1))
+        #expect(abs(corner - 0.7071067811865476) < 1e-12)
         #expect(abs((value("pi") ?? 0) - 3.141592653589793) < 1e-12)
     }
 
@@ -370,7 +369,7 @@ struct SwarmFlowTests {
     }
 
     @Test("Nothing an expression can do produces an unusable number")
-    func nothingEscapesAsNotANumber() {
+    func nothingEscapesAsNotANumber() throws {
         // A body whose velocity is not a number spreads that to every body it touches, so the arithmetic
         // has to be closed: whatever goes in, a usable number comes out.
         let dangerous = [
@@ -378,8 +377,8 @@ struct SwarmFlowTests {
             "1 / sin(0)", "99999 * 99999 * 99999 * 99999 * 99999 * 99999",
         ]
         for text in dangerous {
-            let result = try? #require(value(text))
-            #expect((result ?? .nan).isFinite, "‘\(text)’ gave \(result ?? .nan)")
+            let result = try #require(value(text))
+            #expect(result.isFinite, "‘\(text)’ gave \(result)")
         }
     }
 

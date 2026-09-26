@@ -43,6 +43,49 @@ extension ParticleEngine {
         set { storedJoinsArrangement = newValue }
     }
 
+    /// Whether bodies added to an arrangement are made the size of the arrangement's own bodies.
+    ///
+    /// On unless somebody turns it off. The stars added to a galaxy used to be drawn at one size whatever the
+    /// galaxy's stars were — the size slider's — so the new ones stood out as a different kind of thing. With
+    /// this on, each copies the size of the body it copies; with it off, they are the size slider's, as before.
+    public var matchesArrangementSize: Bool {
+        get { storedMatchesArrangementSize }
+        set { storedMatchesArrangementSize = newValue }
+    }
+
+    /// How big the arrangement's own bodies are, as a diameter at the size slider's resting value.
+    ///
+    /// The average of the individual bodies when the arrangement has them — the stars of a galaxy, not its
+    /// black hole — and otherwise of the crowd's own sizes. Nought when nothing has a size of its own, which is
+    /// every arrangement made of the crowd, and means "the size slider's", which is what those are drawn at.
+    /// Nought too once the field has been cleared, since then there is no arrangement to match.
+    public var arrangementBodySize: Double {
+        // With no arrangement there is nothing to match. Whatever happens to be lying about — a burst's big
+        // charged bodies, say — is not a size anybody chose for what they add next.
+        guard storedArrangement != nil else { return 0 }
+        var total = 0.0
+        var counted = 0
+        for body in particles where body.kind == .standard && !body.isFixed {
+            guard body.radius.isFinite, body.radius > 0 else { continue }
+            total += body.radius * 2
+            counted += 1
+        }
+        if counted > 0 { return total / Double(counted) }
+        guard swarm.hasSizes, swarm.count > 0 else { return 0 }
+        // A sample, evenly spaced, so a crowd of a million is not walked end to end to answer this.
+        let step = max(1, swarm.count / 4_096)
+        var index = 0
+        while index < swarm.count {
+            let own = Double(swarm.sizes[index])
+            if own > 0 {
+                total += own
+                counted += 1
+            }
+            index += step
+        }
+        return counted > 0 ? total / Double(counted) : 0
+    }
+
     /// Adds bodies that take part in the arrangement, or scatters them if there is nothing to join.
     ///
     /// - Returns: how many bodies were added. For a structure, that is the size of the one built — the
@@ -51,7 +94,7 @@ extension ParticleEngine {
     public func spawnJoining(count requested: Int) -> Int {
         let before = bodyCount
         guard let details = arrangementDetails, canJoinArrangement else {
-            spawnBatch(count: requested)
+            spawnBatch(count: requested, size: storedMatchesArrangementSize ? arrangementBodySize : 0)
             return bodyCount - before
         }
         pushUndo()
@@ -90,6 +133,7 @@ extension ParticleEngine {
             return body.kind == .standard && !body.isFixed && body.ignoresGravity && body.isFinite
         }
         let budget = maxParticles - particles.count
+        let fallbackSize = storedMatchesArrangementSize ? arrangementBodySize : 0
 
         func nearestHole(toX x: Double, y: Double) -> ParticleObject {
             var best = holes[0]
@@ -112,6 +156,7 @@ extension ParticleEngine {
             var velX: Double
             var velY: Double
             var colour: UInt32
+            var ownSize = 0.0
 
             if !members.isEmpty {
                 let member = particles[members[Int(rng.next() * Double(members.count)) % members.count]]
@@ -141,6 +186,9 @@ extension ParticleEngine {
                 velX = (member.velocityX * c - member.velocityY * s) * slow
                 velY = (member.velocityX * s + member.velocityY * c) * slow
                 colour = member.color.packedRGBA
+                if storedMatchesArrangementSize, member.radius.isFinite, member.radius > 0 {
+                    ownSize = member.radius * 2
+                }
             } else {
                 let hole = holes[Int(rng.next() * Double(holes.count)) % holes.count]
                 let distance = rng.next() * (patternSpan * 0.4) + 30 * sceneScale
@@ -152,6 +200,7 @@ extension ParticleEngine {
                 velY = jsCos(angle) * speed
                 colour = PackedColor(hue: (distance * 2.8).truncatingRemainder(dividingBy: 360), saturation: 0.95, lightness: 0.7)
                     .packedRGBA
+                if storedMatchesArrangementSize { ownSize = fallbackSize }
             }
 
             guard swarm.append(
@@ -161,7 +210,8 @@ extension ParticleEngine {
                 velocityY: velY,
                 color: colour,
                 budget: budget,
-                role: .orbits
+                role: .orbits,
+                size: ownSize
             ) else { return }
         }
     }
@@ -177,7 +227,16 @@ extension ParticleEngine {
         guard existing > 0 else {
             // Between shells, or after a storm's last bolt has faded, there is nobody to copy. Scatter them
             // rather than refusing, so the button never silently does nothing.
-            swarm.spawn(count: total, width: width, height: height, color: 0, budget: maxParticles - particles.count, rng: &rng)
+            swarm.spawn(
+                count: total,
+                width: width,
+                height: height,
+                color: 0,
+                budget: maxParticles - particles.count,
+                rng: &rng,
+                span: patternSpan * 0.42,
+                size: storedMatchesArrangementSize ? arrangementBodySize : 0
+            )
             return
         }
 
@@ -197,6 +256,7 @@ extension ParticleEngine {
             let life = left < 0 ? -1 : max(1, Double(swarm.maxLives[source]) * (0.5 + rng.next() * 0.5))
             let role = swarm.role(at: source)
             var home = swarm.home(at: source)
+            let ownSize = storedMatchesArrangementSize ? Double(swarm.sizes[source]) : 0
             var x: Double
             var y: Double
             if var place = home {
@@ -231,7 +291,8 @@ extension ParticleEngine {
                 mass: mass,
                 life: life,
                 role: role,
-                home: home
+                home: home,
+                size: ownSize
             ) else { return }
         }
     }
@@ -266,7 +327,8 @@ extension ParticleEngine {
                 y: member.y + (rng.next() - 0.5) * 2 * nudge,
                 velocityX: member.velocityX + (rng.next() - 0.5) * 0.3,
                 velocityY: member.velocityY + (rng.next() - 0.5) * 0.3,
-                radius: member.radius,
+                // The size of the body it copies, or with matching off, one drawn at the size slider's size.
+                radius: storedMatchesArrangementSize ? member.radius : 1,
                 mass: member.mass,
                 charge: member.charge,
                 color: member.color,
@@ -287,15 +349,15 @@ extension ParticleEngine {
     private func joinStructure(_ id: String) {
         switch id {
         case "rope":
-            addRope(length: 32, atX: width * (0.12 + rng.next() * 0.76))
+            addRope(length: 32, atX: across(0.12 + rng.next() * 0.76))
         case "blob":
-            addBlob(nodes: 24, centreX: width * (0.2 + rng.next() * 0.6), centreY: height * (0.15 + rng.next() * 0.3))
+            addBlob(nodes: 24, centreX: across(0.2 + rng.next() * 0.6), centreY: down(0.15 + rng.next() * 0.3))
         case "cloth":
             addCloth(
                 cols: 10,
                 rows: 8,
-                centreX: width * (0.25 + rng.next() * 0.5),
-                top: height * (0.05 + rng.next() * 0.35)
+                centreX: across(0.25 + rng.next() * 0.5),
+                top: down(0.05 + rng.next() * 0.35)
             )
         case "molecules":
             addMolecules(count: 60, laidOut: false)

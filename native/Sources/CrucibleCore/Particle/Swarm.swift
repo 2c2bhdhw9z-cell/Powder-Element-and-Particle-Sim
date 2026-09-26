@@ -61,6 +61,17 @@ public final class Swarm {
     /// Whether any body has a role at all, so a crowd with none pays nothing for the feature.
     public private(set) var hasRoles = false
 
+    /// How wide each body is, as a diameter in the world's pixels at the size slider's resting value.
+    ///
+    /// Nought means the body has no size of its own and is drawn at whatever the size slider says, which is
+    /// every body until something sets otherwise. It exists so that bodies added to an arrangement can be
+    /// the size of the arrangement's own — the stars joining a galaxy the size of its stars — rather than
+    /// all being one size whatever they joined.
+    public private(set) var sizes: UnsafeMutablePointer<Float>
+
+    /// Whether any body has a size of its own, so a crowd with none sends no sizes to the screen.
+    public private(set) var hasSizes = false
+
     /// What a body in the crowd does, as a set of flags.
     ///
     /// ## Why the crowd needed these
@@ -180,6 +191,8 @@ public final class Swarm {
         self.masses = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.lives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.maxLives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.sizes = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.sizes.initialize(repeating: 0, count: 1)
         self.roles = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
         self.homes = UnsafeMutablePointer<Float>.allocate(capacity: Self.homeStride)
         self.roles.initialize(repeating: 0, count: 1)
@@ -210,6 +223,8 @@ public final class Swarm {
         roles.deallocate()
         homes.deinitialize(count: allocated * Self.homeStride)
         homes.deallocate()
+        sizes.deinitialize(count: allocated)
+        sizes.deallocate()
         if let bucketHead {
             bucketHead.deinitialize(count: bucketHeadCount)
             bucketHead.deallocate()
@@ -226,6 +241,7 @@ public final class Swarm {
     public func removeAll() {
         count = 0
         hasRoles = false
+        hasSizes = false
         generation += 1
     }
 
@@ -252,6 +268,8 @@ public final class Swarm {
         let newMasses = UnsafeMutablePointer<Float>.allocate(capacity: target)
         let newLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
         let newMaxLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        let newSizes = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        newSizes.initialize(repeating: 0, count: target)
         let newRoles = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
         let newHomes = UnsafeMutablePointer<Float>.allocate(capacity: target * Self.homeStride)
         newRoles.initialize(repeating: 0, count: target)
@@ -273,6 +291,7 @@ public final class Swarm {
             newLives.update(from: lives, count: count)
             newMaxLives.update(from: maxLives, count: count)
             newRoles.update(from: roles, count: count)
+            newSizes.update(from: sizes, count: count)
             newHomes.update(from: homes, count: count * Self.homeStride)
         }
 
@@ -291,6 +310,8 @@ public final class Swarm {
         maxLives.deallocate()
         roles.deinitialize(count: previous)
         roles.deallocate()
+        sizes.deinitialize(count: previous)
+        sizes.deallocate()
         homes.deinitialize(count: previous * Self.homeStride)
         homes.deallocate()
 
@@ -302,6 +323,7 @@ public final class Swarm {
         maxLives = newMaxLives
         roles = newRoles
         homes = newHomes
+        sizes = newSizes
         capacity = target
     }
 
@@ -321,7 +343,9 @@ public final class Swarm {
         height: Double,
         color: UInt32,
         budget: Int,
-        rng: inout Mulberry32
+        rng: inout Mulberry32,
+        span requestedSpan: Double? = nil,
+        size: Double = 0
     ) {
         let room = max(0, min(Self.maximumCount, budget) - count)
         let adding = min(requested, room)
@@ -333,7 +357,11 @@ public final class Swarm {
 
         let centreX = width * 0.5
         let centreY = height * 0.5
-        let span = min(width, height) * 0.42
+        // How far out the ring reaches. The caller can say, so a crowd scattered after zooming out is the size
+        // it would have been on the screen rather than filling the whole grown world.
+        let span = requestedSpan.map { $0.isFinite ? max(0, $0) : 0 } ?? min(width, height) * 0.42
+        let ownSize = Float(size.isFinite ? max(0, size) : 0)
+        if ownSize > 0 { hasSizes = true }
 
         let start = count
         for i in start ..< (start + actual) {
@@ -350,6 +378,7 @@ public final class Swarm {
             lives[i] = -1
             maxLives[i] = 1
             roles[i] = 0
+            sizes[i] = ownSize
             colors[i] = color != 0
                 ? color
                 : 0xFF00_0000 | UInt32((i * 97) & 255)
@@ -403,7 +432,8 @@ public final class Swarm {
         mass: Double = 1,
         life: Double = -1,
         role: Role = [],
-        home: Home? = nil
+        home: Home? = nil,
+        size: Double = 0
     ) -> Bool {
         guard count < min(Self.maximumCount, budget) else { return false }
         reserve(count + 1)
@@ -414,6 +444,9 @@ public final class Swarm {
         // without a home it holds where it was put.
         let place = home ?? Home.fixed(x, y)
         writeRole(role, home: place, at: index)
+        let ownSize = size.isFinite ? max(0, min(400, size)) : 0
+        sizes[index] = Float(ownSize)
+        if ownSize > 0 { hasSizes = true }
         let pair = index * 2
         positions[pair] = JS.toFloat32(x)
         positions[pair + 1] = JS.toFloat32(y)
@@ -481,6 +514,14 @@ public final class Swarm {
             squash: Double(homes[at + 5]),
             stiffness: Double(homes[at + 6])
         )
+    }
+
+    /// Sets one body's own size, as a diameter at the size slider's resting value. Nought means none.
+    public func setSize(_ size: Double, at index: Int) {
+        guard index >= 0, index < count else { return }
+        let ownSize = size.isFinite ? max(0, min(400, size)) : 0
+        sizes[index] = Float(ownSize)
+        if ownSize > 0 { hasSizes = true }
     }
 
     /// Sets one body's weight.
@@ -558,6 +599,7 @@ public final class Swarm {
                     lives[index] = lives[last]
                     maxLives[index] = maxLives[last]
                     roles[index] = roles[last]
+                    sizes[index] = sizes[last]
                     let homeHere = index * Self.homeStride
                     let homeThere = last * Self.homeStride
                     for k in 0 ..< Self.homeStride { homes[homeHere + k] = homes[homeThere + k] }
@@ -598,13 +640,6 @@ public final class Swarm {
         public var maxSpeed: Double
         /// The same boundary rule the object particles obey.
         public var boundaryMode: ParticleBoundaryMode
-        public var mouseX: Double
-        public var mouseY: Double
-        public var mouseActive: Bool
-        public var mouseForce: Double
-        public var mouseRadius: Double
-        /// `true` pulls toward the finger, `false` pushes away.
-        public var attract: Bool
         /// How bodies in the crowd meet one another.
         ///
         /// Given a default so that adding it did not have to change every caller — of which the tests are
@@ -616,6 +651,16 @@ public final class Swarm {
         /// the move by its place in the list — so a removal between the two made a wall read one body's
         /// history as another's, and push a body that had never touched it to the far side.
         public var deferAgeing: Bool = false
+        /// Where a finger is freezing the crowd, and how far it reaches. A reach of nought means no finger is
+        /// freezing anything; an infinite one means the whole field.
+        ///
+        /// Here rather than only in the brush, because the brush runs before this moment's gravity, a shape's
+        /// hold and everything else — so a body it had stopped was set moving again straight away, and a frozen
+        /// crowd crept downward and frozen seeds crept after their turning places. Stopped here, after all of
+        /// that and just before anything moves, frozen means still.
+        public var freezeX: Double = 0
+        public var freezeY: Double = 0
+        public var freezeReach: Double = 0
 
         public init(
             width: Double,
@@ -627,14 +672,11 @@ public final class Swarm {
             collide: Bool,
             maxSpeed: Double,
             boundaryMode: ParticleBoundaryMode,
-            mouseX: Double,
-            mouseY: Double,
-            mouseActive: Bool,
-            mouseForce: Double,
-            mouseRadius: Double,
-            attract: Bool,
             contact: ContactSettings = .default,
-            deferAgeing: Bool = false
+            deferAgeing: Bool = false,
+            freezeX: Double = 0,
+            freezeY: Double = 0,
+            freezeReach: Double = 0
         ) {
             self.width = width
             self.height = height
@@ -645,14 +687,11 @@ public final class Swarm {
             self.collide = collide
             self.maxSpeed = maxSpeed
             self.boundaryMode = boundaryMode
-            self.mouseX = mouseX
-            self.mouseY = mouseY
-            self.mouseActive = mouseActive
-            self.mouseForce = mouseForce
-            self.mouseRadius = mouseRadius
-            self.attract = attract
             self.contact = contact
             self.deferAgeing = deferAgeing
+            self.freezeX = freezeX
+            self.freezeY = freezeY
+            self.freezeReach = freezeReach
         }
     }
 
@@ -664,8 +703,6 @@ public final class Swarm {
         let height = options.height
         let damping = options.damping
         let bounce = options.elasticity
-        let radiusSquared = options.mouseRadius * options.mouseRadius
-        let force = (options.attract ? 1.0 : -1.0) * options.mouseForce * 0.08
         let maxSpeed = options.maxSpeed > 0 ? options.maxSpeed : Double.infinity
         let maxSpeedSquared = maxSpeed * maxSpeed
         let wrapping = options.boundaryMode == .wrap
@@ -680,6 +717,11 @@ public final class Swarm {
         let anyRoles = hasRoles
         let holdsBit = Role.holds.rawValue
         let orbitsBit = Role.orbits.rawValue
+        let freezeX = options.freezeX
+        let freezeY = options.freezeY
+        let freezing = options.freezeReach > 0 && freezeX.isFinite && freezeY.isFinite
+        let freezesEverything = freezing && !options.freezeReach.isFinite
+        let freezeReachSquared = freezing && !freezesEverything ? options.freezeReach * options.freezeReach : 0
         for i in 0 ..< count {
             let pair = i * 2
 
@@ -724,14 +766,12 @@ public final class Swarm {
                 velocities[pair + 1] = JS.toFloat32(velY)
             }
 
-            if options.mouseActive {
-                let dx = options.mouseX - positions[pair].asDouble
-                let dy = options.mouseY - positions[pair + 1].asDouble
-                let distanceSquared = dx * dx + dy * dy
-                if distanceSquared < radiusSquared && distanceSquared > 0.5 {
-                    let inverse = force / distanceSquared.squareRoot()
-                    velocities[pair] = JS.toFloat32(velocities[pair].asDouble + dx * inverse)
-                    velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble + dy * inverse)
+            if freezing {
+                let dx = positions[pair].asDouble - freezeX
+                let dy = positions[pair + 1].asDouble - freezeY
+                if freezesEverything || dx * dx + dy * dy < freezeReachSquared {
+                    velocities[pair] = 0
+                    velocities[pair + 1] = 0
                 }
             }
 
@@ -1000,9 +1040,34 @@ public final class Swarm {
         public var maxLives: [Float] = []
         /// Roles, left empty when no body has one.
         public var roles: [UInt8] = []
-        /// Homes, six numbers a body, left empty when no body has a role.
+        /// Homes, left empty when no body has a role.
         public var homes: [Float] = []
+        /// Sizes of their own, left empty when no body has one.
+        public var sizes: [Float] = []
         public var count: Int { colors.count }
+
+        /// Moves every body in the copy by the same amount, and the places the held ones belong along with
+        /// them — as ``Swarm/translate(dx:dy:)`` does for the live crowd, so a copy kept for undo stays where
+        /// the crowd is when the world grows round it.
+        public mutating func translate(dx: Double, dy: Double) {
+            guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0 else { return }
+            let shiftX = Float(dx)
+            let shiftY = Float(dy)
+            var pair = 0
+            while pair + 1 < positions.count {
+                positions[pair] += shiftX
+                positions[pair + 1] += shiftY
+                pair += 2
+            }
+            guard !roles.isEmpty, !homes.isEmpty else { return }
+            let holds = Role.holds.rawValue
+            for index in 0 ..< roles.count where roles[index] & holds != 0 {
+                let at = index * Swarm.homeStride
+                guard at + 1 < homes.count else { break }
+                homes[at] += shiftX
+                homes[at + 1] += shiftY
+            }
+        }
 
         public init(
             positions: [Float],
@@ -1012,7 +1077,8 @@ public final class Swarm {
             lives: [Float] = [],
             maxLives: [Float] = [],
             roles: [UInt8] = [],
-            homes: [Float] = []
+            homes: [Float] = [],
+            sizes: [Float] = []
         ) {
             self.positions = positions
             self.velocities = velocities
@@ -1022,6 +1088,7 @@ public final class Swarm {
             self.maxLives = maxLives
             self.roles = roles
             self.homes = homes
+            self.sizes = sizes
         }
     }
 
@@ -1041,7 +1108,8 @@ public final class Swarm {
             lives: hasMortalBodies ? Array(UnsafeBufferPointer(start: lives, count: taken)) : [],
             maxLives: hasMortalBodies ? Array(UnsafeBufferPointer(start: maxLives, count: taken)) : [],
             roles: hasRoles ? Array(UnsafeBufferPointer(start: roles, count: taken)) : [],
-            homes: hasRoles ? Array(UnsafeBufferPointer(start: homes, count: taken * Self.homeStride)) : []
+            homes: hasRoles ? Array(UnsafeBufferPointer(start: homes, count: taken * Self.homeStride)) : [],
+            sizes: hasSizes ? Array(UnsafeBufferPointer(start: sizes, count: taken)) : []
         )
     }
 
@@ -1126,6 +1194,16 @@ public final class Swarm {
             }
         } else {
             roles.update(repeating: 0, count: actual)
+        }
+        hasSizes = false
+        if !snapshot.sizes.isEmpty {
+            for index in 0 ..< actual {
+                let value = index < snapshot.sizes.count ? snapshot.sizes[index] : 0
+                sizes[index] = value.isFinite ? max(0, min(400, value)) : 0
+                if sizes[index] > 0 { hasSizes = true }
+            }
+        } else {
+            sizes.update(repeating: 0, count: actual)
         }
         count = actual
         generation += 1

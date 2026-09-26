@@ -138,6 +138,13 @@ public final class ParticleEngine {
     var drawColorScratch: [UInt32] = []
     /// Whether sources pour bodies that join the arrangement. Reached through ``joinsArrangement``.
     var storedJoinsArrangement = false
+    /// Whether bodies added to an arrangement take the size of its own bodies. Reached through
+    /// ``matchesArrangementSize``.
+    var storedMatchesArrangementSize = true
+    /// The screen the field is shown on, in the world's pixels. Reached through ``screenWidth`` and
+    /// ``screenHeight``; nought means the whole world.
+    var storedScreenWidth = 0.0
+    var storedScreenHeight = 0.0
 
     /// Sources pouring into the world. Reached through ``emitters``.
     var storedEmitters: [ParticleEmitter] = []
@@ -275,23 +282,57 @@ public final class ParticleEngine {
         if oldWidth > 0, oldHeight > 0 {
             func across(_ fraction: Double) -> Double { (fraction * oldWidth + shiftX) / safeWidth }
             func down(_ fraction: Double) -> Double { (fraction * oldHeight + shiftY) / safeHeight }
-            storedWalls = storedWalls.map { wall in
-                ParticleWall(fromX: across(wall.fromX), fromY: down(wall.fromY), toX: across(wall.toX), toY: down(wall.toY))
+            func refit(_ walls: [ParticleWall]) -> [ParticleWall] {
+                walls.map { wall in
+                    ParticleWall(
+                        fromX: across(wall.fromX), fromY: down(wall.fromY), toX: across(wall.toX), toY: down(wall.toY)
+                    )
+                }
             }
-            storedEmitters = storedEmitters.map { emitter in
-                var moved = emitter
-                moved.atFractionX = across(emitter.atFractionX)
-                moved.atFractionY = down(emitter.atFractionY)
+            func refit(_ emitters: [ParticleEmitter]) -> [ParticleEmitter] {
+                emitters.map { emitter in
+                    var moved = emitter
+                    moved.atFractionX = across(emitter.atFractionX)
+                    moved.atFractionY = down(emitter.atFractionY)
+                    return moved
+                }
+            }
+            func refit(_ current: ParticleCurrentField) -> ParticleCurrentField {
+                current.refitted(
+                    fromWidth: oldWidth,
+                    fromHeight: oldHeight,
+                    toWidth: safeWidth,
+                    toHeight: safeHeight,
+                    shiftX: shiftX,
+                    shiftY: shiftY
+                )
+            }
+            storedWalls = refit(storedWalls)
+            storedEmitters = refit(storedEmitters)
+            storedCurrent = refit(storedCurrent)
+
+            // And every point undo and redo can go back to, which were all written in the old world's places.
+            // Left as they were, undoing after zooming out brought the field back up and to the left of the
+            // middle — where it had been in the smaller world — and after zooming in, partly outside it.
+            func recentred(_ snapshot: Snapshot) -> Snapshot {
+                var moved = snapshot
+                moved.particles = snapshot.particles.map { body in
+                    var shifted = body
+                    shifted.x += shiftX
+                    shifted.y += shiftY
+                    if let originX = body.originX { shifted.originX = originX + shiftX }
+                    if let originY = body.originY { shifted.originY = originY + shiftY }
+                    shifted.trail.removeAll()
+                    return shifted
+                }
+                moved.swarm?.translate(dx: shiftX, dy: shiftY)
+                moved.walls = refit(snapshot.walls)
+                moved.emitters = refit(snapshot.emitters)
+                moved.current = refit(snapshot.current)
                 return moved
             }
-            storedCurrent = storedCurrent.refitted(
-                fromWidth: oldWidth,
-                fromHeight: oldHeight,
-                toWidth: safeWidth,
-                toHeight: safeHeight,
-                shiftX: shiftX,
-                shiftY: shiftY
-            )
+            if !undoStack.isEmpty { undoStack = undoStack.map(recentred) }
+            if !redoStack.isEmpty { redoStack = redoStack.map(recentred) }
         }
 
         guard shiftX != 0 || shiftY != 0 else { return }
@@ -661,7 +702,7 @@ public final class ParticleEngine {
 
         // Before the swarm moves, so the walls can tell which side of themselves each body came from.
         rememberSwarmPositions()
-        stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive)
+        stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
 
         // The colour ramp is no longer painted into the crowd here: it is worked out as each picture is
         // drawn, so the bodies keep their own colours. See `fillSwarmDrawColors`.

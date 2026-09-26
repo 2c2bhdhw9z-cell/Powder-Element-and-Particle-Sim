@@ -76,28 +76,28 @@ public enum ParticleOverlayStyle {
     /// The dot marking the exact centre.
     public static let ringCentreDotRadius = 3.0
 
-    /// At or above this reach, the pull is treated as having no limit.
-    public static let unlimitedReach = 800.0
-
     /// How big the ring should be drawn.
     ///
-    /// The point of this is honesty. At the top of its range the reach is unlimited — every body in
-    /// the field is pulled, however far away — and drawing a circle of radius 800 would say the
-    /// opposite, that there is a boundary and things outside it are safe. So past that threshold the
-    /// ring is drawn large enough to cover the whole world.
+    /// The point of this is honesty. With the reach set to the whole field every body is pulled, however far
+    /// away, and drawing any circle would say the opposite — that there is a boundary and things outside it
+    /// are safe. So then the ring is drawn large enough to cover the whole world.
+    ///
+    /// The whole field is an infinite reach, stated outright. It used to be any reach of eight hundred pixels
+    /// or more, which on a phone's screen is only a third of the way across — so a reach that merely looked
+    /// large quietly became the whole field.
     ///
     /// - Parameters:
-    ///   - reach: the mouse or finger radius the physics is using.
+    ///   - reach: the finger's reach the physics is using.
     ///   - worldWidth: the field's width.
     ///   - worldHeight: the field's height.
     public static func ringRadius(reach: Double, worldWidth: Double, worldHeight: Double) -> Double {
-        guard reach >= unlimitedReach else { return reach }
+        guard isUnlimited(reach: reach) else { return max(0, reach) }
         // The diagonal, so the circle covers every corner from wherever the finger is.
         return (worldWidth * worldWidth + worldHeight * worldHeight).squareRoot()
     }
 
     /// Whether the reach is unlimited, for anything that wants to say so in words.
     public static func isUnlimited(reach: Double) -> Bool {
-        reach >= unlimitedReach
+        reach == .infinity
     }
 }

@@ -68,28 +68,23 @@ struct ParticleOverlayTests {
         #expect(!ParticleOverlayStyle.isUnlimited(reach: 120))
     }
 
-    /// The rule that matters. At the top of its range the pull has no limit — everything in the
-    /// field is affected — and a circle of radius 800 would say the opposite: that there is a
-    /// boundary, and that things outside it are safe.
-    @Test("An unlimited reach is drawn covering the whole world, not as a circle of 800")
+    /// The rule that matters. With the reach set to the whole field everything is affected, and any circle
+    /// would say the opposite: that there is a boundary, and that things outside it are safe.
+    @Test("A reach of the whole field is drawn covering the whole world")
     func unlimitedReachCoversEverything() {
-        let radius = ParticleOverlayStyle.ringRadius(reach: 800, worldWidth: 300, worldHeight: 400)
-        #expect(ParticleOverlayStyle.isUnlimited(reach: 800))
+        let radius = ParticleOverlayStyle.ringRadius(reach: .infinity, worldWidth: 300, worldHeight: 400)
+        #expect(ParticleOverlayStyle.isUnlimited(reach: .infinity))
         // The diagonal of a 300 by 400 world, so the circle reaches every corner from anywhere in it.
         #expect(radius == 500)
-        // Emphatically not the reach itself, which is the whole point of the rule.
-        #expect(radius != 800)
-
-        // And well past the threshold behaves the same way, rather than growing further.
-        let larger = ParticleOverlayStyle.ringRadius(reach: 5000, worldWidth: 300, worldHeight: 400)
-        #expect(larger == 500)
     }
 
-    @Test("The threshold is inclusive, so the slider's top notch counts as unlimited")
-    func thresholdIsInclusive() {
-        #expect(ParticleOverlayStyle.isUnlimited(reach: 799.9) == false)
-        #expect(ParticleOverlayStyle.isUnlimited(reach: 800))
-        #expect(ParticleOverlayStyle.isUnlimited(reach: 800.1))
+    /// A large reach is still a reach. It used to become the whole field at eight hundred pixels, which on a
+    /// phone is a third of the way across the screen.
+    @Test("Only the whole field is unlimited; a large reach is drawn at its size")
+    func largeReachIsStillAReach() {
+        #expect(!ParticleOverlayStyle.isUnlimited(reach: 800))
+        #expect(!ParticleOverlayStyle.isUnlimited(reach: 5_000))
+        #expect(ParticleOverlayStyle.ringRadius(reach: 900, worldWidth: 3_000, worldHeight: 4_000) == 900)
     }
 
     @Test("The ring's colours are the reference's")

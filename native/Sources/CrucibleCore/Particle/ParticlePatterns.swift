@@ -29,7 +29,10 @@ extension ParticleEngine {
     ///
     /// Anything that should keep its shape is measured against this. Using the width would make every
     /// circle an ellipse the moment the phone was turned.
-    var patternSpan: Double { min(width, height) }
+    ///
+    /// Of the region arrangements are laid out in rather than of the whole world, so an arrangement chosen
+    /// after zooming out is its usual size with room round it. See `ParticleLayout.swift`.
+    var patternSpan: Double { min(layoutWidth, layoutHeight) }
 
     /// How many bodies a pattern may add.
     var patternRoom: Int {
@@ -378,8 +381,8 @@ extension ParticleEngine {
         for index in 0 ..< flakes {
             let site = sites[index % sites.count]
             guard flake(
-                (site.0 + between(-0.02, 0.02)) * width,
-                (site.1 + between(-0.02, 0.02)) * height,
+                across(site.0 + between(-0.02, 0.02)),
+                down(site.1 + between(-0.02, 0.02)),
                 radius: span * between(0.1, 0.16),
                 turn: 0.35 * Double(index),
                 hue: 186 + Double(index % 6) * 10,
@@ -393,8 +396,8 @@ extension ParticleEngine {
         let shards = max(4, min(10, total / 900))
         for index in 0 ..< shards {
             guard hexCore(
-                between(0.12, 0.88) * width,
-                between(0.12, 0.88) * height,
+                across(between(0.12, 0.88)),
+                down(between(0.12, 0.88)),
                 radius: span * between(0.035, 0.06),
                 hue: 200 + Double(index % 5) * 8,
                 spin: between(-0.006, 0.006)
@@ -430,7 +433,8 @@ extension ParticleEngine {
             let angle = 14 * up + between(0, 0.4)
             // Round once every second and a half at the tip, every five seconds or so at the top.
             let rate = 0.07 - 0.05 * up
-            let y = (0.94 - 0.86 * up) * height + between(-0.01, 0.01) * height
+            // Standing on the world's floor, the screen's height tall.
+            let y = aboveFloor(0.94 - 0.86 * up) + between(-0.01, 0.01) * layoutHeight
             let home = Swarm.Home(
                 anchorX: centreX + between(-0.008, 0.008) * span,
                 anchorY: y,
@@ -514,8 +518,8 @@ extension ParticleEngine {
         let bolts = max(1, min(4, total / 1_800))
         for _ in 0 ..< bolts {
             walk(
-                from: between(0.22, 0.78) * width,
-                from: 0.02 * height,
+                from: across(between(0.22, 0.78)),
+                from: belowCeiling(0.02),
                 // Downward. A quarter turn, because the world's vertical axis grows downward.
                 heading: 1.5707963267948966 + between(-0.15, 0.15),
                 step: 0.045 * span,
@@ -569,12 +573,12 @@ extension ParticleEngine {
             // The five sit at even fractions of the width, each waving by four percent of it.
             let base = 0.12 + 0.18 * Double(curtain)
             let wave = 0.04 * jsSin(9 * down)
-            let anchorX = (base + wave) * width + between(-0.01, 0.01) * width
-            let anchorY = (down * 0.92 + 0.04) * height + between(-0.012, 0.012) * height
+            let anchorX = across(base + wave) + between(-0.01, 0.01) * layoutWidth
+            let anchorY = belowCeiling(down * 0.92 + 0.04) + between(-0.012, 0.012) * layoutHeight
             let home = Swarm.Home(
                 anchorX: anchorX,
                 anchorY: anchorY,
-                radius: 0.018 * width,
+                radius: 0.018 * layoutWidth,
                 // Staggered down the curtain, so the sway travels as a ripple.
                 angle: 6 * down + Double(curtain) * 1.3,
                 spin: 0.025,
@@ -748,8 +752,8 @@ extension ParticleEngine {
         let total = min(requested, patternRoom)
         guard total > 0 else { return }
         let span = patternSpan
-        let originX = between(0.12, 0.88) * width
-        let originY = between(0.12, 0.55) * height
+        let originX = across(between(0.12, 0.88))
+        let originY = belowCeiling(between(0.12, 0.55))
         let hue = between(0, 360)
         for _ in 0 ..< total {
             let angle = between(0, 6.283185307179586)
@@ -781,14 +785,14 @@ extension ParticleEngine {
 
         for _ in 0 ..< total {
             let heat = rng.next()
-            let x = between(0.04, 0.96) * width
-            let y = between(0.8, 0.985) * height
+            let x = across(between(0.04, 0.96))
+            let y = aboveFloor(between(0.8, 0.985))
             let home = Swarm.Home(
                 anchorX: x,
                 anchorY: y,
                 radius: between(0.01, 0.03) * patternSpan,
                 // The phase follows the position across, so the heave travels as a wave along the pool.
-                angle: x / max(1, width) * 9 + between(0, 0.6),
+                angle: (x - layoutLeft) / max(1, layoutWidth) * 9 + between(0, 0.6),
                 spin: 0.018,
                 squash: 0.35,
                 stiffness: 0.03
@@ -819,8 +823,8 @@ extension ParticleEngine {
             weightVariation: 0.3,
             hue: 28
         )
-        for across in [0.22, 0.52, 0.8] {
-            addEmitter(atX: width * across, y: height * 0.8)
+        for share in [0.22, 0.52, 0.8] {
+            addEmitter(atX: across(share), y: aboveFloor(0.8))
         }
     }
 
@@ -841,8 +845,8 @@ extension ParticleEngine {
 
         for _ in 0 ..< total {
             guard place(
-                between(0.1, 0.9) * width,
-                between(0.03, 0.35) * height,
+                across(between(0.1, 0.9)),
+                belowCeiling(between(0.03, 0.35)),
                 velocityX: between(-3, 3),
                 // Mostly downward, but some still going up — which is what a handful of thrown paper
                 // looks like a moment after it leaves the hand.
@@ -867,8 +871,8 @@ extension ParticleEngine {
             weightVariation: 0,
             hue: -1
         )
-        for across in [0.2, 0.5, 0.8] {
-            addEmitter(atX: width * across, y: height * 0.02)
+        for share in [0.2, 0.5, 0.8] {
+            addEmitter(atX: across(share), y: belowCeiling(0.02))
         }
     }
 
@@ -1006,19 +1010,19 @@ extension ParticleEngine {
             (0.18, 0.52), (0.86, 0.55), (0.42, 0.82), (0.62, 0.18),
         ]
         for site in ringSites where laidOut && budget > 12 {
-            benzene(site.0 * width, site.1 * height, size: ringSize)
+            benzene(across(site.0), down(site.1), size: ringSize)
         }
         if laidOut, budget > 12 {
             chain(
                 0.5 * width - 0.16 * span,
-                0.55 * height,
+                down(0.55),
                 length: 9,
                 size: 0.032 * span,
                 heading: 0.15
             )
         }
         for site in waterSites where laidOut && budget > 3 {
-            water(site.0 * width, site.1 * height, size: waterSize)
+            water(across(site.0), down(site.1), size: waterSize)
         }
         // And whatever budget is left over, filled with more of the same in random places.
         var guardCount = 0
@@ -1026,14 +1030,14 @@ extension ParticleEngine {
             guardCount += 1
             if rng.next() < 0.55 {
                 benzene(
-                    between(0.1, 0.9) * width,
-                    between(0.1, 0.9) * height,
+                    across(between(0.1, 0.9)),
+                    down(between(0.1, 0.9)),
                     size: ringSize * between(0.7, 1.05)
                 )
             } else {
                 water(
-                    between(0.1, 0.9) * width,
-                    between(0.1, 0.9) * height,
+                    across(between(0.1, 0.9)),
+                    down(between(0.1, 0.9)),
                     size: waterSize * between(0.8, 1.2)
                 )
             }
@@ -1109,10 +1113,10 @@ extension ParticleEngine {
         // Four fifths of the budget in the pool, the rest falling into it.
         let poolBudget = Int(Double(total) * 0.8)
 
-        let left = 0.08 * width
-        let right = 0.92 * width
-        let bottom = 0.96 * height
-        let top = 0.52 * height
+        let left = across(0.08)
+        let right = across(0.92)
+        let bottom = aboveFloor(0.96)
+        let top = aboveFloor(0.52)
         var placed = 0
         var y = bottom
         var row = 0
@@ -1154,7 +1158,7 @@ extension ParticleEngine {
             weightVariation: 0,
             hue: 196
         )
-        addEmitter(atX: width * 0.5, y: height * 0.06)
+        addEmitter(atX: width * 0.5, y: aboveFloor(0.06))
     }
 
     /// A fire: a column of embers rising from the floor, and a source keeping it going.
@@ -1169,13 +1173,13 @@ extension ParticleEngine {
         let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
         guard total > 0 else { return }
 
-        let columnWidth = 0.18 * width
+        let columnWidth = 0.18 * layoutWidth
         for _ in 0 ..< total {
             let heat = rng.next()
             let life = between(30, 110)
             guard placeMortal(
                 width * 0.5 + between(-columnWidth, columnWidth),
-                between(0.78, 0.98) * height,
+                aboveFloor(between(0.78, 0.98)),
                 velocityX: between(-0.7, 0.7),
                 velocityY: -between(1.2, 3.4),
                 life: life,
@@ -1200,7 +1204,7 @@ extension ParticleEngine {
             weightVariation: 0.3,
             hue: 24
         )
-        addEmitter(atX: width * 0.5, y: height * 0.95)
+        addEmitter(atX: width * 0.5, y: aboveFloor(0.95))
     }
 
     /// Smoke: slower, wider and lighter than fire, and lasting far longer.
@@ -1209,11 +1213,11 @@ extension ParticleEngine {
         let total = min(requested, max(0, maxParticles - particles.count - swarm.count))
         guard total > 0 else { return }
 
-        let columnWidth = 0.12 * width
+        let columnWidth = 0.12 * layoutWidth
         for _ in 0 ..< total {
             guard placeMortal(
                 width * 0.5 + between(-columnWidth, columnWidth),
-                between(0.72, 0.96) * height,
+                aboveFloor(between(0.72, 0.96)),
                 velocityX: between(-0.35, 0.35),
                 velocityY: -between(0.4, 1.2),
                 life: between(140, 320),
@@ -1238,7 +1242,7 @@ extension ParticleEngine {
             weightVariation: 0.4,
             hue: 222
         )
-        addEmitter(atX: width * 0.5, y: height * 0.94)
+        addEmitter(atX: width * 0.5, y: aboveFloor(0.94))
     }
 
     /// Puts one body into the crowd with a lifetime, and says whether to keep going.

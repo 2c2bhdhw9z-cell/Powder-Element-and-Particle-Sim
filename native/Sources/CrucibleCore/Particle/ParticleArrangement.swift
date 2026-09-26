@@ -311,7 +311,7 @@ extension ParticleEngine {
     /// How many object bodies an arrangement built from them is given.
     ///
     /// Fewer on a narrow world, so a small window does not get a galaxy too dense to see through.
-    var arrangementBodyCount: Int { width < 500 ? 220 : 380 }
+    var arrangementBodyCount: Int { layoutWidth < 500 ? 220 : 380 }
 
     /// Lays out an arrangement by name.
     ///
@@ -369,7 +369,8 @@ extension ParticleEngine {
             height: height,
             color: 0,
             budget: max(0, maxParticles - particles.count),
-            rng: &rng
+            rng: &rng,
+            span: patternSpan * 0.42
         )
     }
 

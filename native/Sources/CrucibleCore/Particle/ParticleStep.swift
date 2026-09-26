@@ -148,8 +148,16 @@ extension ParticleEngine {
         let localMaxSpeed = maxSpeed
         let localBoundary = boundaryMode
         let localMouseMode = mouseMode
-        let localMouseRadius = mouseRadius
-        let localMouseMultiplier = mouseForceMultiplier
+        let localMouseRadius = mouseRadius.isNaN ? 0 : mouseRadius
+        let localBrushStrength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
+        let localBrushUnit = brushUnit
+        let localLayoutWidth = layoutWidth
+        let localSpan = patternSpan
+        let localCurrent = storedCurrent
+        let hasCurrent = !storedCurrent.isEmpty
+        let localCurrentStrength = storedCurrentSettings.sanitized.strength
+        let wallSegments = SwarmDrawnWorld.segments(for: storedWalls, width: width, height: height)
+        let localWallSettings = storedWallSettings.sanitized
         let localParticleSize = particleSize
         var localRNG = rng
         var expiredByVoid = false
@@ -195,7 +203,9 @@ extension ParticleEngine {
                                 bodies[i].velocityX = jsCos(jetAngle) * jetSpeed
                                 bodies[i].velocityY = jsSin(jetAngle) * jetSpeed
                             } else {
-                                let orbitDistance = localRNG.next() * (min(worldWidth, worldHeight) * 0.4) + 40
+                                // The screen's span rather than the world's, so a black hole in a world grown by
+                                // zooming out throws bodies into the orbits it was laid out with.
+                                let orbitDistance = localRNG.next() * (localSpan * 0.4) + 40
                                 let orbitAngle = localRNG.next() * Double.pi * 2
                                 let orbitSpeed = (gravitationalConstant / orbitDistance).squareRoot()
                                 bodies[i].x = attractorX + jsCos(orbitAngle) * orbitDistance
@@ -262,57 +272,57 @@ extension ParticleEngine {
 
                 // MARK: The finger
 
+                // Whether the finger is freezing this body. It is stopped again just before it moves, after
+                // gravity, a lattice's springs and a helix's pull have all acted — stopped only here, a frozen
+                // body crept downward at the pace of this moment's gravity.
+                var frozen = false
                 if mouseActive, let mouseX, let mouseY, !bodies[i].isFixed {
-                    let dx = mouseX - bodies[i].x
-                    let dy = mouseY - bodies[i].y
-                    let distanceSquared = dx * dx + dy * dy + 30
-                    let distance = distanceSquared.squareRoot()
-
-                    // At the top of its range the reach is treated as unlimited.
-                    let reach = localMouseRadius >= 800 ? Double.infinity : localMouseRadius
-                    if distance <= reach {
-                        let falloff = reach.isInfinite ? 1 : max(0, 1 - distance / reach)
-                        let multiplier = localMouseMultiplier
-
-                        switch localMouseMode {
-                        case .attract:
-                            let force = (1800 / distanceSquared) * (0.2 + 0.8 * falloff) * multiplier
-                            bodies[i].velocityX += (dx / distance) * force
-                            bodies[i].velocityY += (dy / distance) * force
-                        case .repel, .hawk:
-                            let force = (2000 / distanceSquared) * (0.2 + 0.8 * falloff) * multiplier
-                            bodies[i].velocityX -= (dx / distance) * force
-                            bodies[i].velocityY -= (dy / distance) * force
-                        case .vortex:
-                            let force = (1400 / distanceSquared) * (0.2 + 0.8 * falloff) * multiplier
-                            bodies[i].velocityX += (-dy / distance) * force + (dx / distance) * (force * 0.1)
-                            bodies[i].velocityY += (dx / distance) * force + (dy / distance) * (force * 0.1)
-                        case .painter:
-                            // Floored to a whole degree, as the web reference does
-                            // before it builds its colour string.
-                            let hue = (now / 10 + Double(i) * 5)
-                                .truncatingRemainder(dividingBy: 360)
-                                .rounded(.down)
-                            bodies[i].color = PackedColor(hue: hue, saturation: 0.95, lightness: 0.65)
-                        case .gravityWell:
-                            let force = (3500 / distanceSquared) * (0.2 + 0.8 * falloff) * multiplier
-                            bodies[i].velocityX += (dx / distance) * force - (dy / distance) * (force * 0.3)
-                            bodies[i].velocityY += (dy / distance) * force + (dx / distance) * (force * 0.3)
-                        case .freeze:
-                            bodies[i].velocityX *= 0.7
-                            bodies[i].velocityY *= 0.7
-                        case .hyperDrive:
-                            bodies[i].velocityX += (dx / distance) * (12 * multiplier)
-                            bodies[i].velocityY += (dy / distance) * (12 * multiplier)
-                            bodies[i].color = PackedColor(r: 0xF4, g: 0x3F, b: 0x5E)
-                        case .emitter:
-                            break
-                        case .current, .wall, .source:
-                            // These change the world rather than the bodies. Nothing happens under the
-                            // finger; the bodies notice the wind, the walls and the sources next tick.
-                            break
+                    if localMouseMode == .painter {
+                        // Unchanged, including how far it reaches: painting moves nothing, so there was nothing
+                        // wrong with it, and the recorded comparison of a repainted helix still holds it exactly.
+                        let dx = mouseX - bodies[i].x
+                        let dy = mouseY - bodies[i].y
+                        let distance = (dx * dx + dy * dy + 30).squareRoot()
+                        if distance <= localMouseRadius {
+                            bodies[i].color = ParticleBrush.paintColor(now: now, index: i)
+                        }
+                    } else if ParticleBrush.touchesBodies(localMouseMode) {
+                        // Built-Helion's brush, the same one the crowd feels. See `ParticleBrush`.
+                        let effect = ParticleBrush.effect(
+                            localMouseMode,
+                            atX: bodies[i].x,
+                            y: bodies[i].y,
+                            fingerX: mouseX,
+                            fingerY: mouseY,
+                            reach: localMouseRadius,
+                            strength: localBrushStrength,
+                            unit: localBrushUnit
+                        )
+                        if effect.inReach {
+                            if effect.stops {
+                                bodies[i].velocityX = 0
+                                bodies[i].velocityY = 0
+                                frozen = true
+                            } else {
+                                bodies[i].velocityX += effect.velocityX
+                                bodies[i].velocityY += effect.velocityY
+                                if localMouseMode == .hyperDrive { bodies[i].color = ParticleBrush.rushColor }
+                            }
                         }
                     }
+                }
+
+                // MARK: Painted wind
+
+                // The object bodies feel it as the crowd does. They used to ignore it entirely, so painting wind
+                // across a galaxy or a black hole did nothing to it at all.
+                if hasCurrent, !bodies[i].isFixed, worldWidth > 0, worldHeight > 0 {
+                    let push = localCurrent.sample(
+                        atFractionX: bodies[i].x / worldWidth,
+                        y: bodies[i].y / worldHeight
+                    )
+                    bodies[i].velocityX += push.x * localCurrentStrength
+                    bodies[i].velocityY += push.y * localCurrentStrength
                 }
 
                 // MARK: Per-preset behaviour, gravity, and integration
@@ -329,7 +339,7 @@ extension ParticleEngine {
 
                     // A waterfall pours from the top and is caught at the bottom.
                     if let originX = bodies[i].originX, bodies[i].originY == 20, bodies[i].y >= worldHeight - 10 {
-                        bodies[i].x = originX + localRNG.next() * (worldWidth * 0.4)
+                        bodies[i].x = originX + localRNG.next() * (localLayoutWidth * 0.4)
                         bodies[i].y = 15
                         bodies[i].velocityY = localRNG.next() * 4 + 2
                         bodies[i].velocityX = (localRNG.next() - 0.5) * 1.5
@@ -376,8 +386,40 @@ extension ParticleEngine {
                         bodies[i].velocityY *= scale
                     }
 
+                    if frozen {
+                        bodies[i].velocityX = 0
+                        bodies[i].velocityY = 0
+                    }
+
+                    let cameFromX = bodies[i].x
+                    let cameFromY = bodies[i].y
                     bodies[i].x += bodies[i].velocityX
                     bodies[i].y += bodies[i].velocityY
+
+                    // Walls stop the object bodies as they stop the crowd. They used to pass straight through, so
+                    // a wall drawn across a galaxy was a line drawn on top of it and nothing more.
+                    if !wallSegments.isEmpty {
+                        var x = bodies[i].x
+                        var y = bodies[i].y
+                        var velX = bodies[i].velocityX
+                        var velY = bodies[i].velocityY
+                        SwarmDrawnWorld.collide(
+                            x: &x,
+                            y: &y,
+                            velocityX: &velX,
+                            velocityY: &velY,
+                            cameFromX: cameFromX,
+                            cameFromY: cameFromY,
+                            segments: wallSegments,
+                            thickness: localWallSettings.thickness + max(0, bodies[i].radius.isFinite ? bodies[i].radius : 0),
+                            bounciness: localWallSettings.bounciness,
+                            friction: localWallSettings.friction
+                        )
+                        bodies[i].x = x
+                        bodies[i].y = y
+                        bodies[i].velocityX = velX
+                        bodies[i].velocityY = velY
+                    }
                 }
 
                 // MARK: The edge of the world
@@ -561,31 +603,8 @@ extension ParticleEngine {
         }
     }
 
-    /// What the finger does to the swarm, and which way.
-    ///
-    /// The swarm only understands "pull toward" or "push away", so each mode has to map
-    /// onto one of those or be left out. The web version treated everything except two
-    /// modes as repulsion, so the painter, freeze and emitter tools — which mean
-    /// something quite different for the object bodies — silently blew the swarm apart.
-    private var swarmMouseEffect: (active: Bool, attract: Bool) {
-        switch mouseMode {
-        case .attract, .gravityWell, .hawk:
-            return (true, true)
-        case .repel, .hyperDrive:
-            return (true, false)
-        case .current, .wall, .source:
-            // These change the world rather than the bodies. The bodies notice on the next tick, through the
-            // painted wind, the walls and the sources — not through a force under the finger.
-            return (false, false)
-        case .vortex, .emitter, .painter, .freeze:
-            // Nothing sensible to do to a million positions, so the swarm is left alone
-            // rather than shoved by a tool that means something else.
-            return (false, false)
-        }
-    }
-
     /// Runs one tick of the swarm.
-    func stepSwarm(mouseX: Double?, mouseY: Double?, mouseActive: Bool) {
+    func stepSwarm(mouseX: Double?, mouseY: Double?, mouseActive: Bool, now: Double = 0) {
         guard swarm.count > 0 else { return }
 
         // Both of these change velocity and nothing else, and both run *before* the main pass, so that
@@ -644,10 +663,31 @@ extension ParticleEngine {
             ))
         }
         if !attractors.isEmpty {
-            swarm.applyAttractors(attractors, span: min(width, height), rng: &rng)
+            swarm.applyAttractors(attractors, span: patternSpan, rng: &rng)
         }
 
-        let effect = swarmMouseEffect
+        // The finger. The same rule, and the same numbers, as for the object bodies — Built-Helion's brush.
+        // The crowd used to have one of its own that pushed with eight hundredths of a pixel a moment and knew
+        // nothing of swirling, freezing or painting, so on every arrangement made of the crowd the tools
+        // looked broken. See `ParticleBrush`.
+        let fingerX = mouseX ?? lastMouseX
+        let fingerY = mouseY ?? lastMouseY
+        let reach = mouseRadius.isNaN ? 0 : mouseRadius
+        if mouseActive {
+            swarm.applyBrush(
+                mouseMode,
+                fingerX: fingerX,
+                fingerY: fingerY,
+                reach: reach,
+                strength: ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1),
+                unit: brushUnit,
+                now: now
+            )
+        }
+        // Freezing is finished inside the step, after gravity and the shapes' hold have had their say, so that
+        // what it stops stays stopped. See `Swarm.StepOptions.freezeReach`.
+        let freezing = mouseActive && mouseMode == .freeze
+
         swarm.step(Swarm.StepOptions(
             width: width,
             height: height,
@@ -658,14 +698,11 @@ extension ParticleEngine {
             collide: collisionsEnabled,
             maxSpeed: maxSpeed,
             boundaryMode: boundaryMode,
-            mouseX: mouseX ?? lastMouseX,
-            mouseY: mouseY ?? lastMouseY,
-            mouseActive: mouseActive && effect.active,
-            mouseForce: mouseForceMultiplier * (mouseMode == .hawk ? 2.4 : 1),
-            mouseRadius: mouseRadius,
-            attract: effect.attract,
             contact: contactSettings.sanitized,
-            deferAgeing: !storedWalls.isEmpty
+            deferAgeing: !storedWalls.isEmpty,
+            freezeX: freezing ? fingerX : 0,
+            freezeY: freezing ? fingerY : 0,
+            freezeReach: freezing ? reach : 0
         ))
 
         // After the move, because a wall is about where something has got to rather than where it was

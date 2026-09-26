@@ -386,7 +386,130 @@ public enum SwarmDrawnWorld {
         }
     }
 
-    /// Stops every body that has run into a wall.
+    /// One wall, turned into the world's pixels once rather than for every body against every wall.
+    public struct WallSegment: Sendable {
+        var fromX: Double
+        var fromY: Double
+        var alongX: Double
+        var alongY: Double
+        var lengthSquared: Double
+        var normalX: Double
+        var normalY: Double
+    }
+
+    /// The walls, in the world's pixels. Empty when there are none that can be used.
+    public static func segments(for walls: [ParticleWall], width: Double, height: Double) -> [WallSegment] {
+        guard !walls.isEmpty, width > 0, height > 0 else { return [] }
+        var segments: [WallSegment] = []
+        segments.reserveCapacity(walls.count)
+        for wall in walls where wall.isUsable {
+            let fromX = wall.fromX * width
+            let fromY = wall.fromY * height
+            let alongX = wall.toX * width - fromX
+            let alongY = wall.toY * height - fromY
+            let lengthSquared = alongX * alongX + alongY * alongY
+            guard lengthSquared > 1e-9 else { continue }
+            let length = lengthSquared.squareRoot()
+            segments.append(WallSegment(
+                fromX: fromX,
+                fromY: fromY,
+                alongX: alongX,
+                alongY: alongY,
+                lengthSquared: lengthSquared,
+                // Square to the wall, either way round — which way is decided per body, by which side it
+                // came from.
+                normalX: -alongY / length,
+                normalY: alongX / length
+            ))
+        }
+        return segments
+    }
+
+    /// Stops one body that has run into a wall.
+    ///
+    /// Shared by the crowd and the object bodies, so a wall is one thing whatever meets it.
+    @inline(__always)
+    public static func collide(
+        x: inout Double,
+        y: inout Double,
+        velocityX velX: inout Double,
+        velocityY velY: inout Double,
+        cameFromX: Double,
+        cameFromY: Double,
+        segments: [WallSegment],
+        thickness: Double,
+        bounciness: Double,
+        friction: Double
+    ) {
+        let thicknessSquared = thickness * thickness
+        for segment in segments {
+            // The nearest point on the wall to where the body is.
+            let toBodyX = x - segment.fromX
+            let toBodyY = y - segment.fromY
+            let along = max(0, min(1, (toBodyX * segment.alongX + toBodyY * segment.alongY)
+                / segment.lengthSquared))
+            let nearestX = segment.fromX + segment.alongX * along
+            let nearestY = segment.fromY + segment.alongY * along
+            let gapX = x - nearestX
+            let gapY = y - nearestY
+            let gapSquared = gapX * gapX + gapY * gapY
+
+            // Which side of the wall the body was on before it moved. That is what decides which way
+            // "out" is — using the current side would push a body that has already gone through even
+            // further through.
+            let wasSide = (cameFromX - segment.fromX) * segment.normalX
+                + (cameFromY - segment.fromY) * segment.normalY
+            let side: Double = wasSide >= 0 ? 1 : -1
+            let outX = segment.normalX * side
+            let outY = segment.normalY * side
+
+            let nowSide = gapX * outX + gapY * outY
+            // Either resting against it, or it has crossed to the other side since the last frame.
+            let touching = gapSquared < thicknessSquared
+            // Crossed means the path it took this moment actually passes through the wall — not merely
+            // that it changed sides of the endless line the wall happens to lie on. That was the old test,
+            // and it grabbed any body crossing that line anywhere along it: a body passing three hundred
+            // pixels beyond the end of a wall was snatched sideways onto the wall's tip.
+            var crossed = false
+            var crossingAlong = along
+            if nowSide < 0, wasSide != 0 {
+                let moveX = x - cameFromX
+                let moveY = y - cameFromY
+                let denominator = moveX * segment.alongY - moveY * segment.alongX
+                if denominator != 0 {
+                    let startX = segment.fromX - cameFromX
+                    let startY = segment.fromY - cameFromY
+                    let throughMove = (startX * segment.alongY - startY * segment.alongX) / denominator
+                    let throughWall = (startX * moveY - startY * moveX) / denominator
+                    if throughMove >= 0, throughMove <= 1, throughWall >= 0, throughWall <= 1 {
+                        crossed = true
+                        crossingAlong = throughWall
+                    }
+                }
+            }
+            guard touching || crossed else { continue }
+
+            // Put back onto the near face — where it went through, if it went through.
+            let faceX = crossed ? segment.fromX + segment.alongX * crossingAlong : nearestX
+            let faceY = crossed ? segment.fromY + segment.alongY * crossingAlong : nearestY
+            x = faceX + outX * thickness
+            y = faceY + outY * thickness
+
+            // And turned around, if it was heading in.
+            let intoWall = velX * outX + velY * outY
+            if intoWall < 0 {
+                // The part heading into the wall is reversed and reduced; the part sliding along it is
+                // reduced by the friction. Separating the two is what makes a wall something a body can
+                // slide down rather than only bounce off.
+                let alongVelX = velX - outX * intoWall
+                let alongVelY = velY - outY * intoWall
+                velX = alongVelX * (1 - friction) - outX * intoWall * bounciness
+                velY = alongVelY * (1 - friction) - outY * intoWall * bounciness
+            }
+        }
+    }
+
+    /// Stops every body in the crowd that has run into a wall.
     ///
     /// Run after the bodies have moved, because a wall is about where something has *got to* rather than
     /// where it was going. Both the crossing and the closeness are checked: the closeness catches a body
@@ -405,45 +528,8 @@ public enum SwarmDrawnWorld {
         let tuned = settings.sanitized
         let positions = swarm.positions
         let velocities = swarm.velocities
-
-        // Turned into pixels once, rather than for every body against every wall.
-        struct Segment {
-            var fromX: Double
-            var fromY: Double
-            var alongX: Double
-            var alongY: Double
-            var lengthSquared: Double
-            var normalX: Double
-            var normalY: Double
-        }
-        var segments: [Segment] = []
-        segments.reserveCapacity(walls.count)
-        for wall in walls where wall.isUsable {
-            let fromX = wall.fromX * width
-            let fromY = wall.fromY * height
-            let alongX = wall.toX * width - fromX
-            let alongY = wall.toY * height - fromY
-            let lengthSquared = alongX * alongX + alongY * alongY
-            guard lengthSquared > 1e-9 else { continue }
-            let length = lengthSquared.squareRoot()
-            segments.append(Segment(
-                fromX: fromX,
-                fromY: fromY,
-                alongX: alongX,
-                alongY: alongY,
-                lengthSquared: lengthSquared,
-                // Square to the wall, either way round — which way is decided per body, by which side it
-                // came from.
-                normalX: -alongY / length,
-                normalY: alongX / length
-            ))
-        }
+        let segments = Self.segments(for: walls, width: width, height: height)
         guard !segments.isEmpty else { return }
-
-        let thickness = tuned.thickness
-        let thicknessSquared = thickness * thickness
-        let bounciness = tuned.bounciness
-        let friction = tuned.friction
 
         for index in 0 ..< bodies {
             let pair = index * 2
@@ -456,71 +542,18 @@ public enum SwarmDrawnWorld {
             let cameFromX = previousPositions.map { Double($0[pair]) } ?? x
             let cameFromY = previousPositions.map { Double($0[pair + 1]) } ?? y
 
-            for segment in segments {
-                // The nearest point on the wall to where the body is.
-                let toBodyX = x - segment.fromX
-                let toBodyY = y - segment.fromY
-                let along = max(0, min(1, (toBodyX * segment.alongX + toBodyY * segment.alongY)
-                    / segment.lengthSquared))
-                let nearestX = segment.fromX + segment.alongX * along
-                let nearestY = segment.fromY + segment.alongY * along
-                let gapX = x - nearestX
-                let gapY = y - nearestY
-                let gapSquared = gapX * gapX + gapY * gapY
-
-                // Which side of the wall the body was on before it moved. That is what decides which way
-                // "out" is — using the current side would push a body that has already gone through even
-                // further through.
-                let wasSide = (cameFromX - segment.fromX) * segment.normalX
-                    + (cameFromY - segment.fromY) * segment.normalY
-                let side: Double = wasSide >= 0 ? 1 : -1
-                let outX = segment.normalX * side
-                let outY = segment.normalY * side
-
-                let nowSide = gapX * outX + gapY * outY
-                // Either resting against it, or it has crossed to the other side since the last frame.
-                let touching = gapSquared < thicknessSquared
-                // Crossed means the path it took this moment actually passes through the wall — not merely
-                // that it changed sides of the endless line the wall happens to lie on. That was the old test,
-                // and it grabbed any body crossing that line anywhere along it: a body passing three hundred
-                // pixels beyond the end of a wall was snatched sideways onto the wall's tip.
-                var crossed = false
-                var crossingAlong = along
-                if nowSide < 0, wasSide != 0 {
-                    let moveX = x - cameFromX
-                    let moveY = y - cameFromY
-                    let denominator = moveX * segment.alongY - moveY * segment.alongX
-                    if denominator != 0 {
-                        let startX = segment.fromX - cameFromX
-                        let startY = segment.fromY - cameFromY
-                        let throughMove = (startX * segment.alongY - startY * segment.alongX) / denominator
-                        let throughWall = (startX * moveY - startY * moveX) / denominator
-                        if throughMove >= 0, throughMove <= 1, throughWall >= 0, throughWall <= 1 {
-                            crossed = true
-                            crossingAlong = throughWall
-                        }
-                    }
-                }
-                guard touching || crossed else { continue }
-
-                // Put back onto the near face — where it went through, if it went through.
-                let faceX = crossed ? segment.fromX + segment.alongX * crossingAlong : nearestX
-                let faceY = crossed ? segment.fromY + segment.alongY * crossingAlong : nearestY
-                x = faceX + outX * thickness
-                y = faceY + outY * thickness
-
-                // And turned around, if it was heading in.
-                let intoWall = velX * outX + velY * outY
-                if intoWall < 0 {
-                    // The part heading into the wall is reversed and reduced; the part sliding along it is
-                    // reduced by the friction. Separating the two is what makes a wall something a body can
-                    // slide down rather than only bounce off.
-                    let alongVelX = velX - outX * intoWall
-                    let alongVelY = velY - outY * intoWall
-                    velX = alongVelX * (1 - friction) - outX * intoWall * bounciness
-                    velY = alongVelY * (1 - friction) - outY * intoWall * bounciness
-                }
-            }
+            collide(
+                x: &x,
+                y: &y,
+                velocityX: &velX,
+                velocityY: &velY,
+                cameFromX: cameFromX,
+                cameFromY: cameFromY,
+                segments: segments,
+                thickness: tuned.thickness,
+                bounciness: tuned.bounciness,
+                friction: tuned.friction
+            )
 
             positions[pair] = JS.toFloat32(x)
             positions[pair + 1] = JS.toFloat32(y)

@@ -112,8 +112,7 @@ struct SwarmForcesTests {
             field.step(Swarm.StepOptions(
                 width: 400, height: 700, gravityX: 0, gravityY: 0,
                 damping: 0.99, elasticity: 0.5, collide: false, maxSpeed: 30,
-                boundaryMode: .bounce, mouseX: 0, mouseY: 0, mouseActive: false,
-                mouseForce: 0, mouseRadius: 0, attract: false
+                boundaryMode: .bounce
             ))
         }
         let after = spread()
@@ -143,8 +142,7 @@ struct SwarmForcesTests {
             field.step(Swarm.StepOptions(
                 width: 400, height: 700, gravityX: 0, gravityY: 0,
                 damping: 0.99, elasticity: 0.5, collide: false, maxSpeed: 30,
-                boundaryMode: .bounce, mouseX: 0, mouseY: 0, mouseActive: false,
-                mouseForce: 0, mouseRadius: 0, attract: false
+                boundaryMode: .bounce
             ))
         }
         let after = spread()
@@ -163,8 +161,7 @@ struct SwarmForcesTests {
                 field.step(Swarm.StepOptions(
                     width: 400, height: 700, gravityX: 0, gravityY: 0,
                     damping: 0.99, elasticity: 0.5, collide: false, maxSpeed: 30,
-                    boundaryMode: .bounce, mouseX: 0, mouseY: 0, mouseActive: false,
-                    mouseForce: 0, mouseRadius: 0, attract: false
+                    boundaryMode: .bounce
                 ))
             }
             var total = 0.0

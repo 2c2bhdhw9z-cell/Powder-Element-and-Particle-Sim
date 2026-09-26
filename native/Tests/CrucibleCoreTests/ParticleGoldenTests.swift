@@ -112,7 +112,18 @@ struct ParticleGoldenTests {
     ///     not act on, so nothing pulled on anything. Now made of the crowd.
     ///
     /// Replaced by `ParticleArrangementTests`, which check what each is meant to do.
-    static let retired: Set<String> = ["pour-fluid-mode", "nbody-mutual-gravity"]
+    ///
+    /// Eight more were retired when the finger was rebuilt on Built-Helion's brush — the owner's working
+    /// reference — because the reference's own finger was too weak on a phone to see: an inverse-square pull
+    /// that had faded to almost nothing a finger's width out, and for the crowd a constant eight hundredths of
+    /// a pixel a moment. `ParticleBrushTests` checks what each tool is meant to do instead, on both kinds of
+    /// body. The painter and the emitter were not changed, and their comparisons still hold exactly.
+    static let retired: Set<String> = [
+        "pour-fluid-mode", "nbody-mutual-gravity",
+        "mouse-attract-sweeps-through", "mouse-repel-and-release", "mouse-vortex-swirls",
+        "mouse-gravity-well-swirls-inward", "mouse-freeze-damps", "mouse-hyper-drive-recolours",
+        "mouse-hawk-pushes-hard", "swarm-with-cursor-and-wrapping",
+    ]
 
     /// The scenarios still compared.
     static let compared: [Scenario] = fixture.scenarios.filter { !retired.contains($0.name) }
