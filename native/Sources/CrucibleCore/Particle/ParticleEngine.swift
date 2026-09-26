@@ -161,6 +161,8 @@ public final class ParticleEngine {
     var storedDepthEnabled = false
     /// How deep the box is, as a share of the world's shorter side. Reached through ``depthRatio``.
     var storedDepthRatio = 1.0
+    /// How hard everything is pulled toward the middle of the world. See `ParticleRadialGravity.swift`.
+    var storedGravityToCentre = 0.0
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -217,6 +219,12 @@ public final class ParticleEngine {
     /// — and because a written force that reads the time has to see it advance in step with the physics
     /// rather than with the wall, or a paused field would still have a moving force acting on it.
     public private(set) var elapsedSeconds: Double = 0
+
+    /// Where the muscles are in their cycle, counted in moments since the field started.
+    ///
+    /// Taken from the clock the field already keeps rather than a counter of its own, so muscles keep time with
+    /// the painted wind and anything else that moves on its own, and so pausing the field pauses them.
+    var springMoment: Double { elapsedSeconds * 60 }
 
     /// The liquid's working state. Held here so its buffers survive between ticks.
     let fluid = SwarmFluid()
@@ -399,6 +407,12 @@ public final class ParticleEngine {
         vortexForce = 0
         decaySpeed = 0
         boundaryMode = .bounce
+        // Off again, or every scene chosen after a little round world would have its matter fall to the middle
+        // of the screen instead of down it.
+        storedGravityToCentre = 0
+        // And back to working the grain size out for itself, so a scene that sets one does not quietly leave every
+        // scene chosen afterwards packing the way it did.
+        storedContactSettings = .default
     }
 
     // MARK: - Adding and removing
@@ -585,6 +599,8 @@ public final class ParticleEngine {
         /// the sources and the painted wind gone — and undoing a scene that set gravity left the gravity.
         public var gravityX: Double = 0
         public var gravityY: Double = 0.3
+        /// Gravity pointing at the middle of the world, so undo brings a little round world back as one.
+        public var gravityToCentre: Double = 0
         public var collisionsEnabled: Bool = true
         public var flowEnabled: Bool = false
         public var walls: [ParticleWall] = []
@@ -617,6 +633,7 @@ public final class ParticleEngine {
             boundaryMode: boundaryMode,
             gravityX: gravityX,
             gravityY: gravityY,
+            gravityToCentre: storedGravityToCentre,
             collisionsEnabled: collisionsEnabled,
             flowEnabled: storedFlowEnabled,
             walls: storedWalls,
@@ -639,6 +656,7 @@ public final class ParticleEngine {
         boundaryMode = snapshot.boundaryMode
         gravityX = snapshot.gravityX
         gravityY = snapshot.gravityY
+        storedGravityToCentre = snapshot.gravityToCentre
         collisionsEnabled = snapshot.collisionsEnabled
         storedFlowEnabled = snapshot.flowEnabled
         storedWalls = snapshot.walls
@@ -741,6 +759,10 @@ public final class ParticleEngine {
 
         // Whatever the arrangement does by itself — a storm striking again, another shell going up.
         stepArrangement()
+
+        // Gravity pointing at the middle of the world, for the scenes that are little round worlds. Does nothing
+        // at all unless it has been switched on, which is why it can sit outside the compared loops.
+        stepGravityToCentre()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             if storedDepthEnabled {

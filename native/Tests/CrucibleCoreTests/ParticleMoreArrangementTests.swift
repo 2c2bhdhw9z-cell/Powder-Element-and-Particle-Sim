@@ -267,6 +267,147 @@ struct ParticleMoreArrangementTests {
         #expect(engine.swarm.corruptCount() == 0, "the tray burst")
     }
 
+    // MARK: - Muscles
+
+    @Test("A muscle changes the length it holds; a plain spring does not")
+    func aMuscleChangesItsLength() {
+        let plain = Spring(a: 0, b: 1, rest: 100, k: 0.3)
+        #expect(!plain.isMuscle)
+        // Untouched at every moment, so a field with no muscles behaves exactly as it did before they existed.
+        for moment in stride(from: 0.0, through: 240, by: 17) {
+            #expect(plain.length(atMoment: moment) == 100)
+        }
+
+        let muscle = Spring(a: 0, b: 1, rest: 100, k: 0.3, pulse: 0.4, beat: 60, phase: 0)
+        #expect(muscle.isMuscle)
+        var shortest = Double.infinity
+        var longest = -Double.infinity
+        for moment in 0 ... 60 {
+            let length = muscle.length(atMoment: Double(moment))
+            shortest = min(shortest, length)
+            longest = max(longest, length)
+        }
+        // It squeezes to well under its length and swells to well over it, within one cycle.
+        #expect(shortest < 65, "a muscle set to squeeze by two fifths only reached \(shortest)")
+        #expect(longest > 135, "a muscle set to swell by two fifths only reached \(longest)")
+        // And it comes back: a full cycle later it is where it was.
+        #expect(abs(muscle.length(atMoment: 60) - muscle.length(atMoment: 0)) < 0.01)
+
+        // The phase is what makes a row of muscles move something rather than shake it. Two muscles set apart
+        // in the cycle are doing different things at the same moment.
+        let behind = Spring(a: 0, b: 1, rest: 100, k: 0.3, pulse: 0.4, beat: 60, phase: 0.25)
+        #expect(abs(behind.length(atMoment: 0) - muscle.length(atMoment: 0)) > 20)
+
+        // A muscle actually pulls the bodies it joins together and lets them apart again.
+        let engine = field()
+        engine.gravityY = 0
+        engine.damping = 1
+        let a = engine.addParticle(x: 200, y: 350, velocityX: 0, velocityY: 0, radius: 3, mass: 1)
+        let b = engine.addParticle(x: 300, y: 350, velocityX: 0, velocityY: 0, radius: 3, mass: 1)
+        engine.setSprings([Spring(a: a, b: b, rest: 100, k: 0.25, pulse: 0.35, beat: 70, phase: 0)])
+        var closest = Double.infinity
+        var widest = -Double.infinity
+        for _ in 0 ..< 140 {
+            engine.step()
+            let gap = abs(engine.particles[b].x - engine.particles[a].x)
+            closest = min(closest, gap)
+            widest = max(widest, gap)
+        }
+        #expect(widest - closest > 20, "the muscle moved the bodies by only \(widest - closest)")
+    }
+
+    // MARK: - Jellyfish
+
+    @Test("A jellyfish swims because its muscles squeeze, not because it is told to")
+    func jellyfishSwimsUnderItsOwnPower() {
+        let engine = field(width: 1_320, height: 2_868)
+        #expect(engine.loadArrangement("jellyfish"))
+        #expect(engine.fluidEnabled, "a jellyfish needs water to push against")
+
+        // The bells are built from muscles, and the muscles are set apart in the cycle so the squeeze travels.
+        let muscles = engine.springs.filter(\.isMuscle)
+        #expect(muscles.count >= 14, "only \(muscles.count) muscles")
+        let phases = Set(muscles.map { ($0.phase * 1_000).rounded() })
+        #expect(phases.count > 1, "every muscle squeezes at the same moment, so nothing can travel")
+        #expect(engine.springs.contains { !$0.isMuscle }, "the rim and the tentacles should be plain springs")
+
+        /// Where the middle of the first bell is. The bell is the ring, which is the first fourteen bodies.
+        func bell(_ engine: ParticleEngine) -> (x: Double, y: Double) {
+            var x = 0.0
+            var y = 0.0
+            let ring = min(14, engine.particles.count)
+            guard ring > 0 else { return (0, 0) }
+            for index in 0 ..< ring {
+                x += engine.particles[index].x
+                y += engine.particles[index].y
+            }
+            return (x / Double(ring), y / Double(ring))
+        }
+
+        let state = engine.captureState()
+        let swimming = field(width: 1_320, height: 2_868)
+        #expect(swimming.apply(state))
+        let from = bell(swimming)
+        for _ in 0 ..< 400 { swimming.step() }
+        let to = bell(swimming)
+        let travelled = ((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y)).squareRoot()
+
+        // The same field with the squeeze taken out of the muscles and nothing else changed. Whatever the bell
+        // still does is gravity, the water and drag; the difference is what the muscles are worth.
+        let still = field(width: 1_320, height: 2_868)
+        #expect(still.apply(state))
+        still.setSprings(still.springs.map { Spring(a: $0.a, b: $0.b, rest: $0.rest, k: $0.k) })
+        let stillFrom = bell(still)
+        for _ in 0 ..< 400 { still.step() }
+        let stillTo = bell(still)
+        let drifted = ((stillTo.x - stillFrom.x) * (stillTo.x - stillFrom.x)
+            + (stillTo.y - stillFrom.y) * (stillTo.y - stillFrom.y)).squareRoot()
+
+        #expect(travelled > 12, "the jellyfish went only \(travelled) in about seven seconds")
+        #expect(
+            travelled > drifted * 1.5,
+            "squeezing made almost no difference: \(travelled) with muscles against \(drifted) without"
+        )
+        let allFinite = swimming.particles.allSatisfy { $0.isFinite }
+        #expect(allFinite, "the jellyfish tore itself apart")
+        #expect(swimming.swarm.corruptCount() == 0)
+    }
+
+    // MARK: - Gravity toward the middle, and the tiny planet
+
+    @Test("Gravity toward the middle pulls everything inward, and is off unless a scene asks for it")
+    func gravityToCentrePullsInward() {
+        let engine = field()
+        // Off to begin with, and off after any ordinary scene, so nothing else in the field is affected by it.
+        #expect(engine.gravityToCentre == 0)
+        #expect(engine.loadArrangement("galaxy"))
+        #expect(engine.gravityToCentre == 0)
+
+        engine.gravityY = 0
+        engine.damping = 1
+        engine.gravityToCentre = 0.5
+        let centreX = engine.width * 0.5
+        let centreY = engine.height * 0.5
+
+        // A body off to one side, and one of the crowd on the other: both should come inward.
+        let body = engine.addParticle(x: centreX + 120, y: centreY, velocityX: 0, velocityY: 0, radius: 3, mass: 1)
+        _ = engine.placeLoose(centreX, centreY + 140, hue: 40)
+        let crowdIndex = engine.swarm.count - 1
+        let bodyBefore = engine.particles[body].x - centreX
+        let crowdBefore = Double(engine.swarm.positions[crowdIndex * 2 + 1]) - centreY
+
+        for _ in 0 ..< 30 { engine.step() }
+
+        let bodyAfter = engine.particles[body].x - centreX
+        let crowdAfter = Double(engine.swarm.positions[crowdIndex * 2 + 1]) - centreY
+        #expect(bodyAfter < bodyBefore - 5, "an object body was not drawn inward: \(bodyBefore) to \(bodyAfter)")
+        #expect(crowdAfter < crowdBefore - 5, "a crowd body was not drawn inward: \(crowdBefore) to \(crowdAfter)")
+
+        // Choosing any other scene turns it off again.
+        #expect(engine.loadArrangement("swarm"))
+        #expect(engine.gravityToCentre == 0)
+    }
+
     // MARK: - The atom
 
     @Test("An atom's dumbbells are pinched in the middle, and it only exists in 3D")

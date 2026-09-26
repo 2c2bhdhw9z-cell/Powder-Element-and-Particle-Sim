@@ -422,6 +422,14 @@ extension ParticleEngine {
                 addClothInDepth(cols: 10, rows: 8, centreX: across(0.25 + rng.next() * 0.5), top: down(0.05 + rng.next() * 0.35))
             case "molecules":
                 addMoleculesInDepth(count: 60, laidOut: false)
+            case "jellyfish":
+                addJellyfish(
+                    centreX: across(0.2 + rng.next() * 0.6),
+                    centreY: down(0.2 + rng.next() * 0.4),
+                    centreZ: (rng.next() - 0.5) * halfDepth * 1.3,
+                    size: sceneScale * (12 + rng.next() * 6),
+                    hue: rng.next() * 360
+                )
             case "pendulums":
                 buildPendulum(
                     atX: across(0.3 + rng.next() * 0.4),
@@ -440,6 +448,14 @@ extension ParticleEngine {
         switch id {
         case "rope":
             addRope(length: 32, atX: across(0.12 + rng.next() * 0.76))
+        case "jellyfish":
+            addJellyfish(
+                centreX: across(0.2 + rng.next() * 0.6),
+                centreY: down(0.2 + rng.next() * 0.4),
+                centreZ: 0,
+                size: sceneScale * (12 + rng.next() * 6),
+                hue: rng.next() * 360
+            )
         case "pendulums":
             let length = layoutHeight * (0.3 + rng.next() * 0.32)
             buildPendulum(

@@ -62,6 +62,16 @@ public struct SpringRecord: Codable, Sendable {
     public var b: Int
     public var rest: Double
     public var k: Double
+    /// A muscle's swell, its cycle and where in the cycle it starts. Absent for a plain spring, which is almost
+    /// all of them, so an ordinary cloth's file is exactly the size it always was.
+    public var pulse: Double?
+    public var beat: Double?
+    public var phase: Double?
+    /// How hard it pushes while squeezing, and which way. See `Spring.thrust`.
+    public var thrust: Double?
+    public var tx: Double?
+    public var ty: Double?
+    public var tz: Double?
 }
 
 /// The swarm, as saved: parallel lists rather than interleaved pairs, for readability.
@@ -99,6 +109,8 @@ public struct ParticleState: Codable, Sendable {
     public var height: Double
     public var gravityX: Double
     public var gravityY: Double
+    /// Gravity pointing at the middle of the world. Absent in every file written before little round worlds.
+    public var gravityToCentre: Double?
     public var damping: Double
     public var elasticity: Double
     public var vortexForce: Double
@@ -193,6 +205,7 @@ extension ParticleEngine {
             height: height,
             gravityX: gravityX,
             gravityY: gravityY,
+            gravityToCentre: storedGravityToCentre > 0 ? storedGravityToCentre : nil,
             damping: damping,
             elasticity: elasticity,
             vortexForce: vortexForce,
@@ -242,7 +255,18 @@ extension ParticleEngine {
             // scene shear itself apart.
             springs: springs
                 .filter { $0.a < saved.count && $0.b < saved.count }
-                .map { SpringRecord(a: $0.a, b: $0.b, rest: $0.rest, k: $0.k) },
+                .map {
+                    SpringRecord(
+                        a: $0.a, b: $0.b, rest: $0.rest, k: $0.k,
+                        pulse: $0.isMuscle ? $0.pulse : nil,
+                        beat: $0.isMuscle ? $0.beat : nil,
+                        phase: $0.isMuscle ? $0.phase : nil,
+                        thrust: $0.jets ? $0.thrust : nil,
+                        tx: $0.jets ? $0.thrustX : nil,
+                        ty: $0.jets ? $0.thrustY : nil,
+                        tz: $0.jets ? $0.thrustZ : nil
+                    )
+                },
             // Every number made writable on the way out. A save file is text, and text has no way to say
             // "not a number" — so one corrupt body used to make the whole save fail, and because the failure
             // was swallowed, autosave simply stopped working with nothing on screen to say so.
@@ -367,6 +391,9 @@ extension ParticleEngine {
         }
         gravityX = usable(state.gravityX, gravityX)
         gravityY = usable(state.gravityY, gravityY)
+        // Read with a fallback of nothing rather than of whatever it is now, so loading an ordinary scene over a
+        // little round world turns the inward pull off instead of leaving it on.
+        gravityToCentre = state.gravityToCentre ?? 0
         damping = usable(state.damping, damping)
         elasticity = usable(state.elasticity, elasticity)
         vortexForce = usable(state.vortexForce, vortexForce)
@@ -492,7 +519,17 @@ extension ParticleEngine {
         // Springs last, once every body they name exists. `setSprings` drops anything that
         // does not name a real pair — a spring pointing past the end of the list, or at
         // itself, cannot be detected once the frame loop is running.
-        setSprings(state.springs?.map { Spring(a: $0.a, b: $0.b, rest: $0.rest, k: $0.k) } ?? [])
+        setSprings(
+            state.springs?.map {
+                Spring(
+                    a: $0.a, b: $0.b, rest: $0.rest, k: $0.k,
+                    // Absent in every file written before muscles existed, and absent for plain springs now,
+                    // which read back as the ordinary spring they are.
+                    pulse: $0.pulse ?? 0, beat: $0.beat ?? 60, phase: $0.phase ?? 0,
+                    thrust: $0.thrust ?? 0, thrustX: $0.tx ?? 0, thrustY: $0.ty ?? 0, thrustZ: $0.tz ?? 0
+                )
+            } ?? []
+        )
         return true
     }
 

@@ -328,10 +328,113 @@ public struct Spring: Sendable, Hashable {
     /// Stiffness.
     public var k: Double
 
-    public init(a: Int, b: Int, rest: Double, k: Double) {
+    /// How much the length it holds swells and shrinks, as a share of itself. Nought is an ordinary spring.
+    ///
+    /// ## What this is for
+    ///
+    /// A muscle. A spring holds a length; a muscle holds a length that changes, and that is the whole
+    /// difference between a thing that is built and a thing that moves under its own power. Two of these facing
+    /// each other and pulsing a little out of time swim, walk or crawl, depending on what they are joined to —
+    /// none of which has to be animated, because the swimming is what the physics does once the lengths change.
+    ///
+    /// At a half, the muscle shortens to half its length and swells to one and a half times it.
+    public var pulse: Double = 0
+    /// How many moments one full squeeze-and-release takes. Sixty is once a second.
+    public var beat: Double = 60
+    /// Where in that cycle this muscle starts, from nought to one.
+    ///
+    /// The reason a row of muscles makes something move rather than merely twitch: each one set a little behind
+    /// the last makes the squeeze travel along the body, which is how everything without legs gets about.
+    public var phase: Double = 0
+
+    public init(
+        a: Int,
+        b: Int,
+        rest: Double,
+        k: Double,
+        pulse: Double = 0,
+        beat: Double = 60,
+        phase: Double = 0,
+        thrust: Double = 0,
+        thrustX: Double = 0,
+        thrustY: Double = 0,
+        thrustZ: Double = 0
+    ) {
         self.a = a
         self.b = b
         self.rest = rest
         self.k = k
+        self.pulse = pulse.isFinite ? max(0, min(0.9, pulse)) : 0
+        self.beat = beat.isFinite ? max(4, min(3_600, beat)) : 60
+        self.phase = phase.isFinite ? phase - phase.rounded(.down) : 0
+        self.thrust = 0
+        self.thrustX = 0
+        self.thrustY = 0
+        self.thrustZ = 0
+        if thrust > 0 { pushes(strength: thrust, x: thrustX, y: thrustY, z: thrustZ) }
+    }
+
+    /// How hard this muscle pushes the thing it is part of while it is squeezing, and which way.
+    ///
+    /// ## What this is, and what it is standing in for
+    ///
+    /// A jellyfish swims by squeezing water out of its bell: the water goes one way, the bell goes the other.
+    /// This field's two stores cannot do that between them. A built thing — anything held together by springs —
+    /// lives in the object list, the water lives in the crowd, and nothing in the engine lets one push the other:
+    /// the crowd feels object bodies only as points of gravity, and collisions and the liquid work within the
+    /// crowd alone.
+    ///
+    /// So the recoil is applied here directly. When a muscle is shortening, its two ends are pushed this way,
+    /// as hard as the squeeze is quick. That is honest about the bell's half of the exchange and silent about the
+    /// water's: the water in the scene is stirred by the bell's wake and by a finger, but it does not itself get
+    /// shoved backward as the jet leaves. Making it do so means letting built things push the crowd, which is a
+    /// real piece of physics worth adding and a much larger one than this.
+    ///
+    /// The direction is written down rather than worked out from the muscle's own line, because the muscles
+    /// across a bell lie at every angle: a direction taken from each one would have them pushing against each
+    /// other and the bell would shudder on the spot instead of going anywhere.
+    public var thrust: Double = 0
+    public var thrustX: Double = 0
+    public var thrustY: Double = 0
+    public var thrustZ: Double = 0
+
+    /// Whether this is a muscle rather than a plain spring.
+    public var isMuscle: Bool { pulse > 0 }
+
+    /// Whether this muscle pushes as well as pulls.
+    public var jets: Bool { thrust > 0 && pulse > 0 }
+
+    /// How fast the length it holds is changing, in pixels a moment. Negative while it squeezes.
+    ///
+    /// Worked out exactly rather than by comparing one moment with the last, so it does not depend on anything
+    /// being remembered between steps.
+    public func lengthRate(atMoment moment: Double) -> Double {
+        guard pulse > 0, rest > 0 else { return 0 }
+        let cycle = max(4, beat)
+        let turns = moment / cycle + phase
+        return rest * pulse * jsCos(turns * 6.283185307179586) * 6.283185307179586 / cycle
+    }
+
+    /// Sets which way this muscle pushes while it squeezes, and how hard.
+    public mutating func pushes(strength: Double, x: Double, y: Double, z: Double = 0) {
+        let length = (x * x + y * y + z * z).squareRoot()
+        guard strength.isFinite, strength > 0, length > 1e-9 else {
+            thrust = 0
+            return
+        }
+        thrust = min(40, strength)
+        thrustX = x / length
+        thrustY = y / length
+        thrustZ = z / length
+    }
+
+    /// The length it is trying to hold at a given moment.
+    ///
+    /// A plain spring returns its own rest length untouched and without doing any arithmetic, so a field with no
+    /// muscles in it behaves exactly as it did before muscles existed.
+    public func length(atMoment moment: Double) -> Double {
+        guard pulse > 0, rest > 0 else { return rest }
+        let turns = moment / max(4, beat) + phase
+        return rest * (1 + pulse * jsSin(turns * 6.283185307179586))
     }
 }

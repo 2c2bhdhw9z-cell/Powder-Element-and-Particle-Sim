@@ -222,3 +222,58 @@ extension ParticleEngine {
         }
     }
 }
+
+
+extension ParticleEngine {
+    // MARK: - Jellyfish
+
+    /// Bells swimming through the box, spread through its depth so they pass in front of and behind each other.
+    func spawnJellyfishInDepth(count requested: Int) {
+        beginScene("jellyfish", gravityY: 0)
+        springs.removeAll(keepingCapacity: true)
+        damping = 0.96
+        let total = max(1, min(requested, 6))
+        for index in 0 ..< total {
+            let share = total > 1 ? Double(index) / Double(total - 1) : 0.5
+            addJellyfish(
+                centreX: across(0.26 + 0.48 * share),
+                centreY: down(0.24 + 0.34 * (index % 2 == 0 ? share : 1 - share)),
+                centreZ: (share - 0.5) * halfDepth * 1.3,
+                size: sceneScale * (13 + 4 * (index % 2 == 0 ? 1 : 0)),
+                hue: 188 + Double(index) * 34
+            )
+        }
+        addJellyfishWaterInDepth()
+    }
+
+    /// The water, filling the box rather than a sheet of it.
+    func addJellyfishWaterInDepth() {
+        fluidEnabled = true
+        fluidSettings = Self.depthLiquid
+        let spacing = (1 / max(1e-6, Self.depthLiquid.sanitized.restDensity)).squareRoot() * 1.5
+        let room = min(9_000, patternRoom)
+        var placed = 0
+        var z = -halfDepth * 0.9
+        while z < halfDepth * 0.9, placed < room {
+            var y = down(0.08)
+            while y < aboveFloor(0.98), placed < room {
+                var x = across(0.06)
+                while x < across(0.94), placed < room {
+                    if !placeInDepth(
+                        x + between(-spacing * 0.2, spacing * 0.2),
+                        y + between(-spacing * 0.2, spacing * 0.2),
+                        z + between(-spacing * 0.2, spacing * 0.2),
+                        hue: 202 + between(-8, 8),
+                        saturation: 0.42,
+                        lightness: 0.34,
+                        size: depthLiquidBodySize
+                    ) { return }
+                    placed += 1
+                    x += spacing
+                }
+                y += spacing
+            }
+            z += spacing
+        }
+    }
+}

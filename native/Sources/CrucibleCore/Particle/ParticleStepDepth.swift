@@ -505,6 +505,7 @@ extension ParticleEngine {
     func stepSpringsInDepth() {
         guard !springs.isEmpty else { return }
         let localSprings = springs
+        let moment = springMoment
         particles.withUnsafeMutableBufferPointer { bodies in
             for spring in localSprings {
                 guard spring.a >= 0, spring.a < bodies.count, spring.b >= 0, spring.b < bodies.count else { continue }
@@ -514,7 +515,20 @@ extension ParticleEngine {
                 var distance = (dx * dx + dy * dy + dz * dz).squareRoot()
                 if distance == 0 { distance = 0.001 }
                 if spring.rest > 0 && distance > spring.rest * 4.5 { continue }
-                let scale = ((distance - spring.rest) / distance) * spring.k
+                let rest = spring.isMuscle ? spring.length(atMoment: moment) : spring.rest
+                let scale = ((distance - rest) / distance) * spring.k
+                if spring.jets {
+                    let rate = spring.lengthRate(atMoment: moment)
+                    if rate < 0 {
+                        let push = -rate * spring.thrust * 0.5
+                        for end in [spring.a, spring.b] where !bodies[end].isFixed {
+                            let mass = bodies[end].mass
+                            bodies[end].velocityX += spring.thrustX * push / mass
+                            bodies[end].velocityY += spring.thrustY * push / mass
+                            bodies[end].velocityZ += spring.thrustZ * push / mass
+                        }
+                    }
+                }
                 if !bodies[spring.a].isFixed {
                     let mass = bodies[spring.a].mass
                     bodies[spring.a].velocityX += dx * scale / mass

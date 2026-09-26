@@ -5,7 +5,9 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
-- Galaxy crash, Solar system, Pendulum wave, Marbling and Atom — five scenes from Rounds 5 and 6 (build-79)
+- Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
+- Muscles: springs whose length pulses, and that push while they squeeze (what makes the jellyfish swim)
+- Gravity that points at the middle of the world, for little round worlds
 - Particle collisions that stack
 - Fast path for high particle counts
 - Gyro gravity
@@ -313,3 +315,28 @@ Checked against the earlier rounds and the app before saving; none is already li
 
 Best first three: Guided lab book for depth, Arrangement morphing for immediate spectacle, and Movie studio for
 sharing what people make.
+
+
+---
+
+## Tried and not shipped
+
+Kept so the next attempt does not repeat the work.
+
+**Tiny planet** (Round 5). Gravity pointing at the middle of the world is built, tested and available to any
+scene — that part shipped. The world itself did not, because the crowd cannot yet hold a ball of loose matter up
+against its own gravity:
+
+- **As liquid**, the ball keeps its shape perfectly, and cannot be dug. Everything in it is already pressed
+  toward one point from every side, so the liquid sits at the limit of how tightly it can pack. A pull held in it
+  moves matter *outward*, because the pressure pushes back harder than the finger pulls. Softening the liquid a
+  long way barely changed it.
+- **As grains that collide**, it can be dug, and it collapses through itself. The ball fell from two hundred and
+  seventy pixels across to sixty. Tried at two grain sizes, three packing densities and pulls from a fifth of the
+  usual strength down to a fiftieth; it collapses every time. The crowd's collisions cap how many neighbours each
+  square examines — which is what keeps a million bodies affordable — and a ball being squeezed from all sides is
+  exactly the case where that cap means most of the overlaps are never resolved.
+
+So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
+springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of
+physics and both are bigger than the scene.

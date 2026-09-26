@@ -420,3 +420,146 @@ extension ParticleEngine {
         }
     }
 }
+
+
+extension ParticleEngine {
+    // MARK: - Jellyfish
+
+    /// A see-through bell that swims by squeezing itself, with tentacles trailing behind it.
+    ///
+    /// ## Why this is not an animation
+    ///
+    /// Nothing here is told where to go. The bell is a ring of bodies held together by muscles — springs whose
+    /// length swells and shrinks — and the muscles across the inside of the bell are set a little behind the ones
+    /// round its rim. Squeezing pushes the water the bell is sitting in out behind it, and the bell goes the
+    /// other way. Take the muscles away and it is a jellyfish-shaped bag that sinks; set them pulsing and it
+    /// swims, because that is what squeezing a bell in a liquid does.
+    ///
+    /// The tentacles are plain springs and are dragged along by whatever the bell does, which is why they trail
+    /// and curl rather than being drawn curling.
+    public func spawnJellyfish(count requested: Int = 3) {
+        if storedDepthEnabled { return spawnJellyfishInDepth(count: requested) }
+        // Weightless, because a jellyfish in water is: it neither sinks nor rises, and everything it does is its
+        // own doing. Left with even a little gravity the bells simply sank to the floor, which took them five
+        // hundred pixels down while their swimming was worth twenty — so what you saw was falling, not swimming.
+        beginScene("jellyfish", gravityY: 0)
+        springs.removeAll(keepingCapacity: true)
+        // In no hurry, and the drag is what stops each squeeze adding to the last until the bell tears apart.
+        damping = 0.96
+        let total = max(1, min(requested, 6))
+        for index in 0 ..< total {
+            let share = total > 1 ? Double(index) / Double(total - 1) : 0.5
+            addJellyfish(
+                centreX: across(0.24 + 0.52 * share),
+                centreY: down(0.24 + 0.34 * (index % 2 == 0 ? share : 1 - share)),
+                centreZ: 0,
+                size: sceneScale * (13 + 4 * (index % 2 == 0 ? 1 : 0)),
+                hue: 188 + Double(index) * 34
+            )
+        }
+        // Something to swim through. The bell's squeeze has to push against water, and without any there is
+        // nothing to push against and nothing to be pushed the other way.
+        addJellyfishWater()
+    }
+
+    /// One bell and its tentacles.
+    func addJellyfish(centreX: Double, centreY: Double, centreZ: Double, size: Double, hue: Double) {
+        let rim = 14
+        let radius = size * 1.6
+        let start = particles.count
+
+        // The rim of the bell, as a ring.
+        for index in 0 ..< rim {
+            let angle = Double(index) / Double(rim) * 6.283185307179586
+            // Squashed, so it is a bell rather than a ball: wider than it is tall, and open underneath.
+            addParticle(
+                x: centreX + jsCos(angle) * radius,
+                y: centreY + jsSin(angle) * radius * 0.62,
+                velocityX: 0, velocityY: 0,
+                radius: max(1.5, size * 0.18),
+                mass: 1,
+                color: PackedColor(hue: hue, saturation: 0.62, lightness: 0.66),
+                z: centreZ + (storedDepthEnabled ? jsSin(angle) * radius * 0.2 : 0)
+            )
+        }
+
+        // The rim itself, holding the ring together. Plain springs: the bell keeps its shape.
+        let rimGap = radius * 6.283185307179586 / Double(rim)
+        for index in 0 ..< rim {
+            addSpring(a: start + index, b: start + (index + 1) % rim, rest: rimGap, k: 0.3)
+        }
+
+        // The muscles, across the inside of the bell from one side to the other. Each one set a little behind
+        // the last, so the squeeze travels round rather than the whole bell clenching at once — which would
+        // shake it on the spot instead of moving it.
+        //
+        // Every one of them pushes the same way, up and away from the mouth, while it is squeezing: that is the
+        // water leaving the bell. See `Spring.thrust` for what that stands in for and what it leaves out.
+        let across = rim / 2
+        for index in 0 ..< across {
+            let opposite = (index + across) % rim
+            var muscle = Spring(
+                a: start + index,
+                b: start + opposite,
+                rest: radius * 1.7,
+                k: 0.22,
+                pulse: 0.3,
+                beat: 84,
+                phase: Double(index) / Double(across) * 0.35
+            )
+            muscle.pushes(strength: 2.6, x: 0, y: -1)
+            springs.append(muscle)
+        }
+
+        // Tentacles: strands of plain springs hanging from every other body on the rim, dragged along by the
+        // bell. Nothing tells them to curl.
+        let links = 7
+        for index in stride(from: 0, to: rim, by: 3) {
+            let angle = Double(index) / Double(rim) * 6.283185307179586
+            // Only from the lower half, which is where a bell's tentacles hang from.
+            guard jsSin(angle) > -0.2 else { continue }
+            var previous = start + index
+            let fromX = centreX + jsCos(angle) * radius
+            let fromY = centreY + jsSin(angle) * radius * 0.62
+            let gap = size * 0.5
+            for link in 1 ... links {
+                let made = addParticle(
+                    x: fromX + jsCos(angle) * gap * 0.3 * Double(link),
+                    y: fromY + gap * Double(link),
+                    velocityX: 0, velocityY: 0,
+                    radius: max(1, size * 0.09),
+                    mass: 0.5,
+                    color: PackedColor(hue: hue + 14, saturation: 0.5, lightness: 0.72),
+                    z: centreZ
+                )
+                addSpring(a: previous, b: made, rest: gap, k: 0.22)
+                previous = made
+            }
+        }
+    }
+
+    /// The water a jellyfish swims in: a loose crowd filling the tank, light enough to be pushed aside.
+    func addJellyfishWater() {
+        fluidEnabled = true
+        fluidSettings = .default
+        let spacing = (1 / max(1e-6, fluidSettings.sanitized.restDensity)).squareRoot() * 1.6
+        let room = min(3_600, patternRoom)
+        var placed = 0
+        var y = down(0.08)
+        while y < aboveFloor(0.98), placed < room {
+            var x = across(0.05)
+            while x < across(0.95), placed < room {
+                if !placeLoose(
+                    x + between(-spacing * 0.2, spacing * 0.2),
+                    y + between(-spacing * 0.2, spacing * 0.2),
+                    hue: 202 + between(-8, 8),
+                    saturation: 0.42,
+                    lightness: 0.34
+                ) { return }
+                placed += 1
+                x += spacing
+            }
+            y += spacing
+        }
+    }
+}

@@ -566,6 +566,9 @@ extension ParticleEngine {
     func stepSprings() {
         guard !springs.isEmpty else { return }
         let localSprings = springs
+        // Where every muscle is in its cycle. Read once, outside the loop, so each muscle in a body is working
+        // from the same moment as the rest of it.
+        let moment = springMoment
 
         particles.withUnsafeMutableBufferPointer { bodies in
             for spring in localSprings {
@@ -583,7 +586,27 @@ extension ParticleEngine {
                 // working springs at all.
                 if spring.rest > 0 && distance > spring.rest * 4.5 { continue }
 
-                let scale = ((distance - spring.rest) / distance) * spring.k
+                // A muscle's length at this moment; a plain spring's own rest length, with no arithmetic done.
+                let rest = spring.isMuscle ? spring.length(atMoment: moment) : spring.rest
+                let scale = ((distance - rest) / distance) * spring.k
+
+                // While it is squeezing, a jetting muscle pushes what it is part of. See `Spring.thrust`.
+                if spring.jets {
+                    let rate = spring.lengthRate(atMoment: moment)
+                    if rate < 0 {
+                        let push = -rate * spring.thrust * 0.5
+                        if !bodies[spring.a].isFixed {
+                            let mass = bodies[spring.a].mass
+                            bodies[spring.a].velocityX += spring.thrustX * push / mass
+                            bodies[spring.a].velocityY += spring.thrustY * push / mass
+                        }
+                        if !bodies[spring.b].isFixed {
+                            let mass = bodies[spring.b].mass
+                            bodies[spring.b].velocityX += spring.thrustX * push / mass
+                            bodies[spring.b].velocityY += spring.thrustY * push / mass
+                        }
+                    }
+                }
                 let forceX = dx * scale
                 let forceY = dy * scale
 
