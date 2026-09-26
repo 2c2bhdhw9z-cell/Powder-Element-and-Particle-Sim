@@ -94,4 +94,15 @@ struct PowderIntentTests {
         #expect(!engine.apply(lite: PowderLiteState(w: 8_192, h: 8_192, t: "", gx: nil, gy: nil)))
         #expect(engine.width == 20)
     }
+
+    @Test("A world from another size is redrawn to fit, not cropped")
+    func resampleKeepsTheWholeWorld() {
+        let engine = PowderEngine(width: 40, height: 20, seed: 1)
+        engine.setElement(0, 0, Element.stone)
+        engine.setElement(39, 19, Element.water)
+        engine.resample(width: 80, height: 60)
+        #expect(engine.width == 80 && engine.height == 60)
+        #expect(engine.type[engine.index(0, 0)] == Element.stone)
+        #expect(engine.type[engine.index(79, 59)] == Element.water)
+    }
 }

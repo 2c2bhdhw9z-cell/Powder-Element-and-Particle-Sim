@@ -121,7 +121,9 @@ struct PowderPersistenceTests {
 
     // MARK: - The compact wire format
 
-    @Test("The compact payload is byte-identical to the web engine's", arguments: PowderGoldenTests.fixture.scenarios)
+    // The spark scenario is left out because its world is deliberately different now — see
+    // `PowderGoldenTests.retiredScenarios`. The payload format itself is checked by the other thirty-six.
+    @Test("The compact payload is byte-identical to the web engine's", arguments: PowderGoldenTests.fixture.scenarios.filter { $0.name != "spark-seeks-water-along-wire" })
     func liteMatchesTheWebEngine(scenario: PowderGoldenTests.Scenario) {
         // Cross-play is the whole point of matching here. If the two encoders disagree by
         // a single byte, the host's "have we drifted apart?" check is true forever: it

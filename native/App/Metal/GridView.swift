@@ -26,7 +26,11 @@ final class GridView: MTKView {
     private let pipeline: MTLRenderPipelineState
 
     /// The texture the grid is uploaded into, rebuilt when the world changes size.
-    private var gridTexture: MTLTexture?
+    /// Three pictures of the world, used in turn so the processor never writes one the card is reading.
+    private static let framesInFlight = 3
+    private var textures: [MTLTexture?] = Array(repeating: nil, count: GridView.framesInFlight)
+    private var slot = 0
+    private let inFlight = DispatchSemaphore(value: GridView.framesInFlight)
     private var textureWidth = 0
     private var textureHeight = 0
 
@@ -96,10 +100,18 @@ final class GridView: MTKView {
               let buffer = commandQueue.makeCommandBuffer()
         else { return }
 
+        // One of three pictures, and never one the card is still drawing from. There used to be a single one,
+        // rewritten every frame while up to three earlier frames could still be reading it — so a frame could
+        // show the top of one moment and the bottom of the next.
+        inFlight.wait()
+        let released = inFlight
+        buffer.addCompletedHandler { _ in released.signal() }
+        slot = (slot + 1) % Self.framesInFlight
+
         uploadGrid()
 
         if let encoder = buffer.makeRenderCommandEncoder(descriptor: descriptor),
-           let gridTexture {
+           let gridTexture = textures[slot] {
             encoder.setRenderPipelineState(pipeline)
             encoder.setFragmentTexture(gridTexture, index: 0)
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
@@ -128,7 +140,7 @@ final class GridView: MTKView {
             // Written by the processor every frame and read by the GPU, so it lives where both
             // can reach it without a copy.
             descriptor.storageMode = .shared
-            gridTexture = device.makeTexture(descriptor: descriptor)
+            textures = (0 ..< Self.framesInFlight).map { _ in device.makeTexture(descriptor: descriptor) }
             textureWidth = width
             textureHeight = height
         }
@@ -137,7 +149,7 @@ final class GridView: MTKView {
         if pixels.count < needed {
             pixels = [UInt32](repeating: 0, count: needed)
         }
-        guard let gridTexture else { return }
+        guard let gridTexture = textures[slot] else { return }
 
         pixels.withUnsafeMutableBufferPointer { buffer in
             guard let base = buffer.baseAddress else { return }

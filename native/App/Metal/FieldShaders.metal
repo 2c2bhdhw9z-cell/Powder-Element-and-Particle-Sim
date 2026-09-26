@@ -130,8 +130,31 @@ vertex PointOut particleVertex(uint index [[vertex_id]],
     // Zoomed in, bodies grow with the view; tilted, the near half of the plane grows and the far
     // half shrinks. Clamped, because a body drawn at a hundredth of a pixel is invisible and one
     // drawn at twelve times its size is a blob that hides everything behind it.
-    out.size = max(1.0, uniforms.pointSize * uniforms.zoom
-                        * clamp(depthScale, kMinDepthScale, kMaxDepthScale));
+    out.size = clamp(uniforms.pointSize * uniforms.zoom
+                         * clamp(depthScale, kMinDepthScale, kMaxDepthScale),
+                     1.0, 511.0);
+    out.color = unpackColor(colors[index]);
+    return out;
+}
+
+// The object bodies, each drawn at its own size.
+//
+// The same as `particleVertex` except for where the size comes from: a width per body, in pixels of the
+// screen, with the uniform's point size as a multiplier for the detail setting. Every object body used to be
+// drawn at one size, so a black hole was a dot no bigger than the dust orbiting it.
+vertex PointOut bodyVertex(uint index [[vertex_id]],
+                           const device float2 *positions [[buffer(0)]],
+                           const device uint *colors [[buffer(1)]],
+                           constant FieldUniforms &uniforms [[buffer(2)]],
+                           const device float *sizes [[buffer(3)]]) {
+    PointOut out;
+    float depthScale;
+    out.position = worldToClip(positions[index], uniforms, depthScale);
+    // Capped below the hardware's own ceiling on a point's size, so a large body zoomed right in is drawn
+    // large rather than not at all.
+    out.size = clamp(sizes[index] * uniforms.pointSize * uniforms.zoom
+                         * clamp(depthScale, kMinDepthScale, kMaxDepthScale),
+                     1.0, 511.0);
     out.color = unpackColor(colors[index]);
     return out;
 }

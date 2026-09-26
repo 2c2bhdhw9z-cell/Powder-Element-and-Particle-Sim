@@ -660,7 +660,9 @@ final class ParticleFieldModel {
     /// Read by the warning in the dock, so it can say what a moving ramp costs at a large crowd.
     var paletteRampMoves: Bool {
         observeEngine()
-        return engine.swarmColorsAreDynamic
+        // Always, while a ramp is on: it is worked out for every picture now, which is what lets the bodies
+        // keep their own colours underneath it.
+        return engine.paletteEnabled
     }
 
     /// Repaints the swarm after a colour change that the tick will not pick up on its own.
@@ -670,8 +672,8 @@ final class ParticleFieldModel {
     /// a body sits, nothing would repaint them and the swarm would keep the colours it was spawned
     /// with — so changing the ramp would appear to do nothing at all while the field was paused.
     private func repaintSwarmIfNeeded() {
-        guard engine.paletteEnabled, !engine.swarmColorsAreDynamic else { return }
-        engine.recolorSwarm()
+        // Nothing to do any more: the ramp is worked out as each picture is drawn, so a change shows on the
+        // very next frame whether or not the field is running. See `ParticleEngine.fillSwarmDrawColors`.
     }
 
     /// What a touch does.
@@ -781,7 +783,7 @@ final class ParticleFieldModel {
             // leave behind.
             camera = state.camera ?? .identity
         }
-        bodyCount = engine.bodyCount
+        afterArrangementChange()
         return applied
     }
 
@@ -858,9 +860,10 @@ final class ParticleFieldModel {
     /// - Returns: its name.
     @discardableResult
     func loadDailyArrangement(day: String) -> String {
-        recordUndoPoint()
         let choice = DailyWorld.applyParticle(forDay: day, to: engine)
-        bodyCount = engine.bodyCount
+        todaysArrangement = engine.arrangement
+        additionNote = nil
+        afterArrangementChange()
         return choice.name
     }
 
@@ -904,7 +907,7 @@ final class ParticleFieldModel {
         let x = engine.lastMouseActive || engine.lastMouseX != 0 ? engine.lastMouseX : engine.width / 2
         let y = engine.lastMouseActive || engine.lastMouseY != 0 ? engine.lastMouseY : engine.height / 2
         engine.placeWell(x: x, y: y)
-        bodyCount = engine.bodyCount
+        afterArrangementChange()
     }
 
     var collisionsEnabled: Bool {
@@ -955,7 +958,12 @@ final class ParticleFieldModel {
 
     init() {
         engine = ParticleEngine(width: 400, height: 700)
+        engine.joinsArrangement = joinsArrangement
         engine.spawnGalaxy(count: 400)
+        // The opening galaxy is not something to undo back from into an empty field.
+        engine.clearHistory()
+        manualGravityX = engine.gravityX
+        manualGravityY = engine.gravityY
         bodyCount = engine.bodyCount
     }
 
@@ -1070,7 +1078,12 @@ final class ParticleFieldModel {
         var backgroundTime: Double
         var bodyCount: Int
         var springCount: Int
-        var pointSize: Double
+        /// How wide each body in the crowd is drawn, in pixels of the screen.
+        ///
+        /// The crowd used to be drawn one pixel wide whatever the size slider said, which is why the slider
+        /// appeared to work only on scenes: scenes are made of object bodies, and everything added with the
+        /// population button goes into the crowd.
+        var swarmPointSize: Double
         var swarmCount: Int
         /// How many line segments of trail there are to draw. Two points and two colours each.
         var trailSegmentCount: Int
@@ -1129,6 +1142,7 @@ final class ParticleFieldModel {
     func fillFrame(
         positions: inout [Float],
         colors: inout [UInt32],
+        sizes: inout [Float],
         springPositions: inout [Float],
         swarmPositions: inout [Float],
         swarmColors: inout [UInt32],
@@ -1144,9 +1158,19 @@ final class ParticleFieldModel {
             positions.append(contentsOf: repeatElement(0, count: neededPositions - positions.count))
         }
         engine.fillRenderColors(into: &colors)
+        if sizes.count < bodies.count {
+            sizes.append(contentsOf: repeatElement(0, count: bodies.count - sizes.count))
+        }
+        // Each body at its own size, scaled by the slider. Every object body used to be drawn the same size,
+        // so a black hole was a dot the size of the dust orbiting it; now its radius says how big it is, and
+        // the slider scales everything together. Two is the slider's resting value, at which a body is drawn
+        // its own diameter.
+        let sizeScale = max(0.1, engine.particleSize) / 2
         for (index, body) in bodies.enumerated() {
             positions[index * 2] = Float(body.x)
             positions[index * 2 + 1] = Float(body.y)
+            let radius = body.radius.isFinite && body.radius > 0 ? body.radius : engine.particleSize
+            sizes[index] = Float(max(1, min(96, radius * 2 * sizeScale)))
         }
 
         // Two ends per spring, as a plain list of line endpoints.
@@ -1209,14 +1233,13 @@ final class ParticleFieldModel {
                 swarmPositions[at + 1] = tailY.isFinite ? tailY : y
                 swarmPositions[at + 2] = x
                 swarmPositions[at + 3] = y
-                let colour = engine.swarm.colors[index]
-                swarmColors[index * 2] = colour
-                swarmColors[index * 2 + 1] = colour
             }
         } else {
             for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
-            for i in 0 ..< swarmCount { swarmColors[i] = engine.swarm.colors[i] }
         }
+        // The colour ramp and the fading of bodies that will expire are both worked out here, per picture, so
+        // the bodies' own colours are never overwritten.
+        engine.fillSwarmDrawColors(into: &swarmColors, doubled: streaked)
 
         let trailSegments = fillTrails(
             positions: &trailPositions,
@@ -1240,7 +1263,7 @@ final class ParticleFieldModel {
             backgroundTime: backdropSeconds,
             bodyCount: bodies.count,
             springCount: written,
-            pointSize: max(1, engine.particleSize * 2),
+            swarmPointSize: max(1, engine.particleSize),
             swarmCount: swarmCount,
             trailSegmentCount: trailSegments,
             swarmIsStreaked: streaked,
@@ -1390,13 +1413,14 @@ final class ParticleFieldModel {
 
         // Where the finger is in the world, put back through the camera, so the ring follows the
         // body it is acting on rather than staying where the finger happens to be on a tilted view.
+        let view = viewPixels
         let placed = camera.project(
             x: engine.lastMouseX,
             y: engine.lastMouseY,
             worldWidth: engine.width,
             worldHeight: engine.height,
-            viewWidth: engine.width,
-            viewHeight: engine.height
+            viewWidth: view.width,
+            viewHeight: view.height
         )
         let worldRadius = ParticleOverlayStyle.ringRadius(
             reach: engine.mouseRadius,
@@ -1405,13 +1429,15 @@ final class ParticleFieldModel {
         )
 
         return TouchRing(
-            x: (placed.x + 1) * 0.5 * engine.width,
-            y: (1 - placed.y) * 0.5 * engine.height,
+            // In the view's pixels, which is what the ring is drawn in.
+            x: (placed.x + 1) * 0.5 * view.width,
+            y: (1 - placed.y) * 0.5 * view.height,
             // The reach is a distance in the world, so it grows and shrinks with the view. Under a
             // tilt it is also drawn at the depth its centre sits at — a circle on a tilted plane is
             // properly an ellipse, and this is one number rather than two, so it is an approximation
             // and is stated as one. It is an aiming aid, not a measurement.
-            radius: worldRadius * camera.drawScale(depthScale: placed.depthScale),
+            // A world pixel is smaller than a view pixel once the world has grown, by the growth.
+            radius: worldRadius / max(1, camera.worldScale) * camera.drawScale(depthScale: placed.depthScale),
             // These two do not scale. They are parts of the interface rather than parts of the
             // world, and a hairline that thickened as you zoomed in would read as a fault.
             strokeWidth: ParticleOverlayStyle.ringStrokeWidth,
@@ -1435,23 +1461,12 @@ final class ParticleFieldModel {
     /// limit of twelve before the finger had moved an inch.
     private var placedSourceThisStroke = false
 
-    /// Which way a pair of offsets points, in radians.
-    ///
-    /// By hand, because the engine has no inverse tangent — it imports nothing, not even the C maths library.
-    /// This is the standard rational approximation, good to about a thousandth of a radian, which for aiming a
-    /// source with a fingertip is far finer than the gesture itself.
-    private func jsAtan2Approximate(_ y: Double, _ x: Double) -> Double {
-        guard x.isFinite, y.isFinite, x != 0 || y != 0 else { return 0 }
-        let absX = abs(x)
-        let absY = abs(y)
-        let smallOverLarge = absY < absX ? absY / absX : absX / absY
-        let squared = smallOverLarge * smallOverLarge
-        var angle = ((-0.013_480_47 * squared + 0.057_477_314) * squared - 0.121_239_071) * squared
-        angle = ((angle + 0.195_635_925) * squared - 0.332_994_597) * squared
-        angle = (angle + 0.999_995_630) * smallOverLarge
-        if absY >= absX { angle = 1.570_796_326_794_896_6 - angle }
-        if x < 0 { angle = 3.141_592_653_589_793 - angle }
-        return y < 0 ? -angle : angle
+    /// The view's size in pixels, or the world's when no view has reported yet.
+    private var viewPixels: (width: Double, height: Double) {
+        (
+            viewPixelWidth > 0 ? viewPixelWidth : engine.width,
+            viewPixelHeight > 0 ? viewPixelHeight : engine.height
+        )
     }
 
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
@@ -1466,13 +1481,17 @@ final class ParticleFieldModel {
         // Through the camera, so a tool lands where it was aimed. Without this, tilting or zooming
         // the view would leave the brush acting on a body somewhere else entirely — and a tool that
         // lands somewhere other than where it was pointed is worse than one that cannot be pointed.
+        // In the view's own pixels, which are not the world's once zooming out has grown the world. Measured
+        // against the world instead, the pan — which is in view pixels — was divided by the wrong width, so a
+        // tool landed away from the finger as soon as the view was both moved and pulled back.
+        let view = viewPixels
         let place = camera.unproject(
-            screenX: fx * engine.width,
-            screenY: fy * engine.height,
+            screenX: fx * view.width,
+            screenY: fy * view.height,
             worldWidth: engine.width,
             worldHeight: engine.height,
-            viewWidth: engine.width,
-            viewHeight: engine.height
+            viewWidth: view.width,
+            viewHeight: view.height
         )
         touchX = place.x
         touchY = place.y
@@ -1522,7 +1541,7 @@ final class ParticleFieldModel {
             // gesture that creates it is also the gesture that aims it.
             guard !placedSourceThisStroke else { return }
             placedSourceThisStroke = true
-            engine.addEmitter(atX: fromX, y: fromY, direction: jsAtan2Approximate(dy, dx))
+            engine.addEmitter(atX: fromX, y: fromY, direction: JS.atan2(dy, dx))
         default:
             break
         }
@@ -1826,12 +1845,13 @@ final class ParticleFieldModel {
 
         guard !frame.isEmpty else { return }
         var next = storedCamera
+        let view = viewPixels
         next.fit(
             to: frame,
             worldWidth: engine.width,
             worldHeight: engine.height,
-            viewWidth: engine.width,
-            viewHeight: engine.height
+            viewWidth: view.width,
+            viewHeight: view.height
         )
         camera = next
     }
@@ -1851,28 +1871,53 @@ final class ParticleFieldModel {
 
     // MARK: - Scenes
 
-    /// The presets, in the order the interface shows them.
-    static let presets: [(id: String, name: String)] = [
-        ("galaxy", "Galaxy"), ("blackhole", "Black hole"), ("vortex", "Double vortex"),
-        ("flare", "Solar flare"), ("synchrotron", "Synchrotron"), ("shockwave", "Shockwave"),
-        ("fountain", "Cosmic fountain"), ("waterfall", "Waterfall"), ("pour", "Pour"),
-        ("lattice", "Quantum lattice"), ("helix", "DNA helix"), ("flock", "Flock"),
-        ("nbody", "N-body"), ("cloth", "Cloth"), ("rope", "Rope"), ("blob", "Blob"),
-        ("burst", "Burst"), ("swarm", "Swarm"),
-        // The twelve pattern scenes. Kept together and after the rest, because they are a different kind
-        // of thing: the ones above are about a centre and a force, and these are about a shape.
-        ("sunflower", "Sunflower"), ("mandala", "Mandala"), ("snowflakes", "Snowflakes"),
-        ("tornado", "Tornado"), ("lightning", "Lightning"), ("aurora", "Aurora"),
-        ("supernova", "Supernova"), ("sierpinski", "Sierpinski"), ("fireworks", "Fireworks"),
-        ("magma", "Magma"), ("confetti", "Confetti"), ("molecules", "Molecules"),
-        // The last four from the read. Fire and smoke are continuous rather than arrangements — what makes a
-        // fire a fire is that it keeps burning — so they place a source as well, which is why they had to wait
-        // for sources to exist.
-        ("ring", "Ring"), ("water", "Water"), ("fire", "Fire"), ("smoke", "Smoke"),
-        // Last, because it is the only one that needs something typed in before it means anything. Its box
-        // and its numbers are directly under the chips.
-        ("text", "Word"),
-    ]
+    /// The arrangements, in the order the interface shows them.
+    ///
+    /// Read from the engine's own list, which also knows which of them are scenes that stay selected and
+    /// which are additions that only flash — see `ParticleArrangement`.
+    static var presets: [ParticleArrangement] { ParticleArrangement.all }
+
+    /// Which arrangement the field is showing, so its chip can stay lit. Nothing once the field is cleared.
+    var arrangement: String? {
+        observeEngine()
+        return engine.arrangement
+    }
+
+    /// Everything about the arrangement being shown.
+    var arrangementDetails: ParticleArrangement? {
+        observeEngine()
+        return engine.arrangementDetails
+    }
+
+    /// Which arrangement today's chip laid out, so the chip can stay lit while it is still what is showing.
+    private(set) var todaysArrangement: String?
+
+    /// Whether today's arrangement is the one on screen.
+    var isShowingToday: Bool {
+        observeEngine()
+        return todaysArrangement != nil && todaysArrangement == engine.arrangement
+    }
+
+    /// Whether bodies added now take part in the arrangement rather than simply being scattered in.
+    ///
+    /// On by default: it is what somebody adding bodies to a galaxy means. Off, adding behaves as it always
+    /// has, which is still worth having — seeing what a black hole does to a crowd dropped into it is its own
+    /// experiment.
+    var joinsArrangement: Bool = UserDefaults.standard.object(forKey: "joinsArrangement") as? Bool ?? true {
+        didSet {
+            engine.joinsArrangement = joinsArrangement
+            UserDefaults.standard.set(joinsArrangement, forKey: "joinsArrangement")
+        }
+    }
+
+    /// Whether adding bodies right now would join something.
+    var canJoinArrangement: Bool {
+        observeEngine()
+        return engine.canJoinArrangement
+    }
+
+    /// What the last press of the add button did, when that is worth saying — fewer joined than asked, say.
+    private(set) var additionNote: String?
 
     /// The limit on how many bodies the field will hold.
     ///
@@ -1900,8 +1945,41 @@ final class ParticleFieldModel {
     func spawn(_ count: Int) {
         let room = max(0, engine.maxParticles - engine.bodyCount)
         guard room > 0 else { return }
-        engine.spawnBatch(count: min(count, room))
+        let asked = min(count, room)
+        if joinsArrangement, let details = engine.arrangementDetails, engine.canJoinArrangement {
+            let added = engine.spawnJoining(count: asked)
+            switch details.joining {
+            case .structure:
+                additionNote = nil
+            case .objects where added < asked:
+                additionNote = added == 0
+                    ? "\(details.name) cannot take any more joining it. Turn joining off to scatter more in."
+                    : "\(added.formattedWithSeparators) joined — as many as \(details.name) can take. "
+                        + "Turn joining off to scatter the rest in."
+            default:
+                additionNote = nil
+            }
+        } else {
+            engine.spawnBatch(count: asked)
+            additionNote = nil
+        }
         bodyCount = engine.bodyCount
+        engineDidChange()
+    }
+
+    /// What the add button should say, which depends on what it will do.
+    func addButtonTitle(for count: Int, short: String) -> String {
+        observeEngine()
+        guard joinsArrangement, let details = engine.arrangementDetails, engine.canJoinArrangement,
+              details.joining == .structure
+        else { return "Add \(short)" }
+        switch details.id {
+        case "rope": return "Add a rope"
+        case "blob": return "Add a blob"
+        case "cloth": return "Add a sheet"
+        case "molecules": return "Add molecules"
+        default: return "Add another"
+        }
     }
 
     /// How much room is left before the limit.
@@ -1911,56 +1989,30 @@ final class ParticleFieldModel {
     }
 
     func loadPreset(_ id: String) {
-        // Every preset but the burst clears the field first, and clearing already records an
-        // undo point — so one is only needed for the two that do not.
-        if id == "burst" { recordUndoPoint() }
-        let count = engine.width < 500 ? 220 : 380
-        switch id {
-        case "galaxy": engine.spawnGalaxy(count: count)
-        case "blackhole": engine.spawnBlackHole(count: count)
-        case "vortex": engine.spawnDoubleVortex(count: count)
-        case "flare": engine.spawnSolarFlare(count: count)
-        case "synchrotron": engine.spawnSynchrotron(count: count)
-        case "shockwave": engine.spawnShockwave(count: count)
-        case "fountain": engine.spawnCosmicFountain(count: count)
-        case "waterfall": engine.spawnWaterfall(count: count)
-        case "pour": engine.spawnPour(count: count)
-        case "lattice": engine.spawnQuantumLattice()
-        case "helix": engine.spawnDnaHelix()
-        case "flock": engine.spawnFlock()
-        case "nbody": engine.spawnNbody()
-        case "cloth": engine.spawnCloth()
-        case "rope": engine.spawnRope()
-        case "blob": engine.spawnBlob()
-        case "burst": engine.spawnBurst(count: count)
-        case "swarm":
-            engine.clear()
-            engine.spawnBatch(count: 120_000)
+        additionNote = nil
+        if id == "text" {
+            spawnWord()
+            return
+        }
+        // Every scene empties the field through `clear`, which records the undo point; the one addition does
+        // not, so it records its own inside the engine.
+        engine.loadArrangement(id)
+        afterArrangementChange()
+    }
 
-        // The pattern scenes. These are crowds rather than a handful of bodies — a sunflower is its
-        // seeds and a mandala is its petals, and a few hundred of either would be a sketch of one. So
-        // they clear the field and ask for thousands, and they place into the swarm where thousands are
-        // affordable.
-        case "sunflower": engine.clear(); engine.spawnSunflower()
-        case "mandala": engine.clear(); engine.spawnMandala()
-        case "snowflakes": engine.clear(); engine.spawnSnowflakes()
-        case "tornado": engine.clear(); engine.spawnTornado()
-        case "lightning": engine.clear(); engine.spawnLightning()
-        case "aurora": engine.clear(); engine.spawnAurora()
-        case "supernova": engine.clear(); engine.spawnSupernova()
-        case "sierpinski": engine.clear(); engine.spawnSierpinski()
-        case "fireworks": engine.clear(); engine.spawnFireworks()
-        case "magma": engine.clear(); engine.spawnMagma()
-        case "confetti": engine.clear(); engine.spawnConfetti()
-        case "molecules": engine.clear(); engine.spawnMolecules()
-        case "ring": engine.clear(); engine.spawnRing()
-        case "water": engine.clear(); engine.spawnWaterPool()
-        case "fire": engine.clear(); engine.spawnFire()
-        case "smoke": engine.clear(); engine.spawnSmoke()
-        case "text": spawnWord()
-        default: break
+    /// Brings everything the dock reads back in step after an arrangement has set up its world.
+    ///
+    /// Scenes now set gravity, collisions and the wind themselves, and none of that told the interface —
+    /// so the gravity slider went on showing the previous scene's number and the fluid switch stayed off
+    /// under a scene made of liquid. The gravity is also remembered as the resting value, so switching tilt
+    /// off later returns to this scene's gravity rather than to some earlier one's.
+    private func afterArrangementChange() {
+        if !isSteeredByTilt {
+            manualGravityX = engine.gravityX
+            manualGravityY = engine.gravityY
         }
         bodyCount = engine.bodyCount
+        engineDidChange()
     }
 
     // MARK: - Words
@@ -2000,36 +2052,46 @@ final class ParticleFieldModel {
             return
         }
 
-        if replacingField { engine.clear() }
-        let room = max(0, engine.maxParticles - engine.bodyCount)
+        // The room is worked out as the engine will see it: all of the limit when the field is about to be
+        // emptied for the word, only what is left when the word is being added to what is there.
+        let room = replacingField
+            ? engine.maxParticles
+            : max(0, engine.maxParticles - engine.bodyCount)
         let placed = engine.spawnTextCloud(
             coverage: picture.coverage,
             width: picture.width,
             height: picture.height,
             count: min(Int(wordCount.rounded()), room),
-            fill: wordFill
+            fill: wordFill,
+            replacingField: replacingField
         )
         wordProblem = placed > 0
             ? nil
             : "No room left. Clear the field, or raise the limit on how many bodies it holds."
-        bodyCount = engine.bodyCount
-        engineDidChange()
+        afterArrangementChange()
     }
 
     func clear() {
-        recordUndoPoint()
+        // `clear` records its own undo point; recording another here made clearing take two presses of undo
+        // to reverse.
         engine.clear()
-        bodyCount = 0
+        additionNote = nil
+        afterArrangementChange()
     }
 
+    /// Undo and redo bring back gravity and the rest of the world as well as the bodies, so everything the
+    /// dock shows has to be told — this used to change the field and leave the undo and redo buttons, and
+    /// every slider, exactly as they were.
     func undo() {
         _ = engine.undo()
-        bodyCount = engine.bodyCount
+        additionNote = nil
+        afterArrangementChange()
     }
 
     func redo() {
         _ = engine.redo()
-        bodyCount = engine.bodyCount
+        additionNote = nil
+        afterArrangementChange()
     }
 
     /// How fast the quickest body is travelling.
@@ -2060,6 +2122,9 @@ final class ParticleFieldModel {
 
     private func recordUndoPoint() {
         engine.pushUndo()
+        // So the undo button lights up now rather than whenever something else happens to refresh it.
+        // Not during a drag — `beginTouch` is the start of one, and a single refresh there is fine.
+        engineDidChange()
     }
 
     // MARK: - Detail

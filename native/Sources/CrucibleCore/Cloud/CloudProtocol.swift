@@ -286,8 +286,15 @@ public enum CloudLimits {
     public static let nameLength = 80
     public static let descriptionLength = 400
     public static let tagsLength = 120
-    public static let thumbnailLength = 400_000
-    public static let dataLength = 8_000_000
+    /// Tighter than the server's own four hundred thousand, on purpose. The workshop's list sends up to
+    /// sixty worlds with their pictures in one reply, and the host the server runs on refuses any reply over
+    /// four and a half megabytes — so a few dozen full-size pictures would stop the workshop loading for
+    /// everybody. Sixty thousand keeps sixty of them comfortably inside it.
+    public static let thumbnailLength = 60_000
+    /// Tighter than the server's own eight million, for the same kind of reason: the host refuses any
+    /// request over four and a half megabytes before the server sees it, so anything between that and eight
+    /// million passed the app's check and was then refused with no explanation.
+    public static let dataLength = 4_000_000
 
     /// Whether a save would be accepted.
     public static func acceptsSave(name: String, data: String) -> Bool {
@@ -375,6 +382,8 @@ public enum CloudSignInOutcome: Sendable, Hashable {
                 "Signing in did not complete. Please try again."
             case "sign_in_no_destination":
                 "This server's sign-in is not set up properly."
+            case "sign_in_not_started_here":
+                "That sign-in did not start in Crucible, so it was not accepted. Please try again from here."
             default:
                 reason.hasPrefix("sign_in_unavailable")
                     ? "This server's sign-in is not working at the moment."
@@ -743,6 +752,9 @@ public enum CloudFailure: Error, Sendable, Hashable {
             return .missing
         case 503:
             return .notConfigured
+        case 413:
+            // Refused by the host before the server saw it, so there is no reason in the reply to show.
+            return .refused(message.isEmpty ? "That is too large for the server to accept." : message)
         case 400 ..< 500:
             return .refused(message)
         default:

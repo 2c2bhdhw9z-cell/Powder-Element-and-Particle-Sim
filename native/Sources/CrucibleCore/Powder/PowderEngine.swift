@@ -132,6 +132,8 @@ public final class PowderEngine {
     /// Called when an explosion goes off, so the app can shake the screen or play
     /// a sound. The engine itself does neither.
     public var onBurst: ((Int, Int, Int) -> Void)?
+    /// The largest blast not yet reported. See ``takeLargestBurst()``.
+    var largestUnreportedBurst = 0
 
     /// The random stream.
     ///
@@ -258,6 +260,47 @@ public final class PowderEngine {
     ///
     /// Momentum and pressure carry over with the cells; the pressure scratch
     /// buffer and the visited marks do not, since both are rebuilt every tick.
+    /// Redraws the whole world at a different size, every part of it scaled to fit.
+    ///
+    /// Unlike ``resize(width:height:)``, which keeps the cells where they are and so crops or pads, this
+    /// stretches the world onto the new grid, taking each new cell from the nearest old one. It is for a world
+    /// that arrived at another size — from another phone, from the website, from a file saved at a different
+    /// detail — which used to stay at its own size and be drawn stretched to fit the screen, every grain a
+    /// rectangle rather than a square.
+    ///
+    /// Momentum is not carried, because a velocity measured in old cells means something different in new
+    /// ones; everything simply continues from rest.
+    public func resample(width newWidth: Int, height newHeight: Int) {
+        guard Self.isValidSize(width: newWidth, height: newHeight) else { return }
+        guard newWidth != width || newHeight != height, width > 0, height > 0 else { return }
+        let oldWidth = width
+        let oldHeight = height
+        let oldCount = cellCount
+        var oldType = [ElementID](repeating: 0, count: oldCount)
+        var oldTemp = [Float](repeating: 0, count: oldCount)
+        var oldLife = [UInt16](repeating: 0, count: oldCount)
+        for i in 0 ..< oldCount {
+            oldType[i] = type[i]
+            oldTemp[i] = temperature[i]
+            oldLife[i] = life[i]
+        }
+        resize(width: newWidth, height: newHeight)
+        guard width == newWidth, height == newHeight else { return }
+        resetGrid()
+        for y in 0 ..< height {
+            let fromY = min(oldHeight - 1, y * oldHeight / height)
+            for x in 0 ..< width {
+                let fromX = min(oldWidth - 1, x * oldWidth / width)
+                let from = fromY * oldWidth + fromX
+                let to = y * width + x
+                type[to] = oldType[from]
+                temperature[to] = oldTemp[from]
+                life[to] = oldLife[from]
+                if oldType[from] == Element.portalB { portalBMayExist = true }
+            }
+        }
+    }
+
     public func resize(width newWidth: Int, height newHeight: Int) {
         // Refused outright if the size cannot be used, rather than clamped into
         // something nearby. Callers check afterwards whether the size they asked for is

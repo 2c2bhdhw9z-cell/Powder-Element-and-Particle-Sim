@@ -329,6 +329,7 @@ struct ElementDock: View {
     private func categoryChip(_ option: ElementCategory?, _ title: String) -> some View {
         let selected = category == option
         return Button {
+            Haptics.selection()
             category = option
         } label: {
             Text(title)
@@ -396,6 +397,7 @@ struct ElementDock: View {
     private var transport: some View {
         HStack(spacing: 12) {
             Button {
+                Haptics.tap()
                 model.isRunning.toggle()
             } label: {
                 Image(systemName: model.isRunning ? "pause.fill" : "play.fill")
@@ -428,7 +430,10 @@ struct ElementDock: View {
             }
             .accessibilityLabel("Brush size")
 
-            iconButton("trash", "Clear") { model.clear() }
+            iconButton("trash", "Clear") {
+                Haptics.firm()
+                model.clear()
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -438,6 +443,7 @@ struct ElementDock: View {
     private func chip(_ id: ElementID, _ name: String, wide: Bool) -> some View {
         let selected = model.brushElement == id
         return Button {
+            Haptics.selection()
             model.brushElement = id
         } label: {
             HStack(spacing: 6) {

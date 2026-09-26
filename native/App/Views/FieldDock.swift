@@ -53,6 +53,7 @@ struct FieldDock: View {
 
     private var handle: some View {
         Button {
+            Haptics.selection()
             withAnimation(.easeOut(duration: 0.22)) { isOpen.toggle() }
         } label: {
             Capsule()
@@ -82,9 +83,15 @@ struct FieldDock: View {
                     .font(.labDisplay(14))
                     .tracking(-0.2)
                     .foregroundStyle(Palette.foreground)
-                Text("\(model.bodyCount.formatted()) bodies")
-                    .font(.labNumeric(11))
-                    .foregroundStyle(Palette.muted)
+                // What the field is showing, as well as how many bodies, so the arrangement that is lit in the
+                // tray is also named where it can be seen with the tray shut.
+                Text(
+                    model.arrangementDetails.map { "\($0.name) · \(model.bodyCount.formatted()) bodies" }
+                        ?? "\(model.bodyCount.formatted()) bodies"
+                )
+                .font(.labNumeric(11))
+                .foregroundStyle(Palette.muted)
+                .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -107,10 +114,56 @@ struct FieldDock: View {
     /// How many bodies a tap of the add button scatters in.
     @State private var batch = 10_000
 
-    /// The eighteen arrangements, as chips rather than only inside a sheet.
+    /// Which addition chip is lit for a moment, having just been pressed.
+    @State private var flashing: String?
+
+    /// Lights a chip briefly, for a button that adds something rather than choosing it.
+    ///
+    /// A scene stays lit for as long as it is what the field is showing. An addition — a burst, a well —
+    /// is not a thing the field *becomes*, so it cannot stay lit, but a press that shows nothing at all is
+    /// indistinguishable from a press that did nothing. So it lights up and fades.
+    private func flash(_ id: String) {
+        withAnimation(.easeOut(duration: 0.08)) { flashing = id }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(380))
+            guard flashing == id else { return }
+            withAnimation(.easeOut(duration: 0.35)) { flashing = nil }
+        }
+    }
+
+    /// One chip, lit when it is chosen.
+    private func chip(
+        _ title: String,
+        symbol: String? = nil,
+        lit: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.labBody(11, .medium))
+                }
+                Text(title)
+                    .font(.labBody(12, lit ? .semiBold : .medium))
+            }
+            .foregroundStyle(lit ? Palette.primaryForeground : Palette.foreground)
+            .padding(.horizontal, 11)
+            .frame(height: 32)
+            .background(Capsule().fill(lit ? Palette.primary : Color.white.opacity(0.10)))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(lit ? [.isSelected] : [])
+    }
+
+    /// Every arrangement, as chips rather than only inside a sheet.
     ///
     /// They are the quickest thing in the chamber to want and the reference keeps them here, one tap
     /// away, rather than behind a panel. The sheet stays as well — it has room to explain them.
+    ///
+    /// The one showing is lit, and stays lit until something else is chosen or the field is cleared. They
+    /// used to look identical whether chosen or not, so there was no way to tell what the field was meant
+    /// to be doing — which matters more now that adding bodies can join it.
     private var presetChips: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text("ARRANGEMENTS")
@@ -118,35 +171,33 @@ struct FieldDock: View {
                 .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
             LabFlow(spacing: 6) {
-                Button {
+                chip("Today", symbol: "sun.max", lit: model.isShowingToday) {
+                    Haptics.firm()
                     model.loadDailyArrangement(day: today)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "sun.max")
-                            .font(.labBody(11, .medium))
-                        Text("Today")
-                            .font(.labBody(12, .semiBold))
-                    }
-                    .foregroundStyle(Palette.primaryForeground)
-                    .padding(.horizontal, 11)
-                    .frame(height: 32)
-                    .background(Capsule().fill(Palette.primary))
                 }
-                .buttonStyle(.plain)
 
                 ForEach(ParticleFieldModel.presets, id: \.id) { preset in
-                    Button {
+                    let isAddition = preset.kind == .addition
+                    chip(
+                        preset.name,
+                        symbol: isAddition ? "plus" : nil,
+                        lit: isAddition ? flashing == preset.id : model.arrangement == preset.id
+                    ) {
+                        if isAddition {
+                            Haptics.tap()
+                            flash(preset.id)
+                        } else {
+                            Haptics.firm()
+                        }
                         model.loadPreset(preset.id)
-                    } label: {
-                        Text(preset.name)
-                            .font(.labBody(12, .medium))
-                            .foregroundStyle(Palette.foreground)
-                            .padding(.horizontal, 11)
-                            .frame(height: 32)
-                            .background(Capsule().fill(Color.white.opacity(0.10)))
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+            if let details = model.arrangementDetails {
+                Text(details.about)
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -172,7 +223,10 @@ struct FieldDock: View {
                 .foregroundStyle(Palette.foreground)
                 .autocorrectionDisabled()
                 .submitLabel(.done)
-                .onSubmit { model.spawnWord() }
+                .onSubmit {
+                    Haptics.firm()
+                    model.spawnWord()
+                }
                 .padding(.horizontal, 10)
                 .frame(height: 32)
                 .background(
@@ -181,6 +235,7 @@ struct FieldDock: View {
                 )
 
                 Button {
+                    Haptics.firm()
                     model.spawnWord()
                 } label: {
                     Text("Spell it")
@@ -208,14 +263,18 @@ struct FieldDock: View {
                 ) { "\(Int($0 * 100))% of the field" }
 
                 Button {
+                    Haptics.tap()
+                    flash("another-word")
                     model.spawnWord(replacingField: false)
                 } label: {
                     Text("Add another without clearing")
                         .font(.labBody(11, .semiBold))
-                        .foregroundStyle(Palette.muted)
+                        .foregroundStyle(flashing == "another-word" ? Palette.primaryForeground : Palette.muted)
                         .padding(.horizontal, 10)
                         .frame(height: 28)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                        .background(
+                            Capsule().fill(flashing == "another-word" ? Palette.primary : Color.white.opacity(0.08))
+                        )
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
@@ -250,25 +309,36 @@ struct FieldDock: View {
                     .foregroundStyle(Palette.subtleForeground)
             }
 
+            joinControl
+
             HStack(spacing: 6) {
                 Button {
+                    if model.remainingRoom == 0 {
+                        Haptics.refused()
+                        return
+                    }
+                    Haptics.tap()
+                    flash("add")
                     model.spawn(batch)
                 } label: {
-                    Text("Add \(Self.shortCount(batch))")
+                    Text(model.addButtonTitle(for: batch, short: Self.shortCount(batch)))
                         .font(.labBody(12, .semiBold))
                         .foregroundStyle(Palette.primaryForeground)
                         .padding(.horizontal, 13)
                         .frame(height: 32)
-                        .background(Capsule().fill(Palette.primary))
+                        .background(
+                            Capsule().fill(flashing == "add" ? Palette.primary.opacity(0.6) : Palette.primary)
+                        )
+                        .scaleEffect(flashing == "add" ? 0.94 : 1)
                 }
                 .buttonStyle(.plain)
-                .disabled(model.remainingRoom == 0)
                 .opacity(model.remainingRoom == 0 ? 0.4 : 1)
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(ParticleFieldModel.batchChoices, id: \.self) { choice in
                             countChip(Self.shortCount(choice), selected: batch == choice) {
+                                Haptics.selection()
                                 batch = choice
                             }
                         }
@@ -289,11 +359,49 @@ struct FieldDock: View {
                 HStack(spacing: 6) {
                     ForEach(ParticleFieldModel.bodyCapChoices, id: \.self) { choice in
                         countChip(Self.shortCount(choice), selected: model.maxBodies == choice) {
+                            Haptics.selection()
                             model.maxBodies = choice
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Whether bodies added now join the arrangement, and what that means for this one.
+    ///
+    /// Shown only while there is an arrangement that can be joined, because a switch that does nothing on an
+    /// empty field is a puzzle.
+    @ViewBuilder
+    private var joinControl: some View {
+        if let details = model.arrangementDetails, model.canJoinArrangement {
+            VStack(alignment: .leading, spacing: 3) {
+                Toggle(isOn: Binding(
+                    get: { model.joinsArrangement },
+                    // No buzz of its own: a switch already gives one.
+                    set: { model.joinsArrangement = $0 }
+                )) {
+                    Text("Join the \(details.name.lowercased())")
+                        .font(.labBody(12))
+                        .foregroundStyle(Palette.foreground)
+                }
+                .tint(Palette.primary)
+                Text(
+                    model.joinsArrangement
+                        ? details.joinDescription
+                        : "New bodies are scattered in on their own, and the \(details.name.lowercased()) acts on "
+                            + "them as it would on anything."
+                )
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        if let note = model.additionNote {
+            Text(note)
+                .font(.labBody(10))
+                .foregroundStyle(Palette.warn)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -333,31 +441,47 @@ struct FieldDock: View {
     /// The ways into the other panels.
     private var destinations: some View {
         LabFlow(spacing: 6) {
-            destination("Presets", "square.grid.2x2", action: onShowPresets)
+            destination("Presets", "square.grid.2x2", id: "presets") {
+                Haptics.tap()
+                onShowPresets()
+            }
             // Pours the field into the powder world. Worth a named button rather than an icon: it moves
             // everything to the other chamber, which is not a thing to discover by accident.
-            destination("Settle into powder", "arrow.down.to.line", action: onSettleEverything)
-            destination("Drop a well", "circle.circle", action: { model.dropWell() })
-            destination("Field", "slider.horizontal.3", action: onShowSettings)
+            destination("Settle into powder", "arrow.down.to.line", id: "settle") {
+                Haptics.firm()
+                flash("settle")
+                onSettleEverything()
+            }
+            destination("Drop a well", "circle.circle", id: "well") {
+                Haptics.tap()
+                flash("well")
+                model.dropWell()
+            }
+            destination("Field", "slider.horizontal.3", id: "field") {
+                Haptics.tap()
+                onShowSettings()
+            }
         }
     }
 
     private func destination(
         _ title: String,
         _ symbol: String,
+        id: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let lit = flashing == id
+        return Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: symbol)
                     .font(.labBody(11, .medium))
                 Text(title)
                     .font(.labBody(12, .medium))
             }
-            .foregroundStyle(Palette.foreground)
+            .foregroundStyle(lit ? Palette.primaryForeground : Palette.foreground)
             .padding(.horizontal, 11)
             .frame(height: 34)
-            .background(Capsule().fill(Color.white.opacity(0.10)))
+            .background(Capsule().fill(lit ? Palette.primary : Color.white.opacity(0.10)))
         }
         .buttonStyle(.plain)
     }
@@ -802,6 +926,7 @@ struct FieldDock: View {
                 ForEach(ParticleBackdrop.allCases, id: \.self) { choice in
                     let selected = model.backdrop == choice
                     Button {
+                        Haptics.selection()
                         model.backdrop = choice
                     } label: {
                         Text(choice.displayName)
@@ -874,6 +999,7 @@ struct FieldDock: View {
                 ForEach(ParticleShape.allCases, id: \.self) { shape in
                     let selected = model.particleShape == shape
                     Button {
+                        Haptics.selection()
                         model.particleShape = shape
                     } label: {
                         ShapeSwatch(shape: shape)
@@ -924,7 +1050,8 @@ struct FieldDock: View {
                     Spacer(minLength: 8)
                     ForEach(ParticleFieldModel.detailChoices, id: \.id) { choice in
                         Button {
-                            model.detail = choice.id
+                            Haptics.selection()
+                        model.detail = choice.id
                         } label: {
                             Text(choice.name)
                                 .font(.labBody(11, .semiBold))
@@ -989,6 +1116,7 @@ struct FieldDock: View {
 
             HStack(spacing: 8) {
                 Button {
+                    Haptics.tap()
                     model.fitCameraToContent()
                 } label: {
                     Label("Fit to the field", systemImage: "viewfinder")
@@ -1002,6 +1130,7 @@ struct FieldDock: View {
 
                 if model.cameraIsMoved {
                     Button {
+                        Haptics.tap()
                         model.resetCamera()
                     } label: {
                         Label("Reset", systemImage: "arrow.counterclockwise")
@@ -1055,6 +1184,7 @@ struct FieldDock: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Button {
+                    Haptics.tap()
                     model.collisionsEnabled = false
                 } label: {
                     Text("Switch Collide off")
@@ -1095,6 +1225,7 @@ struct FieldDock: View {
                 ForEach(Self.colourChoices, id: \.mode) { choice in
                     let selected = model.colorMode == choice.mode
                     Button {
+                        Haptics.selection()
                         model.colorMode = choice.mode
                     } label: {
                         Text(choice.name)
@@ -1148,7 +1279,8 @@ struct FieldDock: View {
                     ForEach(ParticlePalette.allCases, id: \.self) { ramp in
                         let selected = model.palette == ramp
                         Button {
-                            model.palette = ramp
+                            Haptics.selection()
+                        model.palette = ramp
                         } label: {
                             VStack(spacing: 4) {
                                 Capsule()
@@ -1207,6 +1339,7 @@ struct FieldDock: View {
                 ForEach(Self.tools, id: \.mode) { tool in
                     let selected = model.mouseMode == tool.mode
                     Button {
+                        Haptics.selection()
                         model.mouseMode = tool.mode
                     } label: {
                         HStack(spacing: 5) {
@@ -1234,6 +1367,7 @@ struct FieldDock: View {
     private var transport: some View {
         HStack(spacing: 12) {
             Button {
+                Haptics.tap()
                 model.isRunning.toggle()
             } label: {
                 Image(systemName: model.isRunning ? "pause.fill" : "play.fill")
@@ -1264,7 +1398,10 @@ struct FieldDock: View {
             }
             .accessibilityLabel("How far a touch reaches")
 
-            iconButton("trash", "Clear") { model.clear() }
+            iconButton("trash", "Clear") {
+                Haptics.firm()
+                model.clear()
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -1310,7 +1447,12 @@ struct FieldDock: View {
 }
 
 /// Picks one of the field presets.
+///
+/// Each with a line saying what it is, since this is the one place with room to say so, and the one showing
+/// is marked — as it is in the tray.
 struct FieldPresetPicker: View {
+    /// Which arrangement is showing, to mark it.
+    let current: String?
     let onSelect: (String) -> Void
 
     var body: some View {
@@ -1318,21 +1460,44 @@ struct FieldPresetPicker: View {
             title: "Presets",
             subtitle: "Arrangements to start from"
         ) {
-            LabGroup(footnote: "Loading a preset replaces the field. Undo brings it back.") {
-                LabFlow(spacing: 6) {
+            LabGroup(footnote: "A scene replaces the field and stays chosen until you pick another or clear. "
+                + "Burst adds to whatever is there. Undo brings back what was there before.")
+            {
+                VStack(alignment: .leading, spacing: 0) {
                     ForEach(ParticleFieldModel.presets, id: \.id) { preset in
-                        Button { onSelect(preset.id) } label: {
-                            Text(preset.name)
-                                .font(.labBody(12, .medium))
-                                .foregroundStyle(Palette.foreground)
-                                .padding(.horizontal, 12)
-                                .frame(height: 34)
-                                .background(Capsule().fill(Color.white.opacity(0.10)))
+                        let chosen = preset.kind == .scene && preset.id == current
+                        Button {
+                            if preset.kind == .addition { Haptics.tap() } else { Haptics.firm() }
+                            onSelect(preset.id)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(preset.kind == .addition ? "\(preset.name) (adds)" : preset.name)
+                                        .font(.labBody(13, chosen ? .semiBold : .medium))
+                                        .foregroundStyle(chosen ? Palette.primary : Palette.foreground)
+                                    Text(preset.about)
+                                        .font(.labBody(11))
+                                        .foregroundStyle(Palette.subtleForeground)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer(minLength: 8)
+                                if chosen {
+                                    Image(systemName: "checkmark")
+                                        .font(.labBody(12, .semiBold))
+                                        .foregroundStyle(Palette.primary)
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(chosen ? Palette.primary.opacity(0.12) : Color.clear)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(chosen ? [.isSelected] : [])
                     }
                 }
-                .padding(14)
+                .padding(.vertical, 6)
             }
         }
     }

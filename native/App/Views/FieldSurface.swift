@@ -113,6 +113,7 @@ struct FieldSurface: UIViewRepresentable {
 
             switch gesture.state {
             case .began:
+                Haptics.touchDown()
                 model.beginTouch(atFractionX: fx, fractionY: fy)
             case .changed:
                 model.updateTouch(atFractionX: fx, fractionY: fy)

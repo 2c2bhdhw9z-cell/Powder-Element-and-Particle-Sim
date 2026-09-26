@@ -347,8 +347,11 @@ struct CloudProtocolTests {
         #expect(CloudLimits.nameLength == 80)
         #expect(CloudLimits.descriptionLength == 400)
         #expect(CloudLimits.tagsLength == 120)
-        #expect(CloudLimits.thumbnailLength == 400_000)
-        #expect(CloudLimits.dataLength == 8_000_000)
+        // Below the server's own limits, because the host in front of it refuses anything over four and a
+        // half megabytes — see the notes on the two figures.
+        #expect(CloudLimits.thumbnailLength == 60_000)
+        #expect(CloudLimits.dataLength == 4_000_000)
+        #expect(CloudFailure.forStatus(413) == .refused("That is too large for the server to accept."))
     }
 
     @Test("A save is checked before it is sent")

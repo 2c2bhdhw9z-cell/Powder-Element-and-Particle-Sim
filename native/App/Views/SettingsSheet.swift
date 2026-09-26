@@ -29,6 +29,9 @@ struct SettingsSheet: View {
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
     @AppStorage(DebugSettings.graphicsOverlayKey) private var graphicsOverlay = false
+    /// Whether the phone buzzes: a tick when something is chosen, a tap for a button, a thump for an
+    /// explosion. Read by `Haptics` everywhere else, so this one switch covers all of them.
+    @AppStorage(Haptics.settingKey) private var hapticsEnabled = true
 
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves") {
@@ -208,6 +211,8 @@ struct SettingsSheet: View {
 
             LabDivider()
             LabToggle(label: "Sound", isOn: $soundEnabled)
+            LabDivider()
+            LabToggle(label: "Haptics", isOn: $hapticsEnabled)
             LabDivider()
             LabToggle(label: "Keep both running", isOn: $bothChambersRun)
             LabDivider()

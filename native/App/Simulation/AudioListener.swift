@@ -94,16 +94,18 @@ final class AudioListener {
         guard !isListening else { return }
         problem = nil
 
-        AVAudioApplication.requestRecordPermission { [weak self] granted in
-            Task { @MainActor in
-                guard let self else { return }
-                guard granted else {
-                    self.problem = "Crucible needs permission to use the microphone. "
-                        + "It is in Settings, under Crucible."
-                    return
-                }
-                self.begin()
+        // Asked by waiting rather than with a callback. The callback arrives on a background thread, and a
+        // callback written inside this main-thread-only class is treated as belonging to the main thread —
+        // which in this language mode is checked as it runs, and stops the app.
+        Task { @MainActor [weak self] in
+            let granted = await AVAudioApplication.requestRecordPermission()
+            guard let self else { return }
+            guard granted else {
+                self.problem = "Crucible needs permission to use the microphone. "
+                    + "It is in Settings, under Crucible."
+                return
             }
+            self.begin()
         }
     }
 
@@ -115,8 +117,16 @@ final class AudioListener {
         isListening = false
         follower.reset()
         signal = .silence
-        // Handed back, so music from another app is not left ducked and the microphone indicator goes out.
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AudioSessionUsers.microphone = false
+        let session = AVAudioSession.sharedInstance()
+        if AudioSessionUsers.speaker {
+            // The app's own sounds are still using the session, so it is put back into their mode rather
+            // than switched off under them.
+            try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+        } else {
+            // Handed back, so music from another app is not left ducked and the microphone indicator goes out.
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     private func begin() {
@@ -148,19 +158,12 @@ final class AudioListener {
 
         // Deliberately never connected to the output. A microphone wired to a speaker is a howl, and it is
         // one line away from here at all times.
-        input.installTap(onBus: 0, bufferSize: UInt32(Self.windowSize), format: format) {
-            [weak self] buffer, _ in
-            guard let channel = buffer.floatChannelData?[0] else { return }
-            let count = Int(buffer.frameLength)
-            guard count > 0 else { return }
-            // Copied out, because the buffer belongs to the audio system and is reused the moment this
-            // returns — which is on a different thread from everything else here.
-            let samples = Array(UnsafeBufferPointer(start: channel, count: count))
-            let rate = format.sampleRate
-            Task { @MainActor in
-                self?.consume(samples, sampleRate: rate)
-            }
-        }
+        input.installTap(
+            onBus: 0,
+            bufferSize: UInt32(Self.windowSize),
+            format: format,
+            block: Self.tap(for: self, sampleRate: format.sampleRate)
+        )
 
         do {
             try engine.start()
@@ -170,6 +173,31 @@ final class AudioListener {
         }
         self.engine = engine
         isListening = true
+        AudioSessionUsers.microphone = true
+    }
+
+    /// What runs on the audio thread for every window of sound.
+    ///
+    /// Made here, outside the main thread's rules, on purpose. Written inline inside this class, the
+    /// closure counted as belonging to the main thread — and the audio system calls it on its own real-time
+    /// thread, where this language mode checks, finds it on the wrong thread, and stops the app. So turning
+    /// on "move to music" crashed on the very first window of sound.
+    nonisolated private static func tap(
+        for listener: AudioListener,
+        sampleRate: Double
+    ) -> AVAudioNodeTapBlock {
+        { [weak listener] buffer, _ in
+            guard let channel = buffer.floatChannelData?[0] else { return }
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { return }
+            // Copied out, because the buffer belongs to the audio system and is reused the moment this
+            // returns — which is on a different thread from everything else here.
+            let samples = Array(UnsafeBufferPointer(start: channel, count: count))
+            guard let target = listener else { return }
+            Task { @MainActor in
+                target.consume(samples, sampleRate: sampleRate)
+            }
+        }
     }
 
     /// Turns one window of sound into the three numbers.

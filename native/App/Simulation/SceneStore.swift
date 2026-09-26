@@ -200,8 +200,19 @@ final class SceneStore {
     ///
     /// Failures are swallowed deliberately. An autosave that cannot be written is not worth
     /// interrupting anyone over, and the next attempt is eight seconds away.
-    func writeAutosave(_ scene: LabScene) {
-        guard let url = autosaveURL else { return }
+    ///
+    /// - Parameter now: write it before returning rather than in the background. For the moment the app
+    ///   is leaving the screen: a background write started then could be frozen along with the app before it
+    ///   ran, and lost for good if the phone then closed the app to reclaim memory.
+    func writeAutosave(_ scene: LabScene, now: Bool = false) {
+        guard let url = autosaveURL, !autosaveIsForgotten else { return }
+        if now {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(scene) else { return }
+            try? data.write(to: url, options: .atomic)
+            return
+        }
         Task.detached(priority: .background) {
             // Built inside the task rather than captured: an encoder is not safe to share across
             // threads, and it costs nothing to make.
@@ -226,10 +237,18 @@ final class SceneStore {
         return scene
     }
 
+    /// Removes the autosave, and stops it being written again until the app is next opened.
+    ///
+    /// Deleting the file alone did nothing lasting: the eight-second timer, or leaving the app, wrote it
+    /// straight back, and the world "forgotten" came back on the next launch.
     func clearAutosave() {
+        autosaveIsForgotten = true
         guard let url = autosaveURL else { return }
         try? files.removeItem(at: url)
     }
+
+    /// Set once the autosave has been forgotten, for the rest of this run of the app.
+    private(set) var autosaveIsForgotten = false
 
     // MARK: Names
 

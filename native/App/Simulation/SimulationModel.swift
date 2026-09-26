@@ -279,12 +279,14 @@ final class SimulationModel {
     /// No undo point. Undo is for taking back what *you* did, and quietly filling somebody's history with
     /// other people's marks would make their own last action several taps away.
     func applyRemote(stroke: RoomStroke) {
-        _ = engine.apply(stroke, now: CFAbsoluteTimeGetCurrent())
+        _ = engine.apply(stroke, now: CFAbsoluteTimeGetCurrent() * 1000)
     }
 
     /// Adopts the host's settings.
     func applyRemote(settings: RoomSettings) {
         engine.apply(settings)
+        // So the panel shows the host's wind, gravity and temperature rather than this phone's old ones.
+        engineDidChange()
     }
 
     /// Something else to step whenever this one steps.
@@ -480,6 +482,12 @@ final class SimulationModel {
         for _ in 0 ..< steps { engine.step() }
         simulationSeconds += CFAbsoluteTimeGetCurrent() - startedAt
 
+        // Felt through the phone, sized by the biggest blast this frame. Gunpowder, C4, a spark reaching a
+        // detonator — none of these made a sound or a shake before, so a chain reaction could go off
+        // entirely unnoticed off to one side of the screen.
+        let blast = engine.takeLargestBurst()
+        if blast > 0 { Haptics.impact(strength: Double(blast) / 24) }
+
         ticksSinceSample += steps
         let now = CFAbsoluteTimeGetCurrent()
         let elapsed = now - lastSampleTime
@@ -590,7 +598,9 @@ final class SimulationModel {
             elementID: brushElement,
             shape: brushShape,
             targetElementID: target,
-            now: CFAbsoluteTimeGetCurrent()
+            // In milliseconds, which is what the engine measures a fan's turning limit in. This passed
+            // seconds, so a fan could be turned once and then not again for about six minutes.
+            now: CFAbsoluteTimeGetCurrent() * 1000
         )
 
         // Passed on as the *instruction* rather than the cells it changed. Smaller, composes with
@@ -652,14 +662,41 @@ final class SimulationModel {
         }
     }
 
+    /// Undo and redo put back gravity, the ambient temperature and the wind as well as the cells, so the
+    /// panel and the buttons have to be told. They were not: after an undo the redo button stayed greyed
+    /// out and could not be pressed, and switching tilt off afterwards returned to the wrong gravity.
     func undo() {
+        cancelPendingEvent()
         _ = history.undo(engine)
-        activeCells = engine.activeParticleCount
+        afterWholeWorldChange()
     }
 
     func redo() {
+        cancelPendingEvent()
         _ = history.redo(engine)
+        afterWholeWorldChange()
+    }
+
+    /// Brings the readouts, the buttons and the remembered gravity back in step after the whole world changed.
+    private func afterWholeWorldChange() {
         activeCells = engine.activeParticleCount
+        if !isSteeredByTilt {
+            manualGravityX = engine.gravityX
+            manualGravityY = engine.gravityY
+        }
+        engineDidChange()
+    }
+
+    /// The second half of an event still waiting to happen — a meteor's landing, say.
+    private var pendingEvent: Task<Void, Never>?
+
+    /// Stops an event's second half from happening.
+    ///
+    /// Undoing, clearing or loading while a meteor was still falling used to let its explosion land anyway,
+    /// in the world that had just been put back — with no undo point for it.
+    private func cancelPendingEvent() {
+        pendingEvent?.cancel()
+        pendingEvent = nil
     }
 
     /// Shakes the world, as a jolt of the phone would.
@@ -792,9 +829,22 @@ final class SimulationModel {
             engine.render(into: base, overlay: .normal)
         }
 
-        guard let image = LabSnapshot.image(fromEngineColors: pixels, width: width, height: height),
-              let jpeg = image.jpegData(compressionQuality: 0.7)
-        else { return nil }
+        guard let full = LabSnapshot.image(fromEngineColors: pixels, width: width, height: height) else {
+            return nil
+        }
+        // Two hundred and forty pixels across, the size the website makes. The whole world used to be sent
+        // at full size, which was often too large to keep at all and, when it was kept, filled the workshop's
+        // list until it no longer fitted in a reply.
+        let longest = CGFloat(max(width, height))
+        let scale = min(1, 240 / longest)
+        let target = CGSize(width: max(1, CGFloat(width) * scale), height: max(1, CGFloat(height) * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        // Nearest-neighbour stays out of it: at this size the smoothing is what makes it read as a picture.
+        let image = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            full.draw(in: CGRect(origin: .zero, size: target))
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.7) else { return nil }
 
         let encoded = "data:image/jpeg;base64,\(jpeg.base64EncodedString())"
         return encoded.count <= CloudLimits.thumbnailLength ? encoded : nil
@@ -898,10 +948,23 @@ final class SimulationModel {
     @discardableResult
     func apply(_ state: PowderState) -> Bool {
         // An undo point first, so loading the wrong scene is recoverable.
-        history.push(engine)
+        cancelPendingEvent()
+        recordUndoPoint()
         let applied = engine.apply(state)
-        activeCells = engine.activeParticleCount
+        // A world saved at another size — another phone, the website, a different detail setting — is
+        // redrawn to fit this screen. It used to keep its own size and be stretched onto the screen, every
+        // grain a rectangle.
+        if applied { refitToScreen() }
+        afterWholeWorldChange()
         return applied
+    }
+
+    /// Redraws the world at the size this screen and detail setting want, if it is not already that size.
+    func refitToScreen() {
+        guard let wanted = wantedGridSize() else { return }
+        guard wanted.width != engine.width || wanted.height != engine.height else { return }
+        engine.resample(width: wanted.width, height: wanted.height)
+        activeCells = engine.activeParticleCount
     }
 
     /// Registers materials that came with a scene.
@@ -953,7 +1016,9 @@ final class SimulationModel {
     func run(_ event: PowderEventID) {
         // One undo point for the whole event, taken before anything happens, so that a meteor and
         // the explosion it causes are undone together rather than needing two taps.
-        history.push(engine)
+        cancelPendingEvent()
+        recordUndoPoint()
+        Haptics.firm()
 
         let start = engine.start(event)
         if start.shake > 0 { screenShake = start.shake }
@@ -963,14 +1028,17 @@ final class SimulationModel {
         activeCells = engine.activeParticleCount
 
         guard let followUp = start.followUp else { return }
-        Task { @MainActor in
+        pendingEvent = Task { @MainActor in
             // A delay rather than a frame count, because the pause is measured in real time and
             // should look the same whether the world is running fast, slow or is paused outright.
             try? await Task.sleep(for: .seconds(followUp.delaySeconds))
+            guard !Task.isCancelled else { return }
             engine.finish(followUp)
             if followUp.shake > 0 { screenShake = followUp.shake }
             audio?.play(followUp.sound, intensity: followUp.soundIntensity)
+            Haptics.impact(strength: followUp.shake > 0 ? min(1, followUp.shake / 14) : 0.6)
             activeCells = engine.activeParticleCount
+            pendingEvent = nil
         }
     }
 
@@ -1007,14 +1075,16 @@ final class SimulationModel {
     // MARK: - Scenes
 
     func loadScene(_ recipe: PowderRecipe) {
-        history.push(engine)
+        cancelPendingEvent()
+        recordUndoPoint()
         var generator = Mulberry32()
         recipe.apply(to: engine, random: &generator)
         activeCells = engine.activeParticleCount
     }
 
     func clear() {
-        history.push(engine)
+        cancelPendingEvent()
+        recordUndoPoint()
         engine.resetGrid()
         activeCells = 0
     }
@@ -1095,10 +1165,11 @@ final class SimulationModel {
         applyLastKnownSize()
     }
 
-    private func applyLastKnownSize() {
+    /// The grid size this screen and detail setting call for, or nothing before the screen has been measured.
+    private func wantedGridSize() -> (width: Int, height: Int)? {
         let size = lastViewSize
         let scale = lastViewScale
-        guard size.width > 0, size.height > 0 else { return }
+        guard size.width > 0, size.height > 0 else { return nil }
 
         var width = Double(size.width * scale)
         var height = Double(size.height * scale)
@@ -1110,14 +1181,19 @@ final class SimulationModel {
             width *= factor
             height *= factor
         }
+        return (max(32, Int(width.rounded(.down))), max(32, Int(height.rounded(.down))))
+    }
 
-        let newWidth = max(32, Int(width.rounded(.down)))
-        let newHeight = max(32, Int(height.rounded(.down)))
+    private func applyLastKnownSize() {
+        guard let wanted = wantedGridSize() else { return }
+        let newWidth = wanted.width
+        let newHeight = wanted.height
         guard newWidth != engine.width || newHeight != engine.height else { return }
         engine.resize(width: newWidth, height: newHeight)
         activeCells = engine.activeParticleCount
         // The world that was there described a different shape, so coming back to it would mean
         // stretching it. Cleaner to start the record again.
         history.clear()
+        engineDidChange()
     }
 }

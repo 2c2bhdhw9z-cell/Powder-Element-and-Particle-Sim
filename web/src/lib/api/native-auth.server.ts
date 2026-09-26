@@ -67,16 +67,47 @@ export function providersResponse(): Response {
   );
 }
 
+/**
+ * A one-time value tying the finish of a sign-in to its start.
+ *
+ * Without it, `/api/v1/auth/done` handed the session token to *any* visit that
+ * carried the session cookie — and the app's sign-in sheet shares Safari's
+ * cookies, so the cookie stays behind after signing in. Any web page could then
+ * send the browser to `/auth/done`, which redirected to `crucible://auth?token=…`,
+ * and any installed app can claim that scheme. Now the start sets a random value
+ * in a short-lived cookie and puts the same value in the return address; the
+ * finish hands over a token only when the two agree, and clears the cookie so the
+ * value cannot be used twice. A page that did not start the sign-in cannot know it.
+ */
+const NONCE_COOKIE = "crucible_native_nonce";
+const NONCE_PATH = "/api/v1/auth";
+
+function newNonce(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function nonceCookie(value: string, secure: boolean, maxAge: number): string {
+  return [
+    `${NONCE_COOKIE}=${value}`,
+    `Path=${NONCE_PATH}`,
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${maxAge}`,
+    ...(secure ? ["Secure"] : []),
+  ].join("; ");
+}
+
 /** Hands the app back to itself, with either a token or a reason. */
-function backToApp(params: Record<string, string>): Response {
+function backToApp(params: Record<string, string>, extraCookie?: string): Response {
   const url = new URL(nativeCallback);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
-  return new Response(null, {
-    status: 302,
-    headers: { location: url.toString(), "cache-control": "no-store" },
-  });
+  const headers = new Headers({ location: url.toString(), "cache-control": "no-store" });
+  if (extraCookie) headers.append("set-cookie", extraCookie);
+  return new Response(null, { status: 302, headers });
 }
 
 /**
@@ -93,14 +124,17 @@ export async function startNativeSignIn(request: Request, provider: string): Pro
   if (!known) return backToApp({ error: "unknown_provider" });
 
   const url = new URL(request.url);
+  const nonce = newNonce();
+  const secure = url.protocol === "https:";
   const done = `${url.origin}/api/v1/auth/done`;
+  const doneWithNonce = `${done}?n=${nonce}`;
 
   try {
     const started = await auth.api.signInWithOAuth2({
       body: {
         providerId: provider,
-        callbackURL: done,
-        errorCallbackURL: `${done}?failed=1`,
+        callbackURL: doneWithNonce,
+        errorCallbackURL: `${doneWithNonce}&failed=1`,
       },
       // Forwarded so Better Auth derives the same origin this request arrived on,
       // which is what the OAuth redirect_uri has to match.
@@ -120,6 +154,9 @@ export async function startNativeSignIn(request: Request, provider: string): Pro
     for (const cookie of started.headers.getSetCookie()) {
       headers.append("set-cookie", cookie);
     }
+    // Ten minutes: long enough to sign in, short enough that a forgotten sheet does
+    // not leave a live value lying about.
+    headers.append("set-cookie", nonceCookie(nonce, secure, 600));
     return new Response(null, { status: 302, headers });
   } catch {
     return backToApp({ error: "sign_in_failed" });
@@ -135,12 +172,20 @@ export async function startNativeSignIn(request: Request, provider: string): Pro
  */
 export function finishNativeSignIn(request: Request): Response {
   const url = new URL(request.url);
+  const secure = url.protocol === "https:";
+  // Cleared whatever happens, so the value is good for one attempt only.
+  const cleared = nonceCookie("", secure, 0);
+  const expected = readCookie(request, NONCE_COOKIE);
+  const given = url.searchParams.get("n");
+  if (!expected || !given || expected !== given) {
+    return backToApp({ error: "sign_in_not_started_here" }, cleared);
+  }
   if (url.searchParams.has("failed")) {
-    return backToApp({ error: "sign_in_declined" });
+    return backToApp({ error: "sign_in_declined" }, cleared);
   }
   const token = readCookie(request, SESSION_TOKEN_COOKIE);
-  if (!token) return backToApp({ error: "no_session" });
-  return backToApp({ token });
+  if (!token) return backToApp({ error: "no_session" }, cleared);
+  return backToApp({ token }, cleared);
 }
 
 /** Reads one cookie, tolerating `=` inside the value. */

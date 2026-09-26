@@ -25,6 +25,19 @@ import Observation
 /// milliseconds. On the main thread that is a dropped frame every time something explodes — the
 /// simulation's entire budget at 120Hz is eight milliseconds. The few milliseconds of delay this
 /// adds before the sound starts is imperceptible; a stutter in the picture is not.
+/// Who is using the phone's one shared audio session.
+///
+/// The app's sounds and the microphone both need it, in different modes, and each used to set it up for
+/// itself. So listening to music switched the session under the sounds — which then went silent for good,
+/// since they believed they were still running — and the first sound after listening started switched it
+/// back to play-only and quietly stopped the microphone. Each now says whether it is using the session, and
+/// neither changes it out from under the other.
+@MainActor
+enum AudioSessionUsers {
+    static var microphone = false
+    static var speaker = false
+}
+
 @MainActor
 @Observable
 final class LabAudio {
@@ -119,6 +132,12 @@ final class LabAudio {
 
     private func schedule(_ samples: [Float]) {
         guard isStarted, !players.isEmpty else { return }
+        // The system stops the engine on its own — a phone call, headphones plugged in or out, the
+        // microphone changing the session's mode — and nothing here was told. Every sound after that went
+        // nowhere until the Sound switch was turned off and on again. Started again here instead.
+        if !engine.isRunning {
+            do { try engine.start() } catch { return }
+        }
         guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sampleRate, channels: 1),
               let buffer = AVAudioPCMBuffer(
                   pcmFormat: format,
@@ -154,8 +173,11 @@ final class LabAudio {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            // Ambient: the silent switch works, and other audio is left alone.
-            try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+            // Ambient: the silent switch works, and other audio is left alone. Not while the microphone is
+            // open, whose record-and-play mode already plays sound — switching to ambient would stop it.
+            if !AudioSessionUsers.microphone {
+                try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+            }
             try session.setActive(true)
         } catch {
             return false
@@ -183,6 +205,7 @@ final class LabAudio {
         }
 
         isStarted = true
+        AudioSessionUsers.speaker = true
         return true
     }
 
@@ -198,8 +221,11 @@ final class LabAudio {
         isStarted = false
         nextPlayer = 0
         // Let go of the session, so the app stops appearing in the now-playing machinery and stops
-        // holding any audio hardware awake.
-        try? AVAudioSession.sharedInstance().setActive(false)
+        // holding any audio hardware awake — unless the microphone is still using it.
+        AudioSessionUsers.speaker = false
+        if !AudioSessionUsers.microphone {
+            try? AVAudioSession.sharedInstance().setActive(false)
+        }
         // Cleared so that turning sound back on plays immediately rather than waiting out an
         // interval measured from before it was switched off.
         throttle.reset()

@@ -191,7 +191,8 @@ struct SavesSheet: View {
                 isDestructive: true
             ) {
                 store.clearAutosave()
-                note = "The automatic save has been forgotten."
+                note = "The automatic save has been forgotten. Nothing more is saved automatically until "
+                    + "Crucible is next opened."
             }
         }
     }

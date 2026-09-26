@@ -104,5 +104,8 @@ final class RoomBridge {
         // Put back at once rather than on the next tick. Leaving a room should hand control back
         // immediately, and a paused world would otherwise stay frozen with no obvious reason why.
         powder.isFollowingRoom = false
+        // The host's world may have been a different shape; it is redrawn to fit this screen rather than
+        // left stretched onto it.
+        powder.refitToScreen()
     }
 }

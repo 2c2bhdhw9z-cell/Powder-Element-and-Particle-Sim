@@ -97,7 +97,10 @@ export type MapRow = { id: string; title: string; grid_data: string };
 /**
  * Somebody's own saved worlds.
  *
- * Forty, newest first, matching the index on the table. Every query in this file
+ * Newest first, up to five hundred. This was forty with no way to page past them,
+ * so from the forty-first save on, the oldest could be neither opened nor deleted
+ * while still sitting in the table. Only names and dates come back here, so even
+ * five hundred is a small reply. Every query in this file
  * that touches `lab_saves` is scoped by `user_id` — there is no unscoped read of
  * it anywhere, which is the property worth keeping true.
  */
@@ -108,7 +111,7 @@ export async function listSavesFor(userId: string): Promise<SaveSummary[]> {
     from lab_saves
     where user_id = ${userId}
     order by created_at desc
-    limit 40`;
+    limit 500`;
 }
 
 export async function loadSaveFor(userId: string, id: string): Promise<SaveRow | null> {

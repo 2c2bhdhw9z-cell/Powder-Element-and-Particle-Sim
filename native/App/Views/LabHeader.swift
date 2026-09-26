@@ -99,6 +99,7 @@ struct LabHeader: View {
             ForEach(Chamber.allCases, id: \.rawValue) { option in
                 let selected = chamber == option
                 Button {
+                    Haptics.selection()
                     onSelectChamber(option)
                 } label: {
                     HStack(spacing: 6) {
@@ -131,7 +132,10 @@ struct LabHeader: View {
     /// affecting one another visible at all — sparks crossing from an explosion, bodies silting down
     /// into sand. Buried in a settings list, nobody would find the connection.
     private var splitButton: some View {
-        Button(action: onToggleSplit) {
+        Button {
+            Haptics.tap()
+            onToggleSplit()
+        } label: {
             Image(systemName: isSplit ? "rectangle.split.1x2.fill" : "rectangle.split.1x2")
                 .font(.labBody(12, .medium))
                 .foregroundStyle(isSplit ? Palette.primaryForeground : Palette.muted)
@@ -200,7 +204,10 @@ struct LabHeader: View {
         label: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
             Image(systemName: symbol)
                 .font(.labBody(16, .medium))
                 .foregroundStyle(Palette.muted)

@@ -11,6 +11,15 @@
 extension PowderEngine {
     /// The widest blast the grid will set off, in cells.
     public static let largestBlastRadius = 96
+
+    /// The largest blast since this was last asked, in cells, and nought if there has been none.
+    ///
+    /// For the app to feel through the phone. Kept apart from ``onBurst``, which belongs to the bridge
+    /// between the chambers and has room for only one listener.
+    public func takeLargestBurst() -> Int {
+        defer { largestUnreportedBurst = 0 }
+        return largestUnreportedBurst
+    }
 }
 
 extension PowderEngine {
@@ -207,5 +216,6 @@ extension PowderEngine {
         // The app hears about this so it can shake the screen or make a noise. The
         // engine itself does neither.
         onBurst?(centerX, centerY, radius)
+        largestUnreportedBurst = max(largestUnreportedBurst, max(0, radius))
     }
 }

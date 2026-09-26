@@ -77,6 +77,8 @@ final class FieldView: MTKView {
     private let model: ParticleFieldModel
     private let commandQueue: MTLCommandQueue
     private let pointPipeline: MTLRenderPipelineState
+    /// The object bodies, each at its own size. See `bodyVertex` in the shader.
+    private let bodyPipeline: MTLRenderPipelineState
     private let springPipeline: MTLRenderPipelineState
     private let trailPipeline: MTLRenderPipelineState
     private let ringPipeline: MTLRenderPipelineState
@@ -116,6 +118,8 @@ final class FieldView: MTKView {
     // second would cost more than the simulation.
     private var positions: [Float] = []
     private var colors: [UInt32] = []
+    /// How wide each object body is drawn, in pixels of the screen.
+    private var sizes: [Float] = []
     private var springPositions: [Float] = []
     private var swarmPositions: [Float] = []
     private var swarmColors: [UInt32] = []
@@ -125,22 +129,43 @@ final class FieldView: MTKView {
     private var guidePositions: [Float] = []
     private var guideColors: [UInt32] = []
 
-    /// The GPU-side copies. Reallocated only when they are too small.
-    private var positionBuffer: MTLBuffer?
-    private var colorBuffer: MTLBuffer?
-    private var springBuffer: MTLBuffer?
-    private var swarmPositionBuffer: MTLBuffer?
-    private var swarmColorBuffer: MTLBuffer?
-    private var trailPositionBuffer: MTLBuffer?
-    private var trailColorBuffer: MTLBuffer?
-    private var guidePositionBuffer: MTLBuffer?
-    private var guideColorBuffer: MTLBuffer?
+    /// One frame's GPU-side copies. Reallocated only when they are too small.
+    private struct FrameBuffers {
+        var position: MTLBuffer?
+        var color: MTLBuffer?
+        var size: MTLBuffer?
+        var spring: MTLBuffer?
+        var swarmPosition: MTLBuffer?
+        var swarmColor: MTLBuffer?
+        var trailPosition: MTLBuffer?
+        var trailColor: MTLBuffer?
+        var guidePosition: MTLBuffer?
+        var guideColor: MTLBuffer?
+    }
+
+    /// How many frames may be on their way to the screen at once.
+    ///
+    /// ## Why there are three sets of buffers
+    ///
+    /// There used to be one. The graphics card draws a frame some time after it is handed over, and up to
+    /// three can be queued — so the next frame's positions were being written into the very buffer the card
+    /// was still reading the last frame from. On fast motion that drew bodies from a mixture of two moments:
+    /// a faint sparkle and tearing that looked like the renderer being unreliable. Each frame now writes into
+    /// its own set, and waits only if all three are still in use.
+    private static let framesInFlight = 3
+    private var frameBuffers = [FrameBuffers](repeating: FrameBuffers(), count: FieldView.framesInFlight)
+    private var frameSlot = 0
+    private let inFlight = DispatchSemaphore(value: FieldView.framesInFlight)
+
+    /// The most recent frame, so a photograph can be composed from exactly what was on screen.
+    private var lastFrame: ParticleFieldModel.Frame?
 
     init?(model: ParticleFieldModel) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = device.makeDefaultLibrary(),
               let pointVertex = library.makeFunction(name: "particleVertex"),
+              let bodyVertex = library.makeFunction(name: "bodyVertex"),
               let pointFragment = library.makeFunction(name: "particleFragment"),
               let springVertex = library.makeFunction(name: "springVertex"),
               let springFragment = library.makeFunction(name: "springFragment"),
@@ -179,6 +204,14 @@ final class FieldView: MTKView {
             case adding
             /// Replaces outright.
             case replace
+            /// Scales what is there down, colour and coverage alike, and adds nothing.
+            ///
+            /// For fading the kept picture behind the trails. It used to use the ordinary blend, which fades
+            /// the colours correctly but drives the coverage of every pixel on screen up toward the fade
+            /// amount — so with trails on the stars, gradient or nebula behind the field dimmed to three
+            /// quarters, and with the longest trails vanished entirely, behind a picture that had become an
+            /// opaque sheet of black.
+            case fade
         }
 
         func pipeline(
@@ -197,7 +230,11 @@ final class FieldView: MTKView {
             switch blending {
             case .over:
                 attachment.sourceRGBBlendFactor = .sourceAlpha
-                attachment.sourceAlphaBlendFactor = .sourceAlpha
+                // One, not the source's opacity. The kept picture is later laid over the background as
+                // already-multiplied colour, and for that its coverage has to be the plain sum of what was
+                // drawn; multiplying by the opacity again stored it squared, so the background showed through
+                // every half-transparent body far too strongly.
+                attachment.sourceAlphaBlendFactor = .one
                 attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
                 attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
             case .premultipliedOver:
@@ -210,6 +247,11 @@ final class FieldView: MTKView {
                 attachment.sourceAlphaBlendFactor = .one
                 attachment.destinationRGBBlendFactor = .one
                 attachment.destinationAlphaBlendFactor = .one
+            case .fade:
+                attachment.sourceRGBBlendFactor = .zero
+                attachment.sourceAlphaBlendFactor = .zero
+                attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
+                attachment.destinationAlphaBlendFactor = .oneMinusSourceAlpha
             case .replace:
                 break
             }
@@ -217,12 +259,13 @@ final class FieldView: MTKView {
         }
 
         guard let points = pipeline(pointVertex, pointFragment),
+              let bodies = pipeline(bodyVertex, pointFragment),
               let springs = pipeline(springVertex, springFragment),
               let trails = pipeline(trailVertex, trailFragment),
               let ring = pipeline(ringVertex, ringFragment),
               // The fade reuses the ring's vertex function, which already covers the screen from the
               // vertex number alone and needs no geometry of its own.
-              let fade = pipeline(ringVertex, fadeFragment),
+              let fade = pipeline(ringVertex, fadeFragment, blending: .fade),
               // The background replaces whatever is under it, being the bottom layer.
               let background = pipeline(ringVertex, backgroundFragment, blending: .replace),
               let glowBright = pipeline(ringVertex, glowBrightFragment, blending: .replace),
@@ -238,6 +281,7 @@ final class FieldView: MTKView {
         self.model = model
         self.commandQueue = queue
         self.pointPipeline = points
+        self.bodyPipeline = bodies
         self.springPipeline = springs
         self.trailPipeline = trails
         self.ringPipeline = ring
@@ -311,6 +355,13 @@ final class FieldView: MTKView {
             return
         }
 
+        // Waits only if all three sets of buffers are still being drawn from, and gives this set back the
+        // moment the card has finished with it.
+        inFlight.wait()
+        frameSlot = (frameSlot + 1) % Self.framesInFlight
+        let released = inFlight
+        buffer.addCompletedHandler { _ in released.signal() }
+
         var frame = prepare(device: device)
         // Measured from the drawable that actually arrived rather than from the setting, so the frame or two
         // after a change — while the old drawable is still being handed out — draws bodies the right size
@@ -342,6 +393,7 @@ final class FieldView: MTKView {
         }
 
         guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else {
+            // Committed even so, so the completion handler gives the buffers back.
             buffer.present(drawable)
             buffer.commit()
             return
@@ -363,7 +415,8 @@ final class FieldView: MTKView {
         // Three full-screen draws rather than the single copy this used to be. The copy was enough when
         // the field was the whole picture; it cannot layer anything, and a background copied over would
         // hide the field rather than sit behind it.
-        encodeFinalPicture(frame, field: target, glow: glow, to: drawable, in: buffer)
+        encodeFinalPicture(frame, field: target, glow: glow, to: drawable.texture, in: buffer)
+        lastFrame = frame
 
         buffer.present(drawable)
         buffer.commit()
@@ -451,11 +504,11 @@ final class FieldView: MTKView {
         _ frame: ParticleFieldModel.Frame,
         field: MTLTexture,
         glow: MTLTexture?,
-        to drawable: CAMetalDrawable,
+        to destination: MTLTexture,
         in buffer: MTLCommandBuffer
     ) {
         let descriptor = MTLRenderPassDescriptor()
-        descriptor.colorAttachments[0].texture = drawable.texture
+        descriptor.colorAttachments[0].texture = destination
         descriptor.colorAttachments[0].loadAction = .clear
         descriptor.colorAttachments[0].clearColor = clearColor
         descriptor.colorAttachments[0].storeAction = .store
@@ -610,7 +663,8 @@ final class FieldView: MTKView {
     /// texture is read, not rebuilt.
     func snapshot() -> UIImage? {
         guard let device,
-              let source = accumulation,
+              let field = accumulation,
+              let frame = lastFrame,
               // Nothing has been drawn yet, so there is nothing to photograph. Honest emptiness
               // rather than a black rectangle that looks like a bug.
               accumulationWidth > 0, accumulationHeight > 0,
@@ -619,6 +673,20 @@ final class FieldView: MTKView {
 
         let width = accumulationWidth
         let height = accumulationHeight
+
+        // The finished picture — background, field and glow — composed again into a picture of its own,
+        // because the screen's own cannot be read back. A photograph used to be the field layer alone: no
+        // stars, no glow, and every half-transparent body darker than it looked, since that layer's colours
+        // are stored already multiplied by their opacity.
+        let composedDescriptor = MTLTextureDescriptor()
+        composedDescriptor.pixelFormat = colorPixelFormat
+        composedDescriptor.width = width
+        composedDescriptor.height = height
+        composedDescriptor.usage = [.renderTarget, .shaderRead]
+        composedDescriptor.storageMode = .private
+        guard let source = device.makeTexture(descriptor: composedDescriptor) else { return nil }
+        let glow = model.glowStrength > 0 && glowA != nil ? glowA : nil
+        encodeFinalPicture(frame, field: field, glow: glow, to: source, in: buffer)
 
         // The picture on screen lives in memory only the GPU can reach, so it is copied into one the
         // processor can read before being handed over.
@@ -673,6 +741,7 @@ final class FieldView: MTKView {
         let frame = model.fillFrame(
             positions: &positions,
             colors: &colors,
+            sizes: &sizes,
             springPositions: &springPositions,
             swarmPositions: &swarmPositions,
             swarmColors: &swarmColors,
@@ -682,25 +751,28 @@ final class FieldView: MTKView {
             guideColors: &guideColors
         )
 
-        upload(&positionBuffer, from: positions, count: frame.bodyCount * 2, device: device)
-        upload(&colorBuffer, from: colors, count: frame.bodyCount, device: device)
-        upload(&springBuffer, from: springPositions, count: frame.springCount * 4, device: device)
+        var set = frameBuffers[frameSlot]
+        upload(&set.position, from: positions, count: frame.bodyCount * 2, device: device)
+        upload(&set.color, from: colors, count: frame.bodyCount, device: device)
+        upload(&set.size, from: sizes, count: frame.bodyCount, device: device)
+        upload(&set.spring, from: springPositions, count: frame.springCount * 4, device: device)
         upload(
-            &swarmPositionBuffer,
+            &set.swarmPosition,
             from: swarmPositions,
             count: frame.swarmCount * (frame.swarmIsStreaked ? 4 : 2),
             device: device
         )
         upload(
-            &swarmColorBuffer,
+            &set.swarmColor,
             from: swarmColors,
             count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
             device: device
         )
-        upload(&trailPositionBuffer, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
-        upload(&trailColorBuffer, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
-        upload(&guidePositionBuffer, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
-        upload(&guideColorBuffer, from: guideColors, count: frame.guideSegmentCount * 2, device: device)
+        upload(&set.trailPosition, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
+        upload(&set.trailColor, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
+        upload(&set.guidePosition, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
+        upload(&set.guideColor, from: guideColors, count: frame.guideSegmentCount * 2, device: device)
+        frameBuffers[frameSlot] = set
 
         return frame
     }
@@ -722,8 +794,14 @@ final class FieldView: MTKView {
             // In pixels of the picture being drawn, which is not the screen's when the detail is turned
             // down. Everything else in this struct is either in world units or in screen pixels used only as
             // a ratio, so this is the one measurement that has to be converted.
-            pointSize: Float(max(1, frame.pointSize * frame.pixelRatio)),
-            zoom: Float(frame.camera.zoom),
+            // A multiplier on each body's own size for the object bodies, which carry their sizes in a buffer
+            // of their own; the crowd's pass replaces it with the crowd's size.
+            pointSize: Float(frame.pixelRatio),
+            // The picture's scale, not the zoom. With zooming out set to add room the two differ, and the
+            // processor — which places the finger and the ring — already used the picture's scale while this
+            // used the zoom: so pulling back shrank the picture *and* grew the world, the field drew as a small
+            // square in the middle of the screen, and a touch landed nowhere near what it was aimed at.
+            zoom: Float(frame.camera.pictureScale),
             shape: frame.shape.shaderIdentifier
         )
     }
@@ -731,13 +809,16 @@ final class FieldView: MTKView {
     /// The four passes, in the order that decides what sits in front of what.
     private func encode(_ frame: ParticleFieldModel.Frame, into encoder: MTLRenderCommandEncoder) {
         var uniforms = Self.uniforms(for: frame)
+        let set = frameBuffers[frameSlot]
 
         // The swarm first and smallest: it is the crowd, and the few individually interesting
         // bodies should never be buried under it.
         if frame.swarmCount > 0,
-           let swarmPositionBuffer, let swarmColorBuffer {
+           let swarmPositionBuffer = set.swarmPosition, let swarmColorBuffer = set.swarmColor {
             var swarmUniforms = uniforms
-            swarmUniforms.pointSize = 1
+            // The size slider's width. This was fixed at one pixel, which is why the slider seemed to work on
+            // scenes and not on anything added: added bodies are the crowd.
+            swarmUniforms.pointSize = Float(max(1, frame.swarmPointSize * frame.pixelRatio))
             if frame.swarmIsStreaked {
                 // As lines along each body's own motion. The trail pipeline, because it is the one that takes
                 // a colour per vertex — a spring line is one flat colour for all of them.
@@ -759,7 +840,7 @@ final class FieldView: MTKView {
         // Trails behind everything solid: they are where a body has been, and should never sit on
         // top of where it is now.
         if frame.trailSegmentCount > 0,
-           let trailPositionBuffer, let trailColorBuffer {
+           let trailPositionBuffer = set.trailPosition, let trailColorBuffer = set.trailColor {
             encoder.setRenderPipelineState(trailPipeline)
             encoder.setVertexBuffer(trailPositionBuffer, offset: 0, index: 0)
             encoder.setVertexBuffer(trailColorBuffer, offset: 0, index: 1)
@@ -772,17 +853,19 @@ final class FieldView: MTKView {
         }
 
         // Springs next, so a cloth's structure sits behind its nodes.
-        if frame.springCount > 0, let springBuffer {
+        if frame.springCount > 0, let springBuffer = set.spring {
             encoder.setRenderPipelineState(springPipeline)
             encoder.setVertexBuffer(springBuffer, offset: 0, index: 0)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
             encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.springCount * 2)
         }
 
-        if frame.bodyCount > 0, let positionBuffer, let colorBuffer {
-            encoder.setRenderPipelineState(pointPipeline)
+        if frame.bodyCount > 0, let positionBuffer = set.position, let colorBuffer = set.color,
+           let sizeBuffer = set.size {
+            encoder.setRenderPipelineState(bodyPipeline)
             encoder.setVertexBuffer(positionBuffer, offset: 0, index: 0)
             encoder.setVertexBuffer(colorBuffer, offset: 0, index: 1)
+            encoder.setVertexBuffer(sizeBuffer, offset: 0, index: 3)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
@@ -791,7 +874,8 @@ final class FieldView: MTKView {
         // The walls and the painted wind, over the bodies. They are things somebody drew rather than part of
         // the simulation, so they belong in front of it — a wall hidden behind a dense crowd is a wall
         // somebody cannot tell they have drawn.
-        if frame.guideSegmentCount > 0, let guidePositionBuffer, let guideColorBuffer {
+        if frame.guideSegmentCount > 0,
+           let guidePositionBuffer = set.guidePosition, let guideColorBuffer = set.guideColor {
             encoder.setRenderPipelineState(trailPipeline)
             encoder.setVertexBuffer(guidePositionBuffer, offset: 0, index: 0)
             encoder.setVertexBuffer(guideColorBuffer, offset: 0, index: 1)

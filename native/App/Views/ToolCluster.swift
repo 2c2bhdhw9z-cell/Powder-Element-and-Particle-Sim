@@ -74,6 +74,7 @@ struct ToolCluster: View {
         HStack(spacing: 0) {
             ForEach(Self.speeds, id: \.self) { value in
                 Button {
+                    Haptics.selection()
                     model.speed = value
                 } label: {
                     Text(Self.label(for: value))
@@ -102,7 +103,10 @@ struct ToolCluster: View {
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
             Image(systemName: symbol)
                 .font(.labBody(14, .medium))
                 .foregroundStyle(enabled ? Palette.muted : Palette.subtleForeground)

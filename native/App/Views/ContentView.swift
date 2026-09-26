@@ -266,7 +266,7 @@ struct ContentView: View {
         // is the last reliable moment to keep anything — a timer alone would lose up to eight
         // seconds of work every time.
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { writeAutosave() }
+            if phase != .active { writeAutosave(now: true) }
         }
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
@@ -278,7 +278,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showingPresets) {
-            FieldPresetPicker() { preset in
+            FieldPresetPicker(current: field.arrangement) { preset in
                 field.loadPreset(preset)
                 showingPresets = false
             }
@@ -463,9 +463,19 @@ struct ContentView: View {
             }
             // Tapping the other half moves focus to it, which is how the dock and the tools follow
             // your attention. Only while split; otherwise this would swallow taps meant for the world.
-            .contentShape(Rectangle())
-            .onTapGesture {
-                if isSplit, which != chamber { select(which) }
+            //
+            // A cover over the half without focus, catching the tap before the world beneath does. It used to
+            // be a tap handler alongside the world's own, so the same tap also painted a stroke into the
+            // powder or pushed the field — with an undo point — on the half you were only trying to look at.
+            .overlay {
+                if isSplit, which != chamber {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Haptics.selection()
+                            select(which)
+                        }
+                }
             }
         }
         .overlay {
@@ -601,7 +611,7 @@ struct ContentView: View {
         if let state = scene.particle { field.apply(state) }
     }
 
-    private func writeAutosave() {
+    private func writeAutosave(now: Bool = false) {
         store.writeAutosave(
             LabScene(
                 version: LabScene.currentVersion,
@@ -609,7 +619,8 @@ struct ContentView: View {
                 powder: powder.captureState(),
                 particle: field.captureState(),
                 customElements: powder.customElements
-            )
+            ),
+            now: now
         )
     }
 
@@ -784,6 +795,7 @@ struct FieldToolCluster: View {
                 HStack(spacing: 0) {
                     ForEach(Self.speeds, id: \.self) { value in
                         Button {
+                            Haptics.selection()
                             model.speed = value
                         } label: {
                             Text(ToolClusterLabels.speed(value))
@@ -810,7 +822,10 @@ struct FieldToolCluster: View {
         enabled: Bool,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
             Image(systemName: symbol)
                 .font(.labBody(14, .medium))
                 .foregroundStyle(enabled ? Palette.muted : Palette.subtleForeground)

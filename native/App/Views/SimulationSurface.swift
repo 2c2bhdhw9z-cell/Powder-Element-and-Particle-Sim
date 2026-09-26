@@ -77,6 +77,7 @@ struct SimulationSurface: UIViewRepresentable {
 
         private func begin(at point: CGPoint, in view: UIView) {
             guard let fraction = fraction(of: point, in: view) else { return }
+            Haptics.touchDown()
             model.beginStroke(atFractionX: fraction.x, fractionY: fraction.y)
         }
 
