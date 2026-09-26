@@ -355,7 +355,7 @@ struct FieldDock: View {
     /// Using more than one finger at once, and copying a stroke round the middle.
     private var fingerControls: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("FINGERS")
+            Text("FINGERS AND SHOWING OFF")
                 .font(.labBody(10, .semiBold))
                 .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
@@ -369,6 +369,25 @@ struct FieldDock: View {
                     .font(.labBody(10))
                     .foregroundStyle(Palette.subtleForeground)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            switchAndNumbers(
+                "Show me — drift between scenes by itself",
+                isOn: Binding(get: { model.relaxes }, set: { model.relaxes = $0 })
+            ) {
+                Text("For leaving on a table. It picks a new arrangement at random every so often and turns "
+                    + "slowly. Touch anything and you are simply working on whatever is showing.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 2)
+                inlineSlider(
+                    "Each one lasts",
+                    \.relaxDwell,
+                    10 ... 240,
+                    step: 5,
+                    format: { "\(Int($0.rounded()))s" }
+                )
             }
 
             switchAndNumbers(

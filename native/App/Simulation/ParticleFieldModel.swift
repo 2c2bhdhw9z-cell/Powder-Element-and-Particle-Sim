@@ -1052,6 +1052,8 @@ final class ParticleFieldModel {
         // looking at the field, not part of it. Somebody who pauses to study an arrangement should
         // still be able to turn it round and see the shape of it.
         advanceCameraSpin(now: now)
+        // And, if the field is showing itself, whether it is time for another scene.
+        advanceRelaxing(now: now)
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -2506,6 +2508,60 @@ final class ParticleFieldModel {
     var depthRatio: Double {
         get { observeEngine(); return engine.depthRatio }
         set { engine.depthRatio = newValue; engineDidChange() }
+    }
+
+    // MARK: - Relax mode
+
+    /// Whether the field shows itself: it drifts from one arrangement to the next by itself, turning slowly.
+    ///
+    /// For leaving on a table. It picks a scene at random rather than going round the list in order, so it does not
+    /// become a sequence you learn, and it never picks the one already showing.
+    var relaxes: Bool = false {
+        didSet {
+            relaxChangedAt = nil
+            if relaxes {
+                // Turning by itself is most of the effect, so it comes on with it. Switched off again by hand if
+                // somebody wants the drift without the spin.
+                cameraAutoOrbit = true
+            }
+            engineDidChange()
+        }
+    }
+
+    /// How long each arrangement is shown for, in seconds.
+    var relaxDwell: Double = 45
+
+    /// When the scene last changed by itself, in milliseconds.
+    @ObservationIgnored private var relaxChangedAt: Double?
+
+    /// Moves relax mode on: after long enough, quietly choose another scene.
+    private func advanceRelaxing(now: Double) {
+        guard relaxes else {
+            relaxChangedAt = nil
+            return
+        }
+        guard let since = relaxChangedAt else {
+            relaxChangedAt = now
+            return
+        }
+        let dwell = max(8, min(600, relaxDwell)) * 1_000
+        guard now - since >= dwell else { return }
+        relaxChangedAt = now
+
+        // Scenes only, and never the one already showing. In 3D the whole catalogue is available; on a flat field
+        // the ones that only exist in 3D are left out, so it does not silently switch 3D on while nobody is
+        // watching it.
+        let showing = engine.arrangement
+        let choices = (engine.depthEnabled ? ParticleArrangement.scenes : ParticleArrangement.flatScenes)
+            .filter { $0.id != showing && $0.id != "text" }
+        guard let next = choices.randomElement() else { return }
+        loadPreset(next.id)
+        // A fresh look each time, so two scenes running one after another are not seen from the same angle.
+        if engine.depthEnabled {
+            var turned = storedCamera
+            turned.look(yaw: Double.random(in: -180 ... 180), pitch: Double.random(in: 4 ... 46))
+            camera = turned
+        }
     }
 
     // MARK: - More than one finger
