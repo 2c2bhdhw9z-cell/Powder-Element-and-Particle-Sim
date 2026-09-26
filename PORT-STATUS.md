@@ -32,7 +32,7 @@ Two rules, and the second replaces what this file used to say:
    native test of the intent.** The reference is not allowed to be a defence for something
    that looks or behaves wrong — "the port is faithful" is not an answer to "this is broken".
 
-Two comparisons have been retired that way so far, and both are recorded where they were:
+Every comparison retired that way is recorded where it was:
 
 - **The built-in scenes.** `RecipeGoldenTests` is gone, replaced by `RecipeTests`. The
   reference's scenes were rectangles at fixed fractions: flat ground, identical trees at equal
@@ -51,6 +51,36 @@ Two comparisons have been retired that way so far, and both are recorded where t
   object list, which neither the fluid nor gravity-between-bodies acts on — so Pour was beads falling
   through each other and N-body pulled on nothing. Both are rebuilt from the crowd, and
   `ParticleArrangementTests` checks that the liquid pours and spreads and that the disc holds together.
+- **Eight finger scenarios.** `mouse-attract-sweeps-through`, `mouse-repel-and-release`,
+  `mouse-vortex-swirls`, `mouse-gravity-well-swirls-inward`, `mouse-freeze-damps`,
+  `mouse-hyper-drive-recolours`, `mouse-hawk-pushes-hard` and `swarm-with-cursor-and-wrapping`. The
+  reference's finger was too weak on a phone to see: for the crowd — which most arrangements are made
+  of — a constant push of eight hundredths of a pixel a moment with no swirl, freeze or paint at all,
+  and for the individual bodies a pull that fell away with the square of the distance. Every tool now
+  uses Built-Helion's brush on everything (see `ParticleBrush.swift`), and freeze stops what it touches
+  after the moment's gravity and holds rather than before them, so frozen bodies no longer creep.
+  `ParticleBrushTests` checks each tool on both kinds of body, and every tool on every arrangement. The
+  painter and the emitter are unchanged, and `dna-helix-repainted-stays-in-the-helix` and
+  `mouse-emitter-spawns-continuously` are still compared exactly.
+
+### The finger, zooming out, and sizes
+
+Built-Helion — the owner's working reference, a separate web project — is what the finger and the zoom
+were checked against, because the owner's report was that its tools worked and these did not.
+
+- **The finger.** One rule for every body: a circle twelve hundredths of the screen high, a push that
+  fades evenly to nothing at its edge, forces measured in screen heights per second per second. The
+  reach is set as a share of the screen and stays that size on the screen however far the view is
+  pulled out. At the top of the slider it reaches the whole field.
+- **Zooming out gives room.** Bodies are drawn at the zoom, so pulling back shrinks them along with
+  the picture. Arrangements and added bodies are laid out on a screen's worth of the world in its
+  middle — those that stand on the floor stand on the world's floor — so a galaxy chosen after zooming
+  out is its usual size with room round it, rather than filling the grown world with bigger stars.
+  Undo points follow the world when it grows or shrinks, so undoing after a zoom brings things back
+  where they are rather than where they were in the smaller world.
+- **Sizes.** Each body of the crowd can have a size of its own. Bodies added to an arrangement are
+  made the size of the ones already in it unless "match the size of what's there" is turned off.
+- **Walls and painted wind** act on the individual bodies as well as the crowd.
 
 ---
 
@@ -60,7 +90,7 @@ Two comparisons have been retired that way so far, and both are recorded where t
 | ---- | ----- | ----------- |
 | Elements, registry, packed physics table | complete | property-by-property against extracted web data |
 | Powder grid: movement, heat, pressure, phase change, chemistry, explosions, electricity, brush | complete | 38 scenarios, cell-for-cell + temperature + momentum + draw counts |
-| Particle field: model, swarm, forces, integration, boundaries, springs, flock, all 20 spawners | complete | 39 scenarios, every body + springs + swarm + draw counts |
+| Particle field: model, swarm, forces, integration, boundaries, springs, flock, all 20 spawners | complete | 29 scenarios, every body + springs + swarm + draw counts; 10 retired and replaced by tests of intent (above) |
 | Own sine, cosine, powers | complete | several thousand recorded values, bit-exact |
 | Saving, loading, undo, multiplayer wire format | complete | round trips + wire payload byte-identical across 38 scenarios |
 | Health inspection and repair tools, both chambers | complete | 25 behavioural tests |
@@ -85,7 +115,7 @@ Two comparisons have been retired that way so far, and both are recorded where t
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**860 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
+**891 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 **The port is complete.** Everything the web version does, the app now does — including the online

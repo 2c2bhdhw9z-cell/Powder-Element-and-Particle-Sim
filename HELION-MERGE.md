@@ -2912,3 +2912,28 @@ under "Arrangements". The short version for anyone reading this file: the twelve
 above were laid into the crowd, which at the time could not hold a shape, orbit or fade — so most of them
 slid to the floor within a second of appearing. The crowd can now do all three.
 
+
+
+After that the owner reported that none of the tools worked except on the black hole, that zooming out
+made the bodies bigger rather than giving room, and that bodies added to an arrangement were a different
+size from its own — and that all of it had worked in Built-Helion. It had. Three things had not been
+ported from it:
+
+- **Its brush.** Helion has one rule for every body: a circle 0.12 of the screen high, a push that fades
+  evenly to nothing at the edge (`1 - d / radius`), accelerations of 24 (attract), 26 (repel) and 28
+  (vortex) screen heights per second per second at a strength of 0.85, the repulsor's
+  `32 / (d² + 0.0004)`, and a limit of 80 per axis. This field had the reference's two brushes instead —
+  a constant 0.08 pixels a moment for the crowd, and an inverse-square pull for the object bodies — and
+  on a phone neither could be seen. Helion's rule now drives both, in `ParticleBrush.swift`; the well,
+  the hawk and hyper, which Helion does not have, are built from its parts.
+- **Its reach.** Helion hands the engine `brushRadius * worldScale`, so the circle is the same size on
+  the screen however far out the view is pulled. The app now does the same: the reach is a share of the
+  screen, not a number of pixels.
+- **Its layout.** Helion lays its scenes out on the view, not the grown world. The field laid them out
+  on the whole world, so choosing a galaxy after zooming out filled the new room with a bigger galaxy of
+  bigger stars. Arrangements are now laid out on a screen's worth of the world in its middle
+  (`ParticleLayout.swift`), and bodies are drawn at the zoom, so zooming out gives room.
+
+Where Helion itself was wrong it was not copied: bodies there keep their pixel size when zoomed out, which
+is what made them look bigger compared with the room, and its freeze lets the moment's gravity move what it
+has just stopped. Both are fixed here. `ParticleBrushTests` checks all of this directly.
