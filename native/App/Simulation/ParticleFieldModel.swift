@@ -1054,6 +1054,8 @@ final class ParticleFieldModel {
         advanceCameraSpin(now: now)
         // And, if the field is showing itself, whether it is time for another scene.
         advanceRelaxing(now: now)
+        // And, if the field is a clock, whether the minute has turned over.
+        advanceClock()
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -2521,6 +2523,61 @@ final class ParticleFieldModel {
     /// On by default, and the same switch the powder world's explosions already answer to, so the two halves of
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
+
+    // MARK: - A clock made of particles
+
+    /// Whether the field spells out the time and rebuilds itself every minute.
+    ///
+    /// The one scene that cannot live in the engine: the engine has a clock for how long it has been running, and no
+    /// idea what time of day it is — nor should it, since that would make every recorded comparison depend on when
+    /// it was run.
+    var isAClock: Bool = false {
+        didSet {
+            clockShowing = nil
+            if isAClock { showTheTime() }
+            engineDidChange()
+        }
+    }
+
+    /// Whether the time is shown the way the phone is set to show it, or always with a twenty-four hour face.
+    var clockUses24Hour: Bool = false {
+        didSet {
+            clockShowing = nil
+            if isAClock { showTheTime() }
+        }
+    }
+
+    /// The minute currently spelled out, so it is only rebuilt when it changes.
+    @ObservationIgnored private var clockShowing: String?
+
+    /// Rebuilds the field as the time, if the minute has turned over.
+    private func advanceClock() {
+        guard isAClock else {
+            clockShowing = nil
+            return
+        }
+        showTheTime()
+    }
+
+    /// Spells out the time now, unless it is already showing.
+    private func showTheTime() {
+        let now = Date()
+        let calendar = Calendar.current
+        let minute = calendar.component(.minute, from: now)
+        var hour = calendar.component(.hour, from: now)
+        if !clockUses24Hour {
+            hour = hour % 12
+            if hour == 0 { hour = 12 }
+        }
+        let face = String(format: "%02d:%02d", hour, minute)
+        guard face != clockShowing else { return }
+        clockShowing = face
+        wordText = face
+        // Replacing what is there, because a clock that added each minute to the last would be unreadable within
+        // an hour. The bodies tumble into the new shape rather than appearing in it, which is the whole charm of
+        // it — see `spawnWord`.
+        spawnWord(replacingField: true)
+    }
 
     // MARK: - Names hanging in the field
 

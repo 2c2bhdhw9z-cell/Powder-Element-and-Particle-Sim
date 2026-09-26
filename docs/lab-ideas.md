@@ -6,6 +6,7 @@ Not shipped. Not in the UI. Pick from chat.
 
 Built:
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
+- Living clock: the field spells the time and tumbles into the next minute
 - Floating labels: names that hang beside the things they name and follow them
 - Feel it: a knock in the hand when a bolt strikes or a shell bursts
 - Relax mode: the field drifts between scenes by itself, turning slowly

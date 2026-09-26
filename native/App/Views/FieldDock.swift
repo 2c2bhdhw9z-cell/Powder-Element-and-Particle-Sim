@@ -378,6 +378,22 @@ struct FieldDock: View {
             }
 
             switchAndNumbers(
+                "Be a clock",
+                isOn: Binding(get: { model.isAClock }, set: { model.isAClock = $0 })
+            ) {
+                Text("The field spells out the time and tumbles into the next minute as it turns. Push the digits "
+                    + "about and they will be back, differently, within the minute.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 2)
+                smallToggle(
+                    "Twenty-four hour face",
+                    isOn: Binding(get: { model.clockUses24Hour }, set: { model.clockUses24Hour = $0 })
+                )
+            }
+
+            switchAndNumbers(
                 "Show me — drift between scenes by itself",
                 isOn: Binding(get: { model.relaxes }, set: { model.relaxes = $0 })
             ) {
