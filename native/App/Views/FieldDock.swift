@@ -396,6 +396,30 @@ struct FieldDock: View {
                 .foregroundStyle(Palette.subtleForeground)
                 .fixedSize(horizontal: false, vertical: true)
             }
+            // Only where it would make a difference: an arrangement whose bodies have a size of their own. A
+            // sunflower's seeds are all the slider's size, so matching them changes nothing.
+            if model.arrangementHasOwnSize {
+                VStack(alignment: .leading, spacing: 3) {
+                    Toggle(isOn: Binding(
+                        get: { model.matchesArrangementSize },
+                        set: { model.matchesArrangementSize = $0 }
+                    )) {
+                        Text("Match the size of what's there")
+                            .font(.labBody(12))
+                            .foregroundStyle(Palette.foreground)
+                    }
+                    .tint(Palette.primary)
+                    Text(
+                        model.matchesArrangementSize
+                            ? "New bodies are made the same size as the ones already in the "
+                                + "\(details.name.lowercased())."
+                            : "New bodies are the size the Particle size slider sets."
+                    )
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         if let note = model.additionNote {
             Text(note)
@@ -519,11 +543,12 @@ struct FieldDock: View {
             )
             labelledSlider(
                 "Reach",
-                value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
-                range: 40 ... 820,
-                // At the top of the range the physics treats the reach as unlimited, which is
-                // worth saying rather than showing as a number that stops meaning anything.
-                display: { model.mouseRadius >= 800 ? "whole field" : "\(Int($0))" }
+                value: Binding(get: { model.reachShare }, set: { model.reachShare = $0 }),
+                range: ParticleFieldModel.reachShareRange,
+                // How much of the screen's height the circle is, which stays true however far the view is
+                // zoomed. At the top of the range the finger reaches everything, which is worth saying rather
+                // than showing as a number that stops meaning anything.
+                display: { Self.reachLabel($0, long: true) }
             )
             labelledSlider(
                 "Gravity",
@@ -1387,16 +1412,17 @@ struct FieldDock: View {
                     .font(.labBody(12))
                     .foregroundStyle(Palette.subtleForeground)
                 Slider(
-                    value: Binding(get: { model.mouseRadius }, set: { model.mouseRadius = $0 }),
-                    in: 40 ... 820
+                    value: Binding(get: { model.reachShare }, set: { model.reachShare = $0 }),
+                    in: ParticleFieldModel.reachShareRange
                 )
                 .tint(Palette.primary)
-                Text(model.mouseRadius >= 800 ? "all" : "\(Int(model.mouseRadius))")
+                Text(Self.reachLabel(model.reachShare, long: false))
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.muted)
-                    .frame(width: 26, alignment: .trailing)
+                    .frame(width: 30, alignment: .trailing)
             }
             .accessibilityLabel("How far a touch reaches")
+            .accessibilityValue(Self.reachLabel(model.reachShare, long: true))
 
             iconButton("trash", "Clear") {
                 Haptics.firm()
@@ -1443,6 +1469,13 @@ struct FieldDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    /// The reach in words: how much of the screen's height the circle is, or that it reaches everything.
+    static func reachLabel(_ share: Double, long: Bool) -> String {
+        if share >= ParticleFieldModel.wholeFieldReachShare { return long ? "whole field" : "all" }
+        let percent = "\(Int((share * 100).rounded()))%"
+        return long ? "\(percent) of the screen" : percent
     }
 }
 

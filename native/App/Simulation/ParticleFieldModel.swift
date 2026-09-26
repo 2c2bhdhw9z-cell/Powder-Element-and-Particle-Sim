@@ -67,7 +67,17 @@ final class ParticleFieldModel {
     /// Records that one of the engine's settings has changed. Called by every forwarding setter.
     private func engineDidChange() {
         engineRevision &+= 1
+        // Anything done to the field means it is no longer the untouched opening scene.
+        openingSceneIsUntouched = false
     }
+
+    /// Whether the field still shows the galaxy it opens with, untouched, so the screen's real size can lay it
+    /// out again when it arrives.
+    ///
+    /// The field is made before there is a screen to show it on, at a stand-in size, and a plain resize keeps
+    /// every body where it was — so on a first launch the opening galaxy sat small in the top corner of the
+    /// screen rather than in the middle of it.
+    @ObservationIgnored private var openingSceneIsUntouched = true
 
     /// What decides each body's colour.
     var colorMode: ParticleColorMode {
@@ -682,10 +692,51 @@ final class ParticleFieldModel {
         set { engine.mouseMode = newValue; engineDidChange() }
     }
 
-    /// How far a touch reaches.
-    var mouseRadius: Double {
-        get { observeEngine(); return engine.mouseRadius }
-        set { engine.mouseRadius = newValue; engineDidChange() }
+    /// How far a touch reaches, as a share of the screen's height.
+    ///
+    /// ## Why a share of the screen rather than a distance
+    ///
+    /// It used to be a number of the world's pixels, a hundred and twenty to start with. On a phone that is a
+    /// circle about a twentieth of the screen high — a fingertip — and zooming out, which makes the world
+    /// larger, made that same circle smaller still on the screen, until the finger reached almost nothing.
+    /// Built-Helion, the owner's working reference, sizes its circle as twelve hundredths of the screen and
+    /// keeps it that size on the screen however far out the view is pulled. So does this now: the reach is a
+    /// share of the screen, and the engine is handed however many of the world's pixels that is at the
+    /// moment — more of them when the world has grown.
+    ///
+    /// At the top of the range the finger reaches the whole field.
+    ///
+    /// Remembered between launches. Twelve hundredths — Built-Helion's — until somebody moves it.
+    var reachShare: Double = UserDefaults.standard.object(forKey: "fieldReachShare") as? Double ?? 0.12 {
+        didSet {
+            UserDefaults.standard.set(Self.usableReachShare(reachShare), forKey: "fieldReachShare")
+            applyReach()
+            engineDidChange()
+        }
+    }
+
+    /// Built-Helion's reach: twelve hundredths of the screen's height.
+    static let defaultReachShare = 0.12
+    /// How small and how large the reach can be made. The top of it is the whole field.
+    static let reachShareRange: ClosedRange<Double> = 0.03 ... 0.42
+    /// At or past this, the finger reaches everything in the field however far away it is.
+    static let wholeFieldReachShare = 0.415
+
+    private static func usableReachShare(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultReachShare }
+        return min(reachShareRange.upperBound, max(reachShareRange.lowerBound, value))
+    }
+
+    /// Hands the engine the reach in the world's pixels, as they are right now.
+    ///
+    /// The world is the screen's height times however far out the camera is pulled, so a share of the world's
+    /// height is the same share of the screen whatever the zoom — which is what keeps the circle one size on
+    /// the screen. Called whenever the world changes size.
+    private func applyReach() {
+        let share = Self.usableReachShare(reachShare)
+        engine.mouseRadius = share >= Self.wholeFieldReachShare
+            ? .infinity
+            : share * max(1, engine.height)
     }
 
     /// What happens at the edges of the world.
@@ -782,6 +833,8 @@ final class ParticleFieldModel {
             // reading of that is the resting view rather than whatever the last scene happened to
             // leave behind.
             camera = state.camera ?? .identity
+            // The file sets the world's size, so the reach is worked out again for it.
+            applyReach()
         }
         afterArrangementChange()
         return applied
@@ -829,13 +882,6 @@ final class ParticleFieldModel {
     var decaySpeed: Double {
         get { observeEngine(); return engine.decaySpeed }
         set { engine.decaySpeed = newValue; engineDidChange() }
-    }
-
-    /// Whether the reach is effectively unlimited, so the interface can say so rather than showing a
-    /// number that suggests a boundary.
-    var hasUnlimitedReach: Bool {
-        observeEngine()
-        return ParticleOverlayStyle.isUnlimited(reach: engine.mouseRadius)
     }
 
     /// Where a picture of the field comes from.
@@ -959,6 +1005,8 @@ final class ParticleFieldModel {
     init() {
         engine = ParticleEngine(width: 400, height: 700)
         engine.joinsArrangement = joinsArrangement
+        engine.matchesArrangementSize = matchesArrangementSize
+        applyReach()
         engine.spawnGalaxy(count: 400)
         // The opening galaxy is not something to undo back from into an empty field.
         engine.clearHistory()
@@ -1084,6 +1132,12 @@ final class ParticleFieldModel {
         /// appeared to work only on scenes: scenes are made of object bodies, and everything added with the
         /// population button goes into the crowd.
         var swarmPointSize: Double
+        /// Whether any body in the crowd has a size of its own, in which case the crowd is drawn one size per
+        /// body from its own list rather than all at ``swarmPointSize``.
+        ///
+        /// Bodies added to a galaxy with "same size as the galaxy" on take the size of the stars they copy, and
+        /// drawing them all at the slider's size would undo exactly that.
+        var swarmHasSizes: Bool = false
         var swarmCount: Int
         /// How many line segments of trail there are to draw. Two points and two colours each.
         var trailSegmentCount: Int
@@ -1146,6 +1200,7 @@ final class ParticleFieldModel {
         springPositions: inout [Float],
         swarmPositions: inout [Float],
         swarmColors: inout [UInt32],
+        swarmSizes: inout [Float],
         trailPositions: inout [Float],
         trailColors: inout [UInt32],
         guidePositions: inout [Float],
@@ -1169,7 +1224,11 @@ final class ParticleFieldModel {
         for (index, body) in bodies.enumerated() {
             positions[index * 2] = Float(body.x)
             positions[index * 2 + 1] = Float(body.y)
-            let radius = body.radius.isFinite && body.radius > 0 ? body.radius : engine.particleSize
+            // A body with no size of its own is drawn at the slider's size, as the crowd is — a radius of one
+            // is a diameter of two, which the scale turns into the slider's number. It used to fall back to the
+            // slider's number as a radius and then scale that by the slider again, so the slider grew these
+            // bodies with its square: four across at the resting value, sixty-four at the top.
+            let radius = body.radius.isFinite && body.radius > 0 ? body.radius : 1
             sizes[index] = Float(max(1, min(96, radius * 2 * sizeScale)))
         }
 
@@ -1241,6 +1300,26 @@ final class ParticleFieldModel {
         // the bodies' own colours are never overwritten.
         engine.fillSwarmDrawColors(into: &swarmColors, doubled: streaked)
 
+        // Each body of the crowd at its own size, once any has one — the same rule as the object bodies, so a
+        // star that joined a galaxy is drawn the size of the star it copied. Only for dots: a streak is a line,
+        // and a line has no size to give it. When nobody in the crowd has a size of its own, which is most of
+        // the time, none of this is done and the crowd is drawn at one size as before.
+        let swarmHasSizes = engine.swarm.hasSizes && !streaked && swarmCount > 0
+        if swarmHasSizes {
+            if swarmSizes.count < swarmCount {
+                swarmSizes.append(contentsOf: repeatElement(0, count: swarmCount - swarmSizes.count))
+            }
+            let own = engine.swarm.sizes
+            let scale = Float(sizeScale)
+            let slider = Float(max(1, engine.particleSize))
+            swarmSizes.withUnsafeMutableBufferPointer { drawn in
+                for index in 0 ..< swarmCount {
+                    let size = own[index]
+                    drawn[index] = size > 0 ? max(1, min(96, size * scale)) : slider
+                }
+            }
+        }
+
         let trailSegments = fillTrails(
             positions: &trailPositions,
             colors: &trailColors,
@@ -1264,6 +1343,7 @@ final class ParticleFieldModel {
             bodyCount: bodies.count,
             springCount: written,
             swarmPointSize: max(1, engine.particleSize),
+            swarmHasSizes: swarmHasSizes,
             swarmCount: swarmCount,
             trailSegmentCount: trailSegments,
             swarmIsStreaked: streaked,
@@ -1432,10 +1512,12 @@ final class ParticleFieldModel {
             // In the view's pixels, which is what the ring is drawn in.
             x: (placed.x + 1) * 0.5 * view.width,
             y: (1 - placed.y) * 0.5 * view.height,
-            // The reach is a distance in the world, so it grows and shrinks with the view. Under a
-            // tilt it is also drawn at the depth its centre sits at — a circle on a tilted plane is
-            // properly an ellipse, and this is one number rather than two, so it is an approximation
-            // and is stated as one. It is an aiming aid, not a measurement.
+            // The reach is a distance in the world, so it grows as the view zooms in. Zoomed out to add
+            // room it is the same size on the screen, because the reach is a share of the world's height and
+            // the world has grown by just as much — see `reachShare`. Under a tilt it is also drawn at the
+            // depth its centre sits at — a circle on a tilted plane is properly an ellipse, and this is one
+            // number rather than two, so it is an approximation and is stated as one. It is an aiming aid,
+            // not a measurement.
             // A world pixel is smaller than a view pixel once the world has grown, by the growth.
             radius: worldRadius / max(1, camera.worldScale) * camera.drawScale(depthScale: placed.depthScale),
             // These two do not scale. They are parts of the interface rather than parts of the
@@ -1674,6 +1756,8 @@ final class ParticleFieldModel {
             width: viewPixelWidth * scale,
             height: viewPixelHeight * scale
         )
+        // More of the world's pixels to the screen now, so the same circle on the screen is more of them.
+        applyReach()
     }
 
     /// Whether the view is anything other than looking straight down at the whole world.
@@ -1916,6 +2000,26 @@ final class ParticleFieldModel {
         return engine.canJoinArrangement
     }
 
+    /// Whether bodies added to an arrangement are made the size of its own.
+    ///
+    /// On by default. Stars added to a galaxy used to be drawn at whatever the size slider said, which is
+    /// seldom the size of the galaxy's own stars, so the new ones stood out as a different kind of thing. With
+    /// this on they match — joining or scattered in; with it off they are the slider's size, as they were.
+    var matchesArrangementSize: Bool = UserDefaults.standard.object(forKey: "matchesArrangementSize") as? Bool ?? true {
+        didSet {
+            engine.matchesArrangementSize = matchesArrangementSize
+            UserDefaults.standard.set(matchesArrangementSize, forKey: "matchesArrangementSize")
+            engineDidChange()
+        }
+    }
+
+    /// Whether what is in the field has a size of its own for added bodies to match, so the switch is only
+    /// offered where it would make a difference.
+    var arrangementHasOwnSize: Bool {
+        observeEngine()
+        return engine.arrangementBodySize > 0
+    }
+
     /// What the last press of the add button did, when that is worth saying — fewer joined than asked, say.
     private(set) var additionNote: String?
 
@@ -1960,7 +2064,8 @@ final class ParticleFieldModel {
                 additionNote = nil
             }
         } else {
-            engine.spawnBatch(count: asked)
+            // Scattered in rather than joining, but still the size of what is there when that is asked for.
+            engine.spawnBatch(count: asked, size: matchesArrangementSize ? engine.arrangementBodySize : 0)
             additionNote = nil
         }
         bodyCount = engine.bodyCount
@@ -2192,9 +2297,25 @@ final class ParticleFieldModel {
         // world, which would shove every body in it and look like a zoom rather than like a setting.
         viewPixelWidth = Double(size.width * scale)
         viewPixelHeight = Double(size.height * scale)
+        // The screen's own size, so the engine lays arrangements out on a screen's worth of the world however
+        // far out the view is pulled, and measures a finger's forces against the screen rather than against a
+        // world grown by zooming out. See `ParticleEngine.screenWidth`.
+        engine.screenWidth = viewPixelWidth
+        engine.screenHeight = viewPixelHeight
         // Through the camera, because the world is the view's size times however far out it is pulled. A
         // plain resize here would silently undo the extra room the moment the phone was turned.
         let worldScale = storedCamera.worldScale
         engine.resize(width: viewPixelWidth * worldScale, height: viewPixelHeight * worldScale)
+        applyReach()
+
+        // The first real size, with the opening galaxy still as it was made: laid out again to fit the screen.
+        if openingSceneIsUntouched {
+            openingSceneIsUntouched = false
+            engine.spawnGalaxy(count: 400)
+            engine.clearHistory()
+            manualGravityX = engine.gravityX
+            manualGravityY = engine.gravityY
+            bodyCount = engine.bodyCount
+        }
     }
 }

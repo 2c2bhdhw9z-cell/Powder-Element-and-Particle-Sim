@@ -95,13 +95,19 @@ struct FieldSettingsSheet: View {
     private var appearance: some View {
         LabGroup(
             "Touch and looks",
-            footnote: "At the top of the reach, everything in the field is pulled however far away "
-                + "it is — and the ring on screen grows to say so."
+            footnote: "Your reach is how much of the screen the circle round your finger covers, and it stays "
+                + "that size however far you zoom out. At the top of the reach, everything in the field is "
+                + "pulled however far away it is — and the ring on screen grows to say so."
         ) {
-            LabSlider(label: "Your reach", value: bind(\.mouseRadius), range: 20 ... 800, step: 10) {
-                model.hasUnlimitedReach
+            LabSlider(
+                label: "Your reach",
+                value: bind(\.reachShare),
+                range: ParticleFieldModel.reachShareRange,
+                step: 0.01
+            ) {
+                $0 >= ParticleFieldModel.wholeFieldReachShare
                     ? "everything"
-                    : $0.formatted(.number.precision(.fractionLength(0)))
+                    : "\(Int(($0 * 100).rounded()))% of the screen"
             }
             LabDivider()
             LabSlider(
@@ -114,6 +120,10 @@ struct FieldSettingsSheet: View {
             LabSlider(label: "Particle size", value: bind(\.particleSize), range: 1 ... 8, step: 0.5) {
                 $0.formatted(.number.precision(.fractionLength(1)))
             }
+            LabDivider()
+            // The same switch as the one beside the add button, here too because that one only shows while
+            // there is an arrangement whose bodies have a size of their own.
+            LabToggle(label: "Added bodies match the size of what's there", isOn: bind(\.matchesArrangementSize))
             LabDivider()
             LabSlider(label: "Fade away", value: bind(\.decaySpeed), range: 0 ... 10, step: 1) {
                 $0 == 0 ? "never" : "\($0.formatted(.number.precision(.fractionLength(0))))×"

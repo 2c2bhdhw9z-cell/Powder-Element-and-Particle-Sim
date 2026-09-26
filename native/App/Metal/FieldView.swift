@@ -123,6 +123,8 @@ final class FieldView: MTKView {
     private var springPositions: [Float] = []
     private var swarmPositions: [Float] = []
     private var swarmColors: [UInt32] = []
+    /// How wide each body of the crowd is drawn, when any of them has a size of its own.
+    private var swarmSizes: [Float] = []
     private var trailPositions: [Float] = []
     private var trailColors: [UInt32] = []
     /// The walls and the painted wind, as lines.
@@ -137,6 +139,7 @@ final class FieldView: MTKView {
         var spring: MTLBuffer?
         var swarmPosition: MTLBuffer?
         var swarmColor: MTLBuffer?
+        var swarmSize: MTLBuffer?
         var trailPosition: MTLBuffer?
         var trailColor: MTLBuffer?
         var guidePosition: MTLBuffer?
@@ -745,6 +748,7 @@ final class FieldView: MTKView {
             springPositions: &springPositions,
             swarmPositions: &swarmPositions,
             swarmColors: &swarmColors,
+            swarmSizes: &swarmSizes,
             trailPositions: &trailPositions,
             trailColors: &trailColors,
             guidePositions: &guidePositions,
@@ -768,6 +772,9 @@ final class FieldView: MTKView {
             count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
             device: device
         )
+        if frame.swarmHasSizes {
+            upload(&set.swarmSize, from: swarmSizes, count: frame.swarmCount, device: device)
+        }
         upload(&set.trailPosition, from: trailPositions, count: frame.trailSegmentCount * 4, device: device)
         upload(&set.trailColor, from: trailColors, count: frame.trailSegmentCount * 2, device: device)
         upload(&set.guidePosition, from: guidePositions, count: frame.guideSegmentCount * 4, device: device)
@@ -796,7 +803,13 @@ final class FieldView: MTKView {
             // a ratio, so this is the one measurement that has to be converted.
             // A multiplier on each body's own size for the object bodies, which carry their sizes in a buffer
             // of their own; the crowd's pass replaces it with the crowd's size.
-            pointSize: Float(frame.pixelRatio),
+            //
+            // Times the zoom — the zoom itself, not the picture's scale below. A body's size is a size in the
+            // world, and zoomed out to add room the world is larger than the screen, so each of its pixels is
+            // smaller on the screen and so is everything in it. Drawn at the picture's scale, which stays at one
+            // then, bodies kept their size on the screen while the world grew round them — so pulling back to
+            // make room made every body bigger compared with the room, which is the opposite of room.
+            pointSize: Float(frame.pixelRatio * frame.camera.zoom),
             // The picture's scale, not the zoom. With zooming out set to add room the two differ, and the
             // processor — which places the finger and the ring — already used the picture's scale while this
             // used the zoom: so pulling back shrank the picture *and* grew the world, the field drew as a small
@@ -817,8 +830,9 @@ final class FieldView: MTKView {
            let swarmPositionBuffer = set.swarmPosition, let swarmColorBuffer = set.swarmColor {
             var swarmUniforms = uniforms
             // The size slider's width. This was fixed at one pixel, which is why the slider seemed to work on
-            // scenes and not on anything added: added bodies are the crowd.
-            swarmUniforms.pointSize = Float(max(1, frame.swarmPointSize * frame.pixelRatio))
+            // scenes and not on anything added: added bodies are the crowd. Following the zoom, as every size
+            // does — see `uniforms(for:)`.
+            swarmUniforms.pointSize = Float(frame.swarmPointSize * frame.pixelRatio * frame.camera.zoom)
             if frame.swarmIsStreaked {
                 // As lines along each body's own motion. The trail pipeline, because it is the one that takes
                 // a colour per vertex — a spring line is one flat colour for all of them.
@@ -827,6 +841,17 @@ final class FieldView: MTKView {
                 encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
                 encoder.setVertexBytes(&swarmUniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
                 encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.swarmCount * 2)
+            } else if frame.swarmHasSizes, let swarmSizeBuffer = set.swarmSize {
+                // One size per body, from the crowd's own list, drawn the way the object bodies are — with the
+                // plain multiplier rather than the slider's width, since each body's size already has the slider
+                // in it.
+                encoder.setRenderPipelineState(bodyPipeline)
+                encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(swarmColorBuffer, offset: 0, index: 1)
+                encoder.setVertexBuffer(swarmSizeBuffer, offset: 0, index: 3)
+                encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 2)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.stride, index: 0)
+                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
             } else {
                 encoder.setRenderPipelineState(pointPipeline)
                 encoder.setVertexBuffer(swarmPositionBuffer, offset: 0, index: 0)

@@ -25,9 +25,10 @@ struct FieldUniforms {
     float2 pan;
     // Turn about the upright axis and tip toward the viewer, in radians.
     float2 orbit;
-    // How wide a body is drawn, in screen pixels.
+    // How wide a body is drawn, in screen pixels, with the camera's zoom already in it.
     float pointSize;
-    // How far in the view is pushed.
+    // How much the picture is scaled: the zoom, except when zooming out adds room, when it is one.
+    // For placing things only — sizes follow the zoom itself, through the point size.
     float zoom;
     // Which silhouette to draw. The numbers are `ParticleShape.shaderIdentifier`.
     int shape;
@@ -127,10 +128,14 @@ vertex PointOut particleVertex(uint index [[vertex_id]],
     PointOut out;
     float depthScale;
     out.position = worldToClip(positions[index], uniforms, depthScale);
-    // Zoomed in, bodies grow with the view; tilted, the near half of the plane grows and the far
-    // half shrinks. Clamped, because a body drawn at a hundredth of a pixel is invisible and one
-    // drawn at twelve times its size is a blob that hides everything behind it.
-    out.size = clamp(uniforms.pointSize * uniforms.zoom
+    // Zoomed in, bodies grow with the view, and zoomed out they shrink with it — the point size already
+    // has the zoom in it, and it is the zoom rather than the picture's scale, because zooming out to add
+    // room makes the world larger than the screen and everything in it smaller on the screen. Multiplying
+    // by the picture's scale here instead kept bodies their full size while the world grew round them,
+    // so pulling back for room made them bigger compared with it. Tilted, the near half of the plane
+    // grows and the far half shrinks. Clamped, because a body drawn at a hundredth of a pixel is
+    // invisible and one drawn at twelve times its size is a blob that hides everything behind it.
+    out.size = clamp(uniforms.pointSize
                          * clamp(depthScale, kMinDepthScale, kMaxDepthScale),
                      1.0, 511.0);
     out.color = unpackColor(colors[index]);
@@ -140,8 +145,9 @@ vertex PointOut particleVertex(uint index [[vertex_id]],
 // The object bodies, each drawn at its own size.
 //
 // The same as `particleVertex` except for where the size comes from: a width per body, in pixels of the
-// screen, with the uniform's point size as a multiplier for the detail setting. Every object body used to be
-// drawn at one size, so a black hole was a dot no bigger than the dust orbiting it.
+// screen, with the uniform's point size as a multiplier for the detail setting and the zoom. Every object
+// body used to be drawn at one size, so a black hole was a dot no bigger than the dust orbiting it. The crowd
+// is drawn through this too once any of its bodies has a size of its own.
 vertex PointOut bodyVertex(uint index [[vertex_id]],
                            const device float2 *positions [[buffer(0)]],
                            const device uint *colors [[buffer(1)]],
@@ -150,9 +156,9 @@ vertex PointOut bodyVertex(uint index [[vertex_id]],
     PointOut out;
     float depthScale;
     out.position = worldToClip(positions[index], uniforms, depthScale);
-    // Capped below the hardware's own ceiling on a point's size, so a large body zoomed right in is drawn
-    // large rather than not at all.
-    out.size = clamp(sizes[index] * uniforms.pointSize * uniforms.zoom
+    // The zoom is already in the point size, as in `particleVertex`. Capped below the hardware's own
+    // ceiling on a point's size, so a large body zoomed right in is drawn large rather than not at all.
+    out.size = clamp(sizes[index] * uniforms.pointSize
                          * clamp(depthScale, kMinDepthScale, kMaxDepthScale),
                      1.0, 511.0);
     out.color = unpackColor(colors[index]);
