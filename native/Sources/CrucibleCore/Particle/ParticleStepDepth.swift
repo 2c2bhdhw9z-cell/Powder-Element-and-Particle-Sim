@@ -128,6 +128,7 @@ extension ParticleEngine {
         let worldHeight = height
         let localGravityX = gravityX
         let localGravityY = gravityY
+        let localGravityZ = storedGravityZ
         let localExtraRays: [ParticleFingerRay] = {
             guard mouseActive, let ray = activeFingerRay else { return [] }
             return extraFingerRays(besides: ray)
@@ -365,6 +366,8 @@ extension ParticleEngine {
                     if !bodies[i].ignoresGravity {
                         bodies[i].velocityX += localGravityX
                         bodies[i].velocityY += localGravityY
+                        // Into the box too, for a phone laid flat. See `ParticleEngine.gravityZ`.
+                        bodies[i].velocityZ += localGravityZ
                         bodies[i].velocityX *= localDamping
                         bodies[i].velocityY *= localDamping
                         bodies[i].velocityZ *= localDamping
@@ -658,6 +661,7 @@ extension ParticleEngine {
             height: height,
             gravityX: gravityX,
             gravityY: gravityY,
+            gravityZ: storedGravityZ,
             damping: damping,
             elasticity: elasticity,
             collide: collisionsEnabled,

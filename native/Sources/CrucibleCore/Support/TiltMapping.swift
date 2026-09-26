@@ -48,6 +48,13 @@ public struct TiltMapping: Sendable, Equatable {
     /// full gravity simply falls to the floor and stops being interesting, so it is given a
     /// fraction of it.
     public private(set) var particleGravityY: Double = 0.28
+    /// Gravity into the box, for the particle field in 3D.
+    ///
+    /// Nought while the phone is held up to be looked at, and full when it is laid flat on a table — because at
+    /// that point down really is into the screen. Without it, tipping a phone flat over a field in 3D slid
+    /// everything into a corner instead of settling it on the back of the box, which is what a bowl of marbles
+    /// actually does when you lay it down.
+    public private(set) var particleGravityZ: Double = 0
 
     /// Remaining energy from a physical jolt, 0 to 3.
     ///
@@ -112,6 +119,10 @@ public struct TiltMapping: Sendable, Equatable {
         gravityY = y
         particleGravityX = x * Self.particleGravityScale
         particleGravityY = y * Self.particleGravityScale
+        // How much of down points into the screen: all of it when the phone lies flat, none when it is upright.
+        // Worked out from the same two angles as the rest, so there is one reading of how the phone is held.
+        let flatness = jsCos(beta * 3.141592653589793 / 180) * jsCos(gamma * 3.141592653589793 / 180)
+        particleGravityZ = Self.clampToUnit(flatness) * Self.particleGravityScale
     }
 
     /// Takes a new acceleration reading, including gravity, in metres per second squared.

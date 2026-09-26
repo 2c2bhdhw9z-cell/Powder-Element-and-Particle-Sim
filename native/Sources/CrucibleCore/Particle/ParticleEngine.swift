@@ -42,6 +42,17 @@ public final class ParticleEngine {
     public var gravityX: Double = 0
     public var gravityY: Double = 0.3
     /// Air friction, applied to everything that does not ignore gravity.
+    /// Gravity into the box, in 3D.
+    ///
+    /// Nought means down is down the screen, as it always is. Laid flat, a phone's down points into the screen
+    /// instead, and this is what carries that — so tipping the phone over settles everything onto the back wall of
+    /// the box rather than sliding it into a corner. Ignored entirely on a flat field, which has no depth to fall
+    /// through.
+    public var gravityZ: Double {
+        get { storedGravityZ }
+        set { storedGravityZ = newValue.isFinite ? max(-4, min(4, newValue)) : 0 }
+    }
+
     public var damping: Double = 0.99
     /// How much speed survives a bounce off the world's edge.
     public var elasticity: Double = 0.8
@@ -167,6 +178,8 @@ public final class ParticleEngine {
     var storedExtraFingers: [ParticleFingerPoint] = []
     var storedKaleidoscopeFolds = 1
     var storedKaleidoscopeMirrors = true
+    /// Gravity into the box, for when the phone is laid flat. See `gravityZ`.
+    var storedGravityZ = 0.0
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()

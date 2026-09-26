@@ -801,6 +801,7 @@ final class ParticleFieldModel {
                 isSteeredByTilt = false
                 engine.gravityX = manualGravityX
                 engine.gravityY = manualGravityY
+                engine.gravityZ = 0
             }
             return
         }
@@ -813,6 +814,9 @@ final class ParticleFieldModel {
 
         engine.gravityX = tilt.particleGravityX
         engine.gravityY = tilt.particleGravityY
+        // And into the box, once there is a box: laid flat, the phone's down points into the screen, so matter
+        // settles on the back wall rather than sliding into a corner. Nothing on a flat field, which has no depth.
+        engine.gravityZ = engine.depthEnabled ? tilt.particleGravityZ : 0
     }
 
     /// The field as something that can be written to a file.

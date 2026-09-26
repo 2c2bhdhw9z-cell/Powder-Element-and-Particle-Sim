@@ -6,6 +6,7 @@ Not shipped. Not in the UI. Pick from chat.
 
 Built:
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
+- Real down: laid flat, the phone makes things fall into the box (3D)
 - A slice through the box, colour by how far away things are, and shadows on the floor (3D)
 - Ten fingers: every finger on the glass is its own tool
 - Kaleidoscope: every stroke copied evenly round the middle, in either chamber's field

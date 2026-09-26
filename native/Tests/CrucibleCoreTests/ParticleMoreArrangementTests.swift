@@ -512,6 +512,46 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("Laid flat, down points into the box")
+    func gravityIntoTheBox() {
+        // The phone held up to be looked at: down is down the screen and nothing falls into the box.
+        var upright = TiltMapping()
+        upright.apply(betaDegrees: 90, gammaDegrees: 0)
+        #expect(abs(upright.particleGravityZ) < 0.01, "held up, \(upright.particleGravityZ) of down points inward")
+
+        // Laid flat on a table: down points into the screen.
+        var flat = TiltMapping()
+        flat.apply(betaDegrees: 0, gammaDegrees: 0)
+        #expect(flat.particleGravityZ > 0.1, "laid flat, only \(flat.particleGravityZ) of down points inward")
+
+        // And the crowd actually falls that way, toward the back of the box.
+        let engine = field(inDepth: true)
+        engine.gravityY = 0
+        engine.gravityZ = 0.3
+        for _ in 0 ..< 60 {
+            _ = engine.placeInDepth(
+                engine.width * 0.5, engine.height * 0.5, 0, hue: 200
+            )
+        }
+        let before = (0 ..< engine.swarm.count).reduce(0.0) { $0 + Double(engine.swarm.depths[$1]) }
+        for _ in 0 ..< 40 { engine.step() }
+        let after = (0 ..< engine.swarm.count).reduce(0.0) { $0 + Double(engine.swarm.depths[$1]) }
+        #expect(after > before + 10, "the crowd did not fall into the box: \(before) became \(after)")
+        // And stays inside it.
+        let inside = (0 ..< engine.swarm.count).allSatisfy {
+            abs(Double(engine.swarm.depths[$0])) <= engine.halfDepth + 2
+        }
+        #expect(inside, "something fell through the back of the box")
+
+        // A flat field has no depth to fall through, and nothing moves into one.
+        let flatField = field()
+        flatField.gravityZ = 0.3
+        for _ in 0 ..< 20 { _ = flatField.placeLoose(200, 350, hue: 40) }
+        for _ in 0 ..< 30 { flatField.step() }
+        let stillFlat = (0 ..< flatField.swarm.count).allSatisfy { flatField.swarm.depths[$0] == 0 }
+        #expect(stillFlat, "a flat field moved into depth")
+    }
+
     @Test("Several fingers work in 3D too")
     func extraFingersInDepth() {
         let one = scattered(inDepth: true)

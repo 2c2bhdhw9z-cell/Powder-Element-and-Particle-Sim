@@ -814,6 +814,8 @@ public final class Swarm {
         public var height: Double
         public var gravityX: Double
         public var gravityY: Double
+        /// Gravity into the box. Nought on a flat field, and nought in 3D until the phone is laid over.
+        public var gravityZ: Double = 0
         public var damping: Double
         public var elasticity: Double
         public var collide: Bool
@@ -854,6 +856,7 @@ public final class Swarm {
             height: Double,
             gravityX: Double,
             gravityY: Double,
+            gravityZ: Double = 0,
             damping: Double,
             elasticity: Double,
             collide: Bool,
@@ -873,6 +876,7 @@ public final class Swarm {
             self.height = height
             self.gravityX = gravityX
             self.gravityY = gravityY
+            self.gravityZ = gravityZ.isFinite ? gravityZ : 0
             self.damping = damping
             self.elasticity = elasticity
             self.collide = collide
@@ -1157,7 +1161,10 @@ public final class Swarm {
             if role & orbitsBit == 0 {
                 velX = velX * damping + options.gravityX
                 velY = velY * damping + options.gravityY
-                velZ *= damping
+                // Into the box as well as down it. Nought unless the phone has been laid flat, in which case down
+                // really is into the screen and this is what says so — before this, a field tipped flat had its
+                // matter slide to one wall instead of settling on the back of the box.
+                velZ = velZ * damping + options.gravityZ
             }
 
             if freezing {
