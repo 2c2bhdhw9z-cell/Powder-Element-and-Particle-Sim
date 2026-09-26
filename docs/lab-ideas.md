@@ -275,3 +275,40 @@ comes from a small formula, often written by an AI, and nothing has physics or c
 2. Live Photo — save a few seconds as a Live Photo that plays when pressed.
 
 Five to start with: the shape recipe box, On your table, Particle life, Kaleidoscope, Colours from a photo.
+
+---
+
+## Round 6 — substantial rather than stuffed, 26 Sep 2026
+
+Ten additions meant to make Crucible feel deeper and more complete, not merely make its download larger.
+Checked against the earlier rounds and the app before saving; none is already listed or built.
+
+1. Guided lab book — a set of hands-on experiments such as making glass, balancing an orbit and building a
+   pressure cooker. Each starts with a small setup, asks the player to discover the answer, then explains what
+   happened using their own world rather than a prerecorded video.
+2. Movie studio — set camera stops around a world, choose how quickly the camera travels between them, add
+   slow motion and short captions, then export a finished clip. It turns creations into something worth sharing
+   without putting large videos inside the app.
+3. Living soundscape — properly recorded water, fire, glass, electricity and impacts, mixed according to what
+   the simulation is doing. A quiet stream sounds unlike a flood, and ten sparks sound unlike a lightning strike.
+   This is the one idea here that would deliberately add some worthwhile download size.
+4. Layers — keep several named groups in one world, each with its own colour and rules. Hide, lock, duplicate or
+   mix them; for example, build a still globe on one layer and an orbiting storm on another.
+5. Physics lens — tap one body and see every force acting on it as an arrow, its predicted path, speed and the
+   neighbours affecting it. Slow only that small area down so the reason something moved becomes visible.
+6. Creature builder — join bodies into bones, joints and muscles, then make the muscles pulse in a sequence.
+   Build walkers, swimmers and strange soft animals that genuinely have to balance and move under the physics.
+7. Arrangement morphing — choose any two arrangements and smoothly transform between them while every body
+   remains touchable. A globe can open into a knot, a word can become a galaxy, and a slider can stop anywhere
+   between the two.
+8. Recorded force loops — perform a finger movement once, then let the app repeat it on a loop. Stack several
+   loops to make orbiting stirrers, beating hearts, wave machines or repeating choreography without writing code.
+9. Parallel worlds — duplicate the current world into two views, change one thing in only one copy, then run
+   them together. Compare gravity, liquid thickness, particle count or any other setting from exactly the same
+   starting moment.
+10. Worlds within worlds — zoom into a selected body and find another complete simulation inside it; zoom back
+    out and it is still one moving point in the larger scene. A galaxy can contain an atom, whose centre contains
+    a tiny powder world.
+
+Best first three: Guided lab book for depth, Arrangement morphing for immediate spectacle, and Movie studio for
+sharing what people make.
