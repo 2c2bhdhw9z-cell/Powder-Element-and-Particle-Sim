@@ -38,9 +38,19 @@ Two comparisons have been retired that way so far, and both are recorded where t
   reference's scenes were rectangles at fixed fractions: flat ground, identical trees at equal
   spacing, and the *same picture every time*. Holding the rewritten ones to that grid would be
   holding them to the fault.
-- **One powder scenario.** `laser-stops-at-bedrock` is filtered out of the comparison (see
-  `PowderGoldenTests.comparedScenarios`) because the reference's laser did not shoot. The other
-  thirty-seven scenarios are untouched and still compared cell for cell.
+- **Two powder scenarios.** `laser-stops-at-bedrock` is filtered out of the comparison (see
+  `PowderGoldenTests.retiredScenarios`) because the reference's laser did not shoot, and
+  `spark-seeks-water-along-wire` because the reference's spark searched the same neighbour up to three
+  times, flooding one wire three times and rolling to burn it out three times. `PowderIntentTests`
+  checks what both should do. The other thirty-six are compared cell for cell.
+- **Momentum in empty air.** Blasts in the reference left momentum in empty cells, where nothing damps
+  it and the next grain to drift in is launched by it. The native engine no longer writes it, so the
+  powder and event comparisons now compare momentum only where there is material — the cells themselves
+  still match exactly.
+- **Two particle scenarios.** `pour-fluid-mode` and `nbody-mutual-gravity` built their scenes in the
+  object list, which neither the fluid nor gravity-between-bodies acts on — so Pour was beads falling
+  through each other and N-body pulled on nothing. Both are rebuilt from the crowd, and
+  `ParticleArrangementTests` checks that the liquid pours and spreads and that the disc holds together.
 
 ---
 
@@ -75,7 +85,7 @@ Two comparisons have been retired that way so far, and both are recorded where t
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**493 engine tests. 135 reference tests. 93 script tests.** Green on Linux and macOS, in
+**860 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 **The port is complete.** Everything the web version does, the app now does — including the online
@@ -333,7 +343,35 @@ they survived so long.
 | Blur still present with the glass setting on Flat | iOS 26 fades the edge of anything that scrolls behind a pane of its own. Apple's glass, in a place the app never put any. `labScrollEdges(_:)` asks for a hard edge below the top setting. |
 | The particle field "shitting itself" at 200,000 bodies | Collisions cost about a millisecond per thousand bodies — 210ms against 0.85ms with them off, a factor of 250 — from a switch that was on by default and said nothing. Not an implementation fault; see `SwarmCost`. The field was also the one engine with **no benchmark at all**, which is why nobody noticed. |
 | The four events appearing to do nothing | They worked perfectly, behind the panel that started them. A meteor falls before it detonates and all of that happened under the sheet. It closes first now, and switches to the powder chamber. |
+| Undo lit up only by accident, and Redo never | `undo`, `redo` and every place that recorded an undo point changed the engine without bumping the revision count, in both chambers. The same rule as the settings panel, missed in a second place. |
+| Turning on "move to music" | The microphone callback was written inside a main-thread class, so Swift 6 treated it as main-thread code and stopped the app when the audio thread called it. Made in a `nonisolated` function now. |
+| A zoomed-out field drawn as a small square in the middle | The shader scaled by the zoom while the processor scaled by the picture's scale, which differ once zooming out adds room. |
 | "20°C" directly beneath the same panel's own switch set to °F | The unit was written into the slider's format string. A setting the app contradicts on the next line. |
+
+### Arrangements — what changed in the particle chamber, and why
+
+The owner's report was that many of the presets were poor or broken, that nothing showed which one was
+chosen, that the size slider only worked on presets, and that bodies added to a preset ignored it. All
+four were true, and they had causes worth recording:
+
+- **Presets inherited the previous preset's world.** Most set gravity downward and nothing else, so the
+  same chip behaved differently depending on what was tapped before it. Every scene now sets its whole
+  world through `beginScene` (gravity both ways, collisions, wind, a paused timeline) — see
+  `ParticleArrangement.swift`, and the test that loads every scene after the fire and compares.
+- **The crowd could not hold a shape or orbit anything.** Twelve of the pattern scenes live in the crowd,
+  which had no per-body behaviour, so a sunflower, a mandala or a word slid to the floor within a second.
+  The crowd now carries a role per body — `orbits` (keeps its speed, as orbiting object bodies do) and
+  `holds` (drawn back to a place on a turning circle, which covers still shapes, spinning ones, a
+  tornado's side-on swing and an aurora's ripple). Black holes and repulsors now act on the crowd too.
+- **Two scenes were events that happened once.** Lightning and fireworks now keep going
+  (`stepArrangement`), and their bodies fade as they expire rather than blinking out.
+- **Adding bodies can join the arrangement** (`ParticleJoining.swift`): into orbit round the holes, as
+  copies of what the crowd is doing, as copies of the object bodies (capped at 8,000 — that list is the
+  expensive one), or for a cloth or rope, another one. A switch in the tray turns it off.
+- **The size slider did not reach the crowd**, which was drawn one pixel wide whatever it said, and every
+  object body was drawn the same size. Now each object body is drawn at its own radius times the slider,
+  and the crowd at the slider's width.
+- The arrangement showing is remembered by the engine — saved, undone, cleared — so its chip stays lit.
 
 ## Things that will waste your time otherwise
 
@@ -400,6 +438,8 @@ they survived so long.
 - **Does not read code.** Explain in plain English, no snippets, no jargon.
 - Wants everything committed and pushed **straight to `main`**. No branches, no pull
   requests.
+- Wants haptics throughout, with a switch in Settings to turn them off. Everything that buzzes goes
+  through `App/Audio/Haptics.swift`, which checks the switch.
 - Does not want incremental builds to test — work until a thing is actually finished.
 - Treats output from other AI tools as suspect: if it is wrong, say so and say why.
 - Has asked for the interface to match the web version's look, in Liquid Glass, **with

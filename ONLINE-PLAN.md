@@ -36,6 +36,14 @@ On Vercel, which is where this is deployed from (built out of `web/` by the root
 | `VITE_AUTH_ENABLED=true` | Otherwise there is nothing to sign in to. |
 | `AUTH_ISSUER`, `AUTH_CLIENT_ID`, `AUTH_CLIENT_SECRET` | Federated sign-in. All three, or sign-in stays off. |
 | `BETTER_AUTH_SECRET` | Or sessions die on every deploy. |
+| `BETTER_AUTH_URL=https://<the deployed address>` | **Or signing in cannot work.** Without it the sign-in library works out its own address from each request, but only accepts hosts listed in `AUTH_ALLOWED_HOSTS` (empty by default) — anything else falls back to `http://localhost:8080`, so the page a sign-in returns to is on localhost and the app's sign-in sheet fails every time. |
+
+And register `https://<the deployed address>/api/auth/oauth2/callback/<provider>` as a return address with
+the sign-in provider behind `AUTH_ISSUER`.
+
+**Limits the host imposes.** The host refuses any request or reply over 4.5 MB before the server sees it.
+The app therefore holds a world to 4 MB and a workshop picture to 60 KB (240 pixels across), below the
+server's own 8 MB and 400 KB, so that sixty pictures in one workshop listing still fit in a reply.
 
 Then run the migrations — `web/migrations/0001_auth.sql` and `0002_lab.sql`, via
 `web/scripts/migrate.mjs`, which `npm run build` already does.

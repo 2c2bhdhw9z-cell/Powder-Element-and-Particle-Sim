@@ -2901,3 +2901,14 @@ reference's version saves no processor time at all — a sleeping body is still 
 its velocity is zeroed — so porting it faithfully would be porting a label. A version that genuinely
 skipped settled bodies would be worth having, and that is a different piece of work from the one the read
 described.
+
+---
+
+# AFTER THE MERGE
+
+The owner then reported that many of the arrangements were poor or broken, that nothing showed which was
+chosen, and that added bodies ignored them. The causes and the fixes are recorded in `PORT-STATUS.md`
+under "Arrangements". The short version for anyone reading this file: the twelve pattern scenes ported
+above were laid into the crowd, which at the time could not hold a shape, orbit or fade — so most of them
+slid to the floor within a second of appearing. The crowd can now do all three.
+
