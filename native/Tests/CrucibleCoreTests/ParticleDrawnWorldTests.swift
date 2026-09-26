@@ -234,7 +234,7 @@ struct ParticleDrawnWorldTests {
         // A horizontal wall across the middle, with a body falling onto it.
         let walls = [ParticleWall(fromX: 0.1, fromY: 0.5, toX: 0.9, toY: 0.5)]
         let crowd = swarm([(200, 360)], velocities: [(0, 8)])
-        var previous: [Float] = [200, 340]
+        let previous: [Float] = [200, 340]
 
         previous.withUnsafeBufferPointer { was in
             SwarmDrawnWorld.applyWalls(
@@ -258,7 +258,7 @@ struct ParticleDrawnWorldTests {
         // enough to notice.
         let walls = [ParticleWall(fromX: 0, fromY: 0.5, toX: 1, toY: 0.5)]
         let crowd = swarm([(200, 500)], velocities: [(0, 200)])
-        var previous: [Float] = [200, 300]
+        let previous: [Float] = [200, 300]
 
         previous.withUnsafeBufferPointer { was in
             SwarmDrawnWorld.applyWalls(
@@ -280,7 +280,7 @@ struct ParticleDrawnWorldTests {
         // something a body can slide down rather than only bounce off.
         let walls = [ParticleWall(fromX: 0, fromY: 0.5, toX: 1, toY: 0.5)]
         let crowd = swarm([(200, 349)], velocities: [(6, 0)])
-        var previous: [Float] = [194, 349]
+        let previous: [Float] = [194, 349]
 
         previous.withUnsafeBufferPointer { was in
             SwarmDrawnWorld.applyWalls(
@@ -300,7 +300,7 @@ struct ParticleDrawnWorldTests {
         func slidingSpeed(friction: Double) -> Double {
             let walls = [ParticleWall(fromX: 0, fromY: 0.5, toX: 1, toY: 0.5)]
             let crowd = swarm([(200, 349)], velocities: [(6, 1)])
-            var previous: [Float] = [194, 347]
+            let previous: [Float] = [194, 347]
             previous.withUnsafeBufferPointer { was in
                 SwarmDrawnWorld.applyWalls(
                     walls,
@@ -321,7 +321,7 @@ struct ParticleDrawnWorldTests {
         func reboundSpeed(bounciness: Double) -> Double {
             let walls = [ParticleWall(fromX: 0, fromY: 0.5, toX: 1, toY: 0.5)]
             let crowd = swarm([(200, 352)], velocities: [(0, 10)])
-            var previous: [Float] = [200, 340]
+            let previous: [Float] = [200, 340]
             previous.withUnsafeBufferPointer { was in
                 SwarmDrawnWorld.applyWalls(
                     walls,

@@ -186,20 +186,20 @@ struct ParticleShapeTests {
     }
 
     @Test("The triangle points upward and widens toward its base")
-    func triangleWidensDownward() {
+    func triangleWidensDownward() throws {
         // The reference implementation states this in terms of whichever end its coordinates put
         // first, which is why its two drawing paths disagree about which way its triangles point.
         let rows = grid(.triangle, size: 49)
         let widths = rows.map { $0.filter { $0 }.count }
         let filledRows = widths.enumerated().filter { $0.element > 0 }
-        let first = try? #require(filledRows.first)
-        let last = try? #require(filledRows.last)
-        #expect((first?.element ?? 99) < (last?.element ?? 0), "the top is not narrower than the base")
-        #expect((first?.offset ?? 99) < 4, "the apex should be near the top of the box")
+        let first = try #require(filledRows.first)
+        let last = try #require(filledRows.last)
+        #expect(first.element < last.element, "the top is not narrower than the base")
+        #expect(first.offset < 4, "the apex should be near the top of the box")
 
         // And monotonically, so it is a triangle rather than an hourglass.
         var previous = 0
-        for (index, width) in widths.enumerated() where width > 0 && index <= (last?.offset ?? 0) {
+        for (index, width) in widths.enumerated() where width > 0 && index <= last.offset {
             #expect(width >= previous, "row \(index) is narrower than the one above it")
             previous = width
         }

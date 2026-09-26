@@ -110,12 +110,12 @@ struct SwarmRepaintCostTests {
     }
 
     @Test("A moving ramp over a large crowd says what it costs, with the number")
-    func largeCrowdsSayTheCost() {
+    func largeCrowdsSayTheCost() throws {
         let warning = SwarmCost.repaintWarning(bodies: 1_000_000, ramp: true, rampMoves: true)
-        let text = try? #require(warning)
-        #expect(text?.contains("1,000,000") == true, "the crowd size belongs in the warning")
-        #expect(text?.contains("6.4ms") == true, "so does the measured cost")
-        #expect(text?.contains("Place") == true, "and what to switch to instead")
+        let text = try #require(warning)
+        #expect(text.contains("1,000,000"), "the crowd size belongs in the warning")
+        #expect(text.contains("6.4ms"), "so does the measured cost")
+        #expect(text.contains("Place"), "and what to switch to instead")
     }
 
     @Test("The estimate matches what was actually measured")

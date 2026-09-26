@@ -429,8 +429,8 @@ struct CloudProtocolTests {
     /// A leftover path is the one that would be silently broken: every request the app makes would be
     /// prefixed with it, so all of them would 404 while the address looked perfectly correct.
     @Test("Nothing after the host survives, because it would be prefixed to every request")
-    func pathsAreDropped() {
-        let address = try? #require(CloudAddress.normalise("https://host.example.com/dashboard/x"))
+    func pathsAreDropped() throws {
+        let address = try #require(CloudAddress.normalise("https://host.example.com/dashboard/x"))
         #expect(address == "https://host.example.com")
     }
 

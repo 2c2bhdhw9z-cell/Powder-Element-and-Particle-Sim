@@ -192,7 +192,7 @@ struct ParticleTimelineTests {
     }
 
     @Test("The curve of the keyframe being approached is the one used")
-    func theArrivingCurveWins() {
+    func theArrivingCurveWins() throws {
         // Taking it from the keyframe being left would mean a keyframe's curve affected what came before it
         // rather than what came after, which is not how anybody reads a timeline.
         let straightArrival = timeline([
@@ -205,8 +205,8 @@ struct ParticleTimelineTests {
             (0, .straight, [.glow: 0]),
             (4, .easeIn, [.glow: 4]),
         ])
-        let quarter = try? #require(easedArrival.value(of: .glow, at: 1))
-        #expect((quarter ?? 9) < 1, "an eased arrival should be behind a straight one early on")
+        let quarter = try #require(easedArrival.value(of: .glow, at: 1))
+        #expect(quarter < 1, "an eased arrival should be behind a straight one early on")
     }
 
     @Test("Two keyframes at the same moment do not divide by nothing")
