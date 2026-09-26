@@ -82,6 +82,38 @@ were checked against, because the owner's report was that its tools worked and t
   made the size of the ones already in it unless "match the size of what's there" is turned off.
 - **Walls and painted wind** act on the individual bodies as well as the crowd.
 
+### The field in 3D
+
+Not in the reference, and not in Built-Helion either — its "3D" is a flat sheet tipped back and a flattened
+import of point clouds. This is a real box: every body has a depth, and the physics works in it.
+
+- **One switch, one undo.** Turning 3D on rebuilds whatever arrangement is showing in its 3D form and turns
+  the view to where it is best seen from; anything else is lifted into the box. Turning it off lays the field
+  flat again. Either is one step of undo, and a saved scene remembers which it was.
+- **Kept apart from the flat field.** Depths are separate lists beside the positions rather than positions
+  made into triples, and the 3D physics is its own passes (`ParticleStepDepth`, `SwarmDepth`). A flat field
+  runs exactly the code it always did, which is why every recorded comparison still passes untouched.
+- **The box.** As deep as the screen is wide by default, from a quarter of that to twice it, and it grows
+  with the world when zooming out adds room. Gravity still pulls down the screen. Drawn walls and painted
+  wind reach from the front of the box to the back.
+- **The finger is a line** from the eye through the fingertip, and every tool acts on everything near that
+  line — a tube that widens with the perspective, so what looks like it is under the finger is. With no line
+  set (the tests, the old calls) it is a line straight in from the front.
+- **Neighbours are found in cubes** for collisions and the liquid, since columns of the flat grid would count
+  bodies at opposite ends of the box as touching. Pull between bodies is exact below a thousand and worked in
+  lumps above.
+- **Every arrangement has a 3D form**, and nine exist only in 3D: globe, knot, ocean, the Lorenz, Aizawa,
+  Thomas and Halvorsen attractors, warp and snow globe. Choosing one on a flat field turns 3D on.
+- **Drawing.** The same arithmetic on the graphics card as `ParticleCamera.projectInDepth`, which is the copy
+  that is tested. Solid, the nearer hides the further; glowing, overlapping bodies add up into light. Fog fades
+  the far side, and anything behind the eye is left out.
+- **Controls.** A 3D switch on the tray's heading; a Turn tool for going round the box with one finger; one-tap
+  views; sliders for the turn, the height, the depth of the box, the perspective and the fog; switches for the
+  box's outline, glowing, and looking round by moving the phone.
+- **A fault found on the way, in both kinds of field:** the Disappear edge bounced slow bodies of the crowd back
+  in instead of letting them go. They now leave, and collisions no longer hold them inside a field whose edges
+  are open.
+
 ---
 
 ## What is done
@@ -91,6 +123,7 @@ were checked against, because the owner's report was that its tools worked and t
 | Elements, registry, packed physics table | complete | property-by-property against extracted web data |
 | Powder grid: movement, heat, pressure, phase change, chemistry, explosions, electricity, brush | complete | 38 scenarios, cell-for-cell + temperature + momentum + draw counts |
 | Particle field: model, swarm, forces, integration, boundaries, springs, flock, all 20 spawners | complete | 29 scenarios, every body + springs + swarm + draw counts; 10 retired and replaced by tests of intent (above) |
+| Particle field in 3D: depth, physics, the finger's line, every arrangement, the view | complete | 44 tests of intent, including the projection and the finger coming back along the same line; the drawing builds in CI |
 | Own sine, cosine, powers | complete | several thousand recorded values, bit-exact |
 | Saving, loading, undo, multiplayer wire format | complete | round trips + wire payload byte-identical across 38 scenarios |
 | Health inspection and repair tools, both chambers | complete | 25 behavioural tests |
@@ -115,7 +148,7 @@ were checked against, because the owner's report was that its tools worked and t
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**891 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
+**936 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
 debug and optimised builds.
 
 **The port is complete.** Everything the web version does, the app now does — including the online

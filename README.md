@@ -5,7 +5,9 @@ Particle field + powder world. Switch anytime.
 A dual-chamber simulation lab: a cellular-automata **powder world** (50 elements —
 sand, water, lava, acid, electricity, recipes, explosions) and a 1,000,000-capacity
 **particle field** (swarms, black holes, cloth, flocking, springs), sharing one
-canvas and one undo history.
+canvas and one undo history. The particle field also runs in 3D: a box of bodies
+with the physics working in depth, a finger that reaches through it, and a view
+that goes round it.
 
 ## Repository map
 
@@ -66,7 +68,7 @@ The simulation engine builds and tests anywhere, with no Apple hardware:
 
 ```bash
 cd native
-swift test              # 891 tests, Linux or macOS
+swift test              # 936 tests, Linux or macOS
 swift test -c release   # the optimiser is allowed to change floating-point results
 ```
 

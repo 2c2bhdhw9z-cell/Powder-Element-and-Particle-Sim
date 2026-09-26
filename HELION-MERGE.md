@@ -340,7 +340,7 @@ engine owns the playhead; while paused, the scrub position wins.
 | Gradient stops + quantiser | **Port verbatim.** Pure, and it unlocks image-to-particles offline. |
 | Audio maths + modulation | **Port the maths, rebuild the capture** on AVAudioEngine. Add an envelope. |
 | Timeline | **Port verbatim**, and consider adding an easing field while the format is still ours. |
-| Depth sorting | Does not exist there. If wanted here, it is new work. |
+| Depth sorting | Does not exist there. If wanted here, it is new work. **Done here since**, as a whole 3D mode rather than a sort: bodies have a depth and the physics works in it, and the nearer hides the further through a depth record rather than by sorting — see "The field in 3D" in PORT-STATUS.md. Helion's own "3D" is only this tipped sheet plus a flattened point-cloud import. |
 | Fit-to-content framing | **Does not exist there.** Their "fill frame" never looks at the particles. New work. |
 
 
