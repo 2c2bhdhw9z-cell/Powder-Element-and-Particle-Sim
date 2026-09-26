@@ -72,6 +72,13 @@ public struct SwarmRecord: Codable, Sendable {
     public var m: [Float]?
     /// Lifetimes. Absent when nothing expires.
     public var life: [Float]?
+    /// How long each started with, so a fading body comes back as faded as it was. Absent when nothing
+    /// expires, and in files written before it was kept.
+    public var maxLife: [Float]?
+    /// What each body does — orbits, holds a place in a shape. Absent when no body has a role.
+    public var role: [UInt8]?
+    /// Where each shape-holding body belongs, seven numbers a body. Absent when no body has a role.
+    public var home: [Float]?
 }
 
 /// A whole particle field, as saved.
@@ -146,6 +153,8 @@ public struct ParticleState: Codable, Sendable {
     /// show a scene at its best are part of the scene. It lives on the interface's model rather than
     /// in the engine, so it is written and read here but applied by the caller.
     public var camera: ParticleCamera?
+    /// Which arrangement the field was showing, so its chip lights up again and adding to it still joins it.
+    public var arrangement: String?
     public var swarm: SwarmRecord?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
@@ -208,6 +217,7 @@ extension ParticleEngine {
             // given a default, so "no camera was saved" and "the camera was in its resting position"
             // stay distinguishable.
             camera: nil,
+            arrangement: storedArrangement,
             swarm: swarm.count > 0 ? swarmRecord(limit: Self.saveSwarmLimit) : nil,
             // Only springs whose two ends both survived the cap, since a position past the
             // end of what was written is exactly the stale index that makes a reloaded
@@ -215,23 +225,26 @@ extension ParticleEngine {
             springs: springs
                 .filter { $0.a < saved.count && $0.b < saved.count }
                 .map { SpringRecord(a: $0.a, b: $0.b, rest: $0.rest, k: $0.k) },
+            // Every number made writable on the way out. A save file is text, and text has no way to say
+            // "not a number" — so one corrupt body used to make the whole save fail, and because the failure
+            // was swallowed, autosave simply stopped working with nothing on screen to say so.
             particles: saved.map { body in
                 ParticleRecord(
-                    x: body.x,
-                    y: body.y,
-                    vx: body.velocityX,
-                    vy: body.velocityY,
-                    r: body.radius,
+                    x: body.x.isFinite ? body.x : width / 2,
+                    y: body.y.isFinite ? body.y : height / 2,
+                    vx: body.velocityX.isFinite ? body.velocityX : 0,
+                    vy: body.velocityY.isFinite ? body.velocityY : 0,
+                    r: body.radius.isFinite ? body.radius : 2,
                     c: body.color.hexString,
                     t: body.kind == .standard ? nil : body.kind.rawValue,
-                    m: body.mass == 1 ? nil : body.mass,
+                    m: body.mass == 1 || !body.mass.isFinite ? nil : body.mass,
                     g: body.ignoresGravity ? 1 : nil,
-                    q: body.charge == 0 ? nil : body.charge,
+                    q: body.charge == 0 || !body.charge.isFinite ? nil : body.charge,
                     f: body.isFixed ? 1 : nil,
                     life: body.lifespan,
                     maxLife: body.maxLife,
-                    ox: body.originX,
-                    oy: body.originY,
+                    ox: body.originX.flatMap { $0.isFinite ? $0 : nil },
+                    oy: body.originY.flatMap { $0.isFinite ? $0 : nil },
                     lat: body.latticeBound ? 1 : nil,
                     helix: body.helixStrand
                 )
@@ -248,14 +261,21 @@ extension ParticleEngine {
         var colors = [UInt32](repeating: 0, count: taken)
         for i in 0 ..< taken {
             let pair = i * 2
-            x[i] = swarm.positions[pair]
-            y[i] = swarm.positions[pair + 1]
-            vx[i] = swarm.velocities[pair]
-            vy[i] = swarm.velocities[pair + 1]
+            let px = swarm.positions[pair]
+            let py = swarm.positions[pair + 1]
+            let pvx = swarm.velocities[pair]
+            let pvy = swarm.velocities[pair + 1]
+            x[i] = px.isFinite ? px : Float(width / 2)
+            y[i] = py.isFinite ? py : Float(height / 2)
+            vx[i] = pvx.isFinite ? pvx : 0
+            vy[i] = pvy.isFinite ? pvy : 0
             colors[i] = swarm.colors[i]
         }
         var masses: [Float] = []
         var lives: [Float] = []
+        var started: [Float] = []
+        var roles: [UInt8] = []
+        var homes: [Float] = []
         var anyWeighted = false
         for i in 0 ..< taken where swarm.masses[i] != 1 {
             anyWeighted = true
@@ -266,6 +286,11 @@ extension ParticleEngine {
         }
         if swarm.hasMortalBodies {
             lives = (0 ..< taken).map { swarm.lives[$0] }
+            started = (0 ..< taken).map { swarm.maxLives[$0] }
+        }
+        if swarm.hasRoles {
+            roles = (0 ..< taken).map { swarm.roles[$0] }
+            homes = (0 ..< taken * Swarm.homeStride).map { swarm.homes[$0] }
         }
         return SwarmRecord(
             n: taken,
@@ -275,7 +300,10 @@ extension ParticleEngine {
             vy: vy,
             c: colors,
             m: masses.isEmpty ? nil : masses,
-            life: lives.isEmpty ? nil : lives
+            life: lives.isEmpty ? nil : lives,
+            maxLife: started.isEmpty ? nil : started,
+            role: roles.isEmpty ? nil : roles,
+            home: homes.isEmpty ? nil : homes
         )
     }
 
@@ -325,20 +353,26 @@ extension ParticleEngine {
         // Rebuilt through its own initialiser rather than assigned, so a hand-edited file's keyframes are
         // put in order and pulled into range on the way in.
         // Through the setter, so a hand-edited file's sources are capped on the way in.
-        if let saved = state.emitters { emitters = saved.map(\.sanitized) }
+        // Each of these is written only when there is something in it, so its absence means "none" — and has
+        // to be applied as none. Loading used to keep whatever the previous field had: a scene saved with
+        // no sources came back with the last scene's source still pouring into it, and its walls, its wind
+        // and its recording still in place.
+        emitters = (state.emitters ?? []).map(\.sanitized)
         if let saved = state.emitterTemplate { emitterTemplate = saved.sanitized }
-        if let saved = state.current { storedCurrent = saved }
+        storedCurrent = state.current ?? ParticleCurrentField()
         if let saved = state.currentSettings { currentSettings = saved }
         // Through the setter, so a hand-edited file's walls are filtered and capped on the way in.
-        if let saved = state.walls { walls = saved }
+        walls = state.walls ?? []
         if let saved = state.wallSettings { wallSettings = saved }
         if let saved = state.flockSettings { flockSettings = saved }
         if let saved = state.trailSettings { trailSettings = saved }
         if let saved = state.contactSettings { contactSettings = saved }
         if let saved = state.timeline {
             timeline = ParticleTimeline(keyframes: saved.keyframes, loops: saved.loops)
-            playhead = ParticlePlayhead()
+        } else {
+            timeline = ParticleTimeline()
         }
+        playhead = ParticlePlayhead()
         flowEnabled = state.flowEnabled ?? false
         if let saved = state.flowSettings { flowSettings = saved }
         // Compiled again on the way in rather than trusted. A saved file can be hand-edited, and an
@@ -375,14 +409,22 @@ extension ParticleEngine {
             restoreSwarm(record)
         }
 
+        // Kept within a generous margin of the world. Only "is it a number" used to be checked, and a finite
+        // but enormous position — ten to the twentieth — reached whole-number conversions in the fluid, the
+        // gravity grid and the colour-by-crowd pass that cannot hold it, and crashed the first moment after
+        // loading. Nothing legitimate is anywhere near these limits.
+        let reach = max(width, height) * 4 + 1_000
+        func place(_ value: Double) -> Double { max(-reach, min(reach, value)) }
+        func speed(_ value: Double) -> Double { value.isFinite ? max(-10_000, min(10_000, value)) : 0 }
+
         for record in state.particles {
             guard record.x.isFinite, record.y.isFinite else { continue }
             addParticle(
-                x: record.x,
-                y: record.y,
-                velocityX: record.vx.isFinite ? record.vx : 0,
-                velocityY: record.vy.isFinite ? record.vy : 0,
-                radius: record.r.isFinite ? record.r : nil,
+                x: place(record.x),
+                y: place(record.y),
+                velocityX: speed(record.vx),
+                velocityY: speed(record.vy),
+                radius: record.r.isFinite ? max(0, min(200, record.r)) : nil,
                 mass: record.m.map { $0.isFinite ? $0 : 1 } ?? 1,
                 charge: record.q,
                 color: PackedColor(hex: record.c) ?? PackedColor(r: 255, g: 255, b: 255),
@@ -392,13 +434,16 @@ extension ParticleEngine {
                 // that a file from an earlier build still loads sensibly.
                 isFixed: record.f == 1 || record.t == "blackhole" || record.t == "repulsor",
                 ignoresGravity: record.g == 1,
-                originX: record.ox,
-                originY: record.oy,
+                originX: record.ox.flatMap { $0.isFinite ? place($0) : nil },
+                originY: record.oy.flatMap { $0.isFinite ? place($0) : nil },
                 latticeBound: record.lat == 1,
                 helixStrand: record.helix,
                 kind: record.t.flatMap(ParticleKind.init(rawValue:)) ?? .standard
             )
         }
+
+        storedArrangement = state.arrangement.flatMap { ParticleArrangement.named($0)?.id }
+        arrangementAge = 0
 
         // Springs last, once every body they name exists. `setSprings` drops anything that
         // does not name a real pair — a spring pointing past the end of the list, or at
@@ -417,12 +462,13 @@ extension ParticleEngine {
         for i in 0 ..< taken {
             // Anything unusable is placed at the centre at rest rather than dropped, so the
             // colours stay aligned with the positions.
-            let x = record.x[i].isFinite ? record.x[i] : Float(width / 2)
-            let y = record.y[i].isFinite ? record.y[i] : Float(height / 2)
+            let reach = Float(max(width, height) * 4 + 1_000)
+            let x = record.x[i].isFinite ? max(-reach, min(reach, record.x[i])) : Float(width / 2)
+            let y = record.y[i].isFinite ? max(-reach, min(reach, record.y[i])) : Float(height / 2)
             snapshot.positions.append(x)
             snapshot.positions.append(y)
-            snapshot.velocities.append(record.vx[i].isFinite ? record.vx[i] : 0)
-            snapshot.velocities.append(record.vy[i].isFinite ? record.vy[i] : 0)
+            snapshot.velocities.append(record.vx[i].isFinite ? max(-10_000, min(10_000, record.vx[i])) : 0)
+            snapshot.velocities.append(record.vy[i].isFinite ? max(-10_000, min(10_000, record.vy[i])) : 0)
             snapshot.colors.append(i < record.c.count ? record.c[i] : 0xFFD4_C8C8)
         }
         // Absent means the plain answer — everything weighs one and lives forever — so nothing is built in
@@ -439,6 +485,23 @@ extension ParticleEngine {
             for i in 0 ..< taken {
                 let left = i < lives.count ? lives[i] : -1
                 snapshot.lives.append(left.isFinite ? left : -1)
+            }
+        }
+        if let started = record.maxLife, !started.isEmpty {
+            snapshot.maxLives = (0 ..< taken).map { i in
+                let value = i < started.count ? started[i] : 1
+                return value.isFinite && value > 0 ? value : 1
+            }
+        }
+        if let roles = record.role, !roles.isEmpty {
+            snapshot.roles = (0 ..< taken).map { $0 < roles.count ? roles[$0] : 0 }
+            let homes = record.home ?? []
+            // Positions far outside the world would reach whole-number conversions downstream that cannot
+            // hold them, so a home is kept within a generous margin of the world like everything else.
+            let limit = Float(max(width, height) * 4 + 1_000)
+            snapshot.homes = (0 ..< taken * Swarm.homeStride).map { k in
+                let value = k < homes.count ? homes[k] : 0
+                return value.isFinite ? max(-limit, min(limit, value)) : 0
             }
         }
         swarm.restore(from: snapshot, budget: max(0, maxParticles - particles.count))

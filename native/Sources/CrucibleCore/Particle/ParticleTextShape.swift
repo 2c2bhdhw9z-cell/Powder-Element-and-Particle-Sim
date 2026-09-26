@@ -135,6 +135,12 @@ extension ParticleEngine {
     ///   - height: How many down.
     ///   - count: Roughly how many bodies to place.
     ///   - fill: How much of the shorter side of the world the word should span.
+    ///   - replacingField: Whether this is the word scene — the field emptied and set up for it — or a word
+    ///     added to whatever is already there.
+    ///
+    /// Each body holds its place in the letters, so a finger or a gust can smudge the word and it reforms.
+    /// Laid out loose, it used to sag toward the floor under whatever gravity the last scene had left, and was
+    /// unreadable within a couple of seconds.
     ///
     /// The word is fitted to the world by its *own* shape rather than the picture's, so a short word is not
     /// drawn tiny inside a wide empty picture. The picture is what the drawing machinery happened to produce;
@@ -145,9 +151,14 @@ extension ParticleEngine {
         width pictureWidth: Int,
         height pictureHeight: Int,
         count: Int = 4_000,
-        fill: Double = 0.78
+        fill: Double = 0.78,
+        replacingField: Bool = true
     ) -> Int {
-        pushUndo()
+        if replacingField {
+            beginScene("text", gravityY: 0)
+        } else {
+            pushUndo()
+        }
         let room = max(0, maxParticles - particles.count - swarm.count)
         let wanted = min(count, room)
         guard wanted > 0 else { return 0 }
@@ -204,7 +215,9 @@ extension ParticleEngine {
                     saturation: 0.78,
                     lightness: 0.66
                 ).packedRGBA,
-                budget: maxParticles - particles.count
+                budget: maxParticles - particles.count,
+                role: .holds,
+                home: Swarm.Home(anchorX: x, anchorY: y, stiffness: 0.01)
             )
             guard placedOne else { break }
             placed += 1

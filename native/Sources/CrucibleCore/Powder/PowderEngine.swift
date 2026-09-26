@@ -461,8 +461,11 @@ public final class PowderEngine {
     public func hashLite() -> Int32 {
         var hash = Int32(truncatingIfNeeded: width) &* 131
             &+ Int32(truncatingIfNeeded: height)
-            &+ Int32(truncatingIfNeeded: Int(JS.round(gravityX * 10))) &* 17
-            &+ Int32(truncatingIfNeeded: Int(JS.round(gravityY * 10))) &* 29
+            // `| 0` in the reference: wrapped into range rather than converted. A plain conversion traps on
+            // anything past nine quintillion, and gravity arrives here from other phones — one packet claiming
+            // an absurd gravity used to crash whoever received it.
+            &+ JS.toInt32(JS.round(gravityX * 10)) &* 17
+            &+ JS.toInt32(JS.round(gravityY * 10)) &* 29
         guard cellCount > 0 else { return hash }
         let stride = max(1, cellCount / 4000)
         var i = 0

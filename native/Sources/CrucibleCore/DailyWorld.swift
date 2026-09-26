@@ -98,23 +98,16 @@ public enum DailyWorld {
     }
 
     /// Fills the field with the day's arrangement.
+    ///
+    /// Seeded from the day, like the powder scene. It used to draw from whatever state the field's random
+    /// stream happened to be in, so two people opening the same day's arrangement got two different fields
+    /// while the chip told both of them it was the shared one.
     @discardableResult
     public static func applyParticle(forDay day: String, to engine: ParticleEngine) -> Choice {
         let value = hash(forDay: day)
         let preset = particlePreset(forDay: day)
-        engine.clear()
-
-        // Fewer on a narrow world, so a phone does not get a galaxy too dense to see through.
-        let count = engine.width < 500 ? 180 : 320
-        switch preset {
-        case "galaxy": engine.spawnGalaxy(count: count)
-        case "blackhole": engine.spawnBlackHole(count: count)
-        case "vortex": engine.spawnDoubleVortex(count: count)
-        case "flare": engine.spawnSolarFlare(count: count)
-        case "fountain": engine.spawnCosmicFountain(count: count)
-        case "synchrotron": engine.spawnSynchrotron(count: count)
-        default: engine.spawnWaterfall(count: count)
-        }
+        engine.rng = Mulberry32(seed: value ^ 0x9E37_79B9)
+        engine.loadArrangement(preset)
         return Choice(day: day, name: preset, hash: value)
     }
 }

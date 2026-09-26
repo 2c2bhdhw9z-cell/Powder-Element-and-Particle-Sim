@@ -423,7 +423,9 @@ struct RoomWorldTests {
 
         #expect(RoomWorld.decode(frame) == nil)
         #expect(8000 * 8000 > RoomWorld.maximumCells, "the test's premise")
-        #expect(PowderEngine.isValidSize(width: 8000, height: 8000), "the test's premise")
+        // The engine now refuses the area too, so a save file cannot ask for it either — the frame check is
+        // no longer the only thing standing between a tiny message and a gigabyte.
+        #expect(!PowderEngine.isValidSize(width: 8000, height: 8000), "the engine accepted sixty-four million cells")
     }
 
     @Test("A body describing the wrong number of cells is refused")

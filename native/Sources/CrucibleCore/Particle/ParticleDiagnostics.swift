@@ -106,7 +106,7 @@ extension ParticleEngine {
             issues.append("Detected \(outOfBoundsCount) particles drifted outside the world")
         }
         if overSpeedCount > 0 {
-            issues.append("Detected \(overSpeedCount) particles past the \(Int(JS.round(speedLimit))) speed limit")
+            issues.append("Detected \(overSpeedCount) particles past the \(JS.clampedInt(JS.round(speedLimit), 0, 1_000_000_000)) speed limit")
         }
 
         return ParticleDiagnostics(
@@ -116,7 +116,9 @@ extension ParticleEngine {
             swarmCorruptCount: swarmCorruptCount,
             outOfBoundsCount: outOfBoundsCount,
             overSpeedCount: overSpeedCount,
-            fastestSpeed: Int(JS.round(fastest)),
+            // Held to a number an integer can carry. A runaway body's speed can be infinite, and the report
+            // that exists to find runaway bodies used to crash on exactly that.
+            fastestSpeed: JS.clampedInt(JS.round(fastest), 0, 1_000_000_000, fallback: 1_000_000_000),
             trailPoints: trailPoints,
             issues: issues
         )

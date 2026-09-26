@@ -98,6 +98,10 @@ extension PowderEngine {
         guard radius >= 0 else { return }
         let radiusSquared = radius * radius
 
+        let fanMayTurn = now - lastFanRotate > 350
+        var turnedAFan = false
+        defer { if turnedAFan { lastFanRotate = now } }
+
         for dy in -radius ... radius {
             for dx in -radius ... radius {
                 let x = centerX + dx
@@ -118,11 +122,16 @@ extension PowderEngine {
 
                 // Painting a fan onto an existing fan turns it rather than replacing
                 // it, rate-limited so that one drag does not spin it repeatedly.
+                //
+                // The limit is checked once per stroke rather than per cell. Checked per cell, the first cell
+                // turned reset the clock and every other cell of the same fan was refused, so a fan more than
+                // one cell across turned one piece of itself and left the rest pointing the old way.
                 if elementID == Element.fan && type[index(x, y)] == Element.fan {
-                    if now - lastFanRotate > 350 {
+                    if fanMayTurn {
                         let idx = index(x, y)
-                        life[idx] = (life[idx] + 1) % 4
-                        lastFanRotate = now
+                        // Widened before adding: a lifetime of 65535 from a loaded file overflowed and crashed.
+                        life[idx] = UInt16((Int(life[idx]) + 1) % 4)
+                        turnedAFan = true
                     }
                     continue
                 }

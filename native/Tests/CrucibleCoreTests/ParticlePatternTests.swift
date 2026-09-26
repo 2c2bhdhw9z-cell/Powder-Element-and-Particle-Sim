@@ -283,7 +283,12 @@ struct ParticlePatternTests {
         #expect(outerMean > innerMean * 1.15, "petals \(outerMean) against gaps \(innerMean)")
     }
 
-    @Test("A tornado is a cone: narrow at the bottom, wide at the top")
+    /// Measured in the screen's own terms: down the screen is larger numbers, so the floor is near 700.
+    ///
+    /// The funnel used to be laid out the other way up — narrow at the top of the screen and wide at the
+    /// floor — and this test agreed with it, because it called the top of the screen "the bottom". A
+    /// tornado touches the ground at its narrow end.
+    @Test("A tornado is a cone: narrow at the floor, wide at the top of the screen")
     func tornadoIsACone() {
         let engine = field()
         engine.spawnTornado(count: 3_000)
@@ -293,9 +298,23 @@ struct ParticlePatternTests {
             guard band.count > 10 else { return 0 }
             return (band.map(\.x).max() ?? 0) - (band.map(\.x).min() ?? 0)
         }
-        let bottom = widthAt(0.1, 0.25)
-        let top = widthAt(0.75, 0.9)
-        #expect(top > bottom * 2, "bottom \(bottom), top \(top)")
+        let nearFloor = widthAt(0.75, 0.9)
+        let nearTop = widthAt(0.1, 0.25)
+        #expect(nearTop > nearFloor * 2, "floor \(nearFloor), top \(nearTop)")
+    }
+
+    @Test("A tornado keeps turning rather than drifting apart")
+    func tornadoKeepsItsShape() {
+        let engine = field()
+        engine.spawnTornado(count: 2_000)
+        for _ in 0 ..< 600 { engine.step() }
+        let placed = points(engine)
+        let nearFloor = placed.filter { $0.y > 0.75 * 700 && $0.y < 0.9 * 700 }
+        let nearTop = placed.filter { $0.y > 0.1 * 700 && $0.y < 0.25 * 700 }
+        #expect(nearFloor.count > 100 && nearTop.count > 100, "the funnel fell apart")
+        let floorWidth = (nearFloor.map(\.x).max() ?? 0) - (nearFloor.map(\.x).min() ?? 0)
+        let topWidth = (nearTop.map(\.x).max() ?? 0) - (nearTop.map(\.x).min() ?? 0)
+        #expect(topWidth > floorWidth * 2, "after ten seconds: floor \(floorWidth), top \(topWidth)")
     }
 
     @Test("A tornado spins faster where it is narrow")
@@ -316,8 +335,8 @@ struct ParticlePatternTests {
         // Near the tip the radius is small, so even a fast spin is a small sideways speed — the honest
         // comparison is the rate, which is the speed divided by how far out the body is.
         #expect(spinNear(0.1, 0.3) >= 0, "placeholder to keep the shape of the check clear")
-        let rateAtTip = spinNear(0.1, 0.25)
-        let rateAtTop = spinNear(0.75, 0.9)
+        let rateAtTip = spinNear(0.75, 0.9)
+        let rateAtTop = spinNear(0.1, 0.25)
         #expect(rateAtTop > rateAtTip, "the top is wider so its sideways speed should be larger")
     }
 
@@ -501,15 +520,21 @@ struct ParticlePatternTests {
         )
     }
 
-    @Test("Magma rises and confetti falls")
+    @Test("Magma is a pool that holds its level and throws embers up, and confetti falls")
     func magmaRisesAndConfettiFalls() {
         let rising = field()
         rising.spawnMagma(count: 2_000)
-        var upward = 0
-        for index in 0 ..< rising.swarm.count where Double(rising.swarm.velocities[index * 2 + 1]) < 0 {
-            upward += 1
+        #expect(rising.emitters.count == 3, "the pool should have vents throwing embers")
+        for _ in 0 ..< 300 { rising.step() }
+        var inPool = 0
+        var risingEmbers = 0
+        for index in 0 ..< rising.swarm.count {
+            let y = Double(rising.swarm.positions[index * 2 + 1])
+            if y > 0.75 * 700 { inPool += 1 }
+            if y < 0.75 * 700, Double(rising.swarm.velocities[index * 2 + 1]) < 0 { risingEmbers += 1 }
         }
-        #expect(upward == rising.swarm.count, "only \(upward) of \(rising.swarm.count) embers rise")
+        #expect(inPool >= 1_900, "the pool drained: \(inPool) left in it")
+        #expect(risingEmbers > 10, "only \(risingEmbers) embers rising after five seconds")
 
         let falling = field()
         falling.spawnConfetti(count: 2_000)

@@ -155,9 +155,27 @@ public struct ElementTable: Sendable, Hashable {
 
         var records = [ElementPhysics](repeating: filler, count: Element.capacity)
         var rules = [[InteractionRule]](repeating: [], count: Element.capacity)
+        // Anything a material turns into or produces has to be a material that can exist. Custom materials
+        // come from storage and shared scenes unchecked, and a reference past the last slot used to be written
+        // straight into the grid, where it sat behaving as air, counting as a real particle, and invisible to
+        // every repair. Such a reference is dropped, and a blast size is held to what a world can contain.
+        func usable(_ id: ElementID?) -> ElementID? {
+            guard let id, id <= Element.customIDEnd else { return nil }
+            return id
+        }
         for definition in definitions where Int(definition.id) < Element.capacity {
-            records[Int(definition.id)] = ElementPhysics(definition)
-            rules[Int(definition.id)] = definition.interactions
+            var checked = definition
+            if checked.decayIntoID > Element.customIDEnd { checked.decayIntoID = Element.empty }
+            checked.interactions = definition.interactions.map { rule in
+                var safe = rule
+                safe.resultSelfID = usable(rule.resultSelfID)
+                safe.resultTargetID = usable(rule.resultTargetID)
+                safe.spawnElementID = usable(rule.spawnElementID)
+                safe.explosionRadius = max(0, min(PowderEngine.largestBlastRadius, rule.explosionRadius))
+                return safe
+            }
+            records[Int(definition.id)] = ElementPhysics(checked)
+            rules[Int(definition.id)] = checked.interactions
         }
         self.records = records
         self.interactionRules = rules

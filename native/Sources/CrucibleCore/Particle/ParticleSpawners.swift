@@ -9,6 +9,18 @@
 // in the order the original's object literal lists them.
 
 extension ParticleEngine {
+    /// How much larger than their original size the fixed-size scenes are drawn.
+    ///
+    /// Several scenes were written with distances in plain pixels — a rope ten pixels a link, two wells a
+    /// hundred and thirty pixels either side of the middle, a helix fifty pixels high. That was right for a
+    /// browser window a few hundred pixels across. A phone's field is well over a thousand pixels across,
+    /// so the same numbers drew a rope a tenth of the screen long and a pair of wells nearly on top of each
+    /// other: small, crowded and hard to see.
+    ///
+    /// Never below one, so on a world the size those scenes were written for they come out exactly as they
+    /// always have — which is also what keeps the recorded comparison against the reference exact.
+    var sceneScale: Double { max(1, patternSpan / 400) }
+
     /// A ring of particles thrown outward from a point. Adds to the scene rather than
     /// replacing it.
     public func spawnBurst(count: Int = 100, x: Double? = nil, y: Double? = nil) {
@@ -32,10 +44,7 @@ extension ParticleEngine {
 
     /// A spiral disc orbiting a central black hole.
     public func spawnGalaxy(count: Int = 300) {
-        clear()
-        gravityX = 0
-        gravityY = 0
-        vortexForce = 0
+        beginScene("galaxy", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -70,9 +79,7 @@ extension ParticleEngine {
 
     /// Water falling from the top and recycled at the bottom.
     public func spawnWaterfall(count: Int = 250) {
-        clear()
-        gravityX = 0
-        gravityY = 0.4
+        beginScene("waterfall", gravityY: 0.4)
 
         let startX = width * 0.3
         let spread = width * 0.4
@@ -95,9 +102,7 @@ extension ParticleEngine {
 
     /// An expanding ring, evenly spaced in angle.
     public func spawnShockwave(count: Int = 300) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("shockwave", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -121,9 +126,7 @@ extension ParticleEngine {
 
     /// A heavier black hole with a tighter accretion disc.
     public func spawnBlackHole(count: Int = 250) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("blackhole", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -158,9 +161,7 @@ extension ParticleEngine {
 
     /// Two counter-rotating wells side by side.
     public func spawnDoubleVortex(count: Int = 300) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("vortex", gravityY: 0)
 
         let leftX = width * 0.35
         let rightX = width * 0.65
@@ -185,7 +186,7 @@ extension ParticleEngine {
             let spin: Double = isLeft ? 1 : -1
             let baseHue: Double = isLeft ? 200 : 30
 
-            let distance = rng.next() * 130 + 25
+            let distance = (rng.next() * 130 + 25) * sceneScale
             let angle = rng.next() * Double.pi * 2
             let orbitalSpeed = (gravitationalConstant / distance).squareRoot() * (0.92 + rng.next() * 0.16)
 
@@ -205,9 +206,7 @@ extension ParticleEngine {
 
     /// A central repulsor holding a shell of particles away from it.
     public func spawnRepulsor() {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("repulsor", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -219,7 +218,7 @@ extension ParticleEngine {
         )
 
         for _ in 0 ..< 200 {
-            let distance = rng.next() * 160 + 60
+            let distance = (rng.next() * 160 + 60) * sceneScale
             let angle = rng.next() * Double.pi * 2
             addParticle(
                 x: centreX + jsCos(angle) * distance,
@@ -237,9 +236,7 @@ extension ParticleEngine {
 
     /// A glowing core throwing off short-lived flares.
     public func spawnSolarFlare(count: Int = 350) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("flare", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -274,9 +271,7 @@ extension ParticleEngine {
 
     /// A charged grid, each node held to its own position by a spring.
     public func spawnQuantumLattice(rows: Int = 18, cols: Int = 24) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("lattice", gravityY: 0)
 
         guard rows > 0, cols > 0 else { return }
         let startX = width * 0.2
@@ -314,15 +309,16 @@ extension ParticleEngine {
 
     /// Two counter-phase strands travelling left to right.
     public func spawnDnaHelix(count: Int = 280) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("helix", gravityY: 0)
 
         guard count > 0 else { return }
         let startX = width * 0.1
         let endX = width * 0.9
         let centreY = height / 2
-        let wavelength = 120.0
+        // The strand marker carries the scale as well as the side, so the tick draws the wave at the same
+        // size it was laid out at. See `sceneScale`.
+        let scale = sceneScale
+        let wavelength = 120.0 * scale
 
         for i in 0 ..< count {
             let progress = Double(i) / Double(count)
@@ -331,7 +327,7 @@ extension ParticleEngine {
 
             addParticle(
                 x: pointX,
-                y: centreY + jsSin(angle) * 50,
+                y: centreY + jsSin(angle) * 50 * scale,
                 velocityX: 1.2,
                 velocityY: 0,
                 radius: 2.5,
@@ -342,12 +338,12 @@ extension ParticleEngine {
                 originY: centreY,
                 // Explicit strand marker. Deciding this from the body's colour meant any
                 // tool that repainted it dropped it out of the helix permanently.
-                helixStrand: 1
+                helixStrand: scale
             )
 
             addParticle(
                 x: pointX,
-                y: centreY - jsSin(angle) * 50,
+                y: centreY - jsSin(angle) * 50 * scale,
                 velocityX: 1.2,
                 velocityY: 0,
                 radius: 2.5,
@@ -356,16 +352,14 @@ extension ParticleEngine {
                 ignoresGravity: true,
                 originX: startX,
                 originY: centreY,
-                helixStrand: -1
+                helixStrand: -scale
             )
         }
     }
 
     /// A jet from the floor that falls back and is relaunched.
     public func spawnCosmicFountain(count: Int = 250) {
-        clear()
-        gravityX = 0
-        gravityY = 0.3
+        beginScene("fountain", gravityY: 0.3)
 
         let centreX = width / 2
         let floorY = height - 20
@@ -391,9 +385,7 @@ extension ParticleEngine {
 
     /// Two wells far enough apart to fling particles between them.
     public func spawnSynchrotron(count: Int = 300) {
-        clear()
-        gravityX = 0
-        gravityY = 0
+        beginScene("synchrotron", gravityY: 0)
 
         let centreX = width / 2
         let centreY = height / 2
@@ -401,19 +393,19 @@ extension ParticleEngine {
         let gravitationalConstant = holeMass * 200
 
         addParticle(
-            x: centreX - 130, y: centreY, velocityX: 0, velocityY: 0, radius: 12, mass: holeMass,
+            x: centreX - 130 * sceneScale, y: centreY, velocityX: 0, velocityY: 0, radius: 12, mass: holeMass,
             color: PackedColor(r: 0xEC, g: 0x48, b: 0x99),
             isFixed: true, ignoresGravity: true, kind: .blackhole
         )
         addParticle(
-            x: centreX + 130, y: centreY, velocityX: 0, velocityY: 0, radius: 12, mass: holeMass,
+            x: centreX + 130 * sceneScale, y: centreY, velocityX: 0, velocityY: 0, radius: 12, mass: holeMass,
             color: PackedColor(r: 0x3B, g: 0x82, b: 0xF6),
             isFixed: true, ignoresGravity: true, kind: .blackhole
         )
 
         for i in 0 ..< count {
             let angle = rng.next() * Double.pi * 2
-            let distance = rng.next() * 180 + 30
+            let distance = (rng.next() * 180 + 30) * sceneScale
             let orbitalSpeed = (gravitationalConstant / distance).squareRoot() * (0.95 + rng.next() * 0.1)
 
             addParticle(
@@ -430,29 +422,55 @@ extension ParticleEngine {
         }
     }
 
-    /// A column of liquid poured from above.
-    public func spawnPour(count: Int = 400) {
-        clear()
-        gravityY = 0.38
+    /// Liquid poured into an empty tank.
+    ///
+    /// ## Why this was rebuilt
+    ///
+    /// It used to lay four hundred bodies into the object list and switch the fluid on. The fluid only acts
+    /// on the crowd, and so do collisions — so what it actually showed was four hundred beads falling
+    /// through one another onto the floor, with the fluid switch lit up and doing nothing. The liquid is
+    /// the whole scene, so it is now made of the crowd, and a source keeps pouring.
+    ///
+    /// The poured bodies last twenty-five seconds. Without a lifetime a pour left running fills the tank to
+    /// the brim and then fills the rest of the field; with one it reaches a level and stays there.
+    public func spawnPour(count: Int = 1_200) {
+        beginScene("pour", gravityY: 0.38)
         fluidEnabled = true
-        collisionsEnabled = true
+        let budget = maxParticles - particles.count
         let centreX = width * 0.5
+        let column = patternSpan * 0.035
         for _ in 0 ..< count {
-            addParticle(
-                x: centreX + (rng.next() - 0.5) * 40,
-                y: 20 + rng.next() * 40,
-                velocityX: (rng.next() - 0.5) * 0.4,
-                velocityY: 0.4 + rng.next(),
-                radius: 2.4,
-                color: PackedColor(hue: 200 + rng.next() * 30, saturation: 0.80, lightness: 0.65)
-            )
+            let x = centreX + between(-column, column)
+            let y = height * between(0.04, 0.4)
+            guard swarm.append(
+                x: x,
+                y: y,
+                velocityX: between(-0.2, 0.2),
+                velocityY: between(1, 3),
+                color: PackedColor(hue: between(198, 222), saturation: 0.78, lightness: 0.6).packedRGBA,
+                budget: budget,
+                life: between(900, 1_500)
+            ) else { break }
         }
+        emitterTemplate = ParticleEmitter(
+            atFractionX: 0.5,
+            atFractionY: 0.03,
+            direction: 1.5707963267948966,
+            rate: 260,
+            spread: 0.08,
+            speed: 3.2,
+            speedVariation: 0.2,
+            lifespan: 1_500,
+            weight: 1,
+            weightVariation: 0,
+            hue: 206
+        )
+        addEmitter(atX: width * 0.5, y: height * 0.03)
     }
 
     /// A scattered flock that finds its own formation.
     public func spawnFlock(count: Int = 220) {
-        clear()
-        gravityY = 0
+        beginScene("flock", gravityY: 0)
         flockEnabled = true
         for _ in 0 ..< count {
             addParticle(
@@ -466,38 +484,86 @@ extension ParticleEngine {
         }
     }
 
-    /// A rotating cloud of equal masses.
-    public func spawnNbody(count: Int = 240) {
-        clear()
-        gravityY = 0
+    /// A disc of heavy and light bodies, every one pulling on every other, round a heavy core.
+    ///
+    /// ## Why this was rebuilt
+    ///
+    /// It used to put two hundred and forty bodies in the object list and switch gravity-between-bodies on.
+    /// That pull only acts on the crowd, so the bodies simply drifted round in the circles they were started
+    /// in, pulling on nothing — the one scene named after the physics was the one scene without it. It is
+    /// now made of the crowd, with a mixture of weights, which is what makes a disc like this interesting:
+    /// the heavy ones sink and gather, the light ones are thrown about.
+    ///
+    /// Each body is started at the speed that would keep it circling the weight inside its orbit, so the
+    /// disc turns rather than collapsing on the first moment. They keep their speed rather than being
+    /// slowed by the air, as orbiting bodies do everywhere else in the field; otherwise the disc would spiral
+    /// into its core within a minute.
+    public func spawnNbody(count: Int = 1_400) {
+        beginScene("nbody", gravityY: 0)
         nbodyEnabled = true
-        let centreX = width / 2
-        let centreY = height / 2
-        for i in 0 ..< count {
+        let budget = maxParticles - particles.count
+        let strength = bodyGravitySettings.sanitized.strength
+        let centreX = width * 0.5
+        let centreY = height * 0.5
+        let outer = 0.36 * patternSpan
+        let coreMass = 260.0
+
+        guard swarm.append(
+            x: centreX,
+            y: centreY,
+            velocityX: 0,
+            velocityY: 0,
+            color: PackedColor(hue: 38, saturation: 1, lightness: 0.8).packedRGBA,
+            budget: budget,
+            mass: coreMass,
+            role: .orbits
+        ) else { return }
+
+        // Worked out first, so each body's speed can account for the weight of everything inside it.
+        var weights: [Double] = []
+        weights.reserveCapacity(count)
+        for _ in 0 ..< count {
+            let roll = rng.next()
+            weights.append(roll < 0.03 ? 8 : roll < 0.15 ? 3 : between(0.6, 1.4))
+        }
+        let totalWeight = weights.reduce(0, +)
+
+        for index in 0 ..< count {
+            let share = rng.next()
+            // The square root spreads them evenly over the disc's area rather than bunching them at the middle.
+            let radius = 30 + share.squareRoot() * outer
             let angle = rng.next() * Double.pi * 2
-            let distance = 30 + rng.next() * min(width, height) * 0.3
-            addParticle(
-                x: centreX + jsCos(angle) * distance,
-                y: centreY + jsSin(angle) * distance,
-                velocityX: -jsSin(angle) * 1.4,
-                velocityY: jsCos(angle) * 1.4,
-                radius: 2,
-                mass: 1,
-                color: PackedColor(hue: Double(i * 9).truncatingRemainder(dividingBy: 360), saturation: 0.90, lightness: 0.65)
-            )
+            let inside = coreMass + totalWeight * share
+            let speed = (strength * inside / radius).squareRoot() * between(0.97, 1.03)
+            let weight = weights[index]
+            let hue = weight >= 8 ? 20.0 : weight >= 3 ? 48.0 : between(195, 250)
+            guard swarm.append(
+                x: centreX + jsCos(angle) * radius,
+                y: centreY + jsSin(angle) * radius,
+                velocityX: -jsSin(angle) * speed,
+                velocityY: jsCos(angle) * speed,
+                color: PackedColor(hue: hue, saturation: 0.85, lightness: weight >= 3 ? 0.66 : 0.62).packedRGBA,
+                budget: budget,
+                mass: weight,
+                role: .orbits
+            ) else { return }
         }
     }
 
     /// A pinned sheet of sprung nodes.
     public func spawnCloth(cols: Int = 16, rows: Int = 12) {
-        clear()
-        gravityY = 0.35
+        beginScene("cloth", gravityY: 0.35)
         springs.removeAll(keepingCapacity: true)
-        guard cols > 0, rows > 0 else { return }
+        addCloth(cols: cols, rows: rows, centreX: width / 2, top: 36 * sceneScale)
+    }
 
-        let gap = Double(min(18, Int((width / Double(cols + 2)).rounded(.down))))
-        let originX = (width - Double(cols) * gap) / 2
-        let originY = 36.0
+    /// Hangs a sheet into whatever is there.
+    func addCloth(cols: Int, rows: Int, centreX: Double, top: Double) {
+        guard cols > 0, rows > 0 else { return }
+        let scale = sceneScale
+        let gap = min(18 * scale, (width / Double(cols + 2)).rounded(.down))
+        let originX = centreX - Double(cols) * gap / 2
+        let originY = top
         let start = particles.count
 
         for row in 0 ..< rows {
@@ -507,7 +573,7 @@ extension ParticleEngine {
                     y: originY + Double(row) * gap,
                     velocityX: 0,
                     velocityY: 0,
-                    radius: 2.4,
+                    radius: 2.4 * scale,
                     color: PackedColor(hue: 200 + Double(column) * 4, saturation: 0.70, lightness: 0.70),
                     // The top row is pinned at its corners and every fourth node.
                     isFixed: row == 0 && (column == 0 || column == cols - 1 || column % 4 == 0)
@@ -519,10 +585,10 @@ extension ParticleEngine {
         for row in 0 ..< rows {
             for column in 0 ..< cols {
                 if column + 1 < cols {
-                    springs.append(Spring(a: index(column, row), b: index(column + 1, row), rest: gap, k: 0.18))
+                    addSpring(a: index(column, row), b: index(column + 1, row), rest: gap, k: 0.18)
                 }
                 if row + 1 < rows {
-                    springs.append(Spring(a: index(column, row), b: index(column, row + 1), rest: gap, k: 0.18))
+                    addSpring(a: index(column, row), b: index(column, row + 1), rest: gap, k: 0.18)
                 }
             }
         }
@@ -530,41 +596,46 @@ extension ParticleEngine {
 
     /// A chain hanging from a pinned top node.
     public func spawnRope(length: Int = 32) {
-        clear()
-        gravityY = 0.4
+        beginScene("rope", gravityY: 0.4)
         springs.removeAll(keepingCapacity: true)
-        guard length > 0 else { return }
+        addRope(length: length, atX: width / 2)
+    }
 
-        let centreX = width / 2
-        let gap = 10.0
+    /// Hangs a rope into whatever is there.
+    func addRope(length: Int, atX centreX: Double) {
+        guard length > 0 else { return }
+        let scale = sceneScale
+        let gap = 10.0 * scale
         let start = particles.count
 
         for i in 0 ..< length {
             addParticle(
                 x: centreX,
-                y: 24 + Double(i) * gap,
+                y: 24 * scale + Double(i) * gap,
                 velocityX: 0,
                 velocityY: 0,
-                radius: 2.6,
+                radius: 2.6 * scale,
                 color: PackedColor(r: 0xE7, g: 0xE5, b: 0xE4),
                 isFixed: i == 0
             )
         }
         for i in 0 ..< (length - 1) {
-            springs.append(Spring(a: start + i, b: start + i + 1, rest: gap, k: 0.28))
+            addSpring(a: start + i, b: start + i + 1, rest: gap, k: 0.28)
         }
     }
 
     /// A ring of nodes held in a blob by rim and cross springs.
     public func spawnBlob(nodes: Int = 24) {
-        clear()
-        gravityY = 0.22
+        beginScene("blob", gravityY: 0.22)
         springs.removeAll(keepingCapacity: true)
-        guard nodes > 1 else { return }
+        addBlob(nodes: nodes, centreX: width / 2, centreY: height * 0.4)
+    }
 
-        let centreX = width / 2
-        let centreY = height * 0.4
-        let radius = 42.0
+    /// Drops a blob into whatever is there.
+    func addBlob(nodes: Int, centreX: Double, centreY: Double) {
+        guard nodes > 1 else { return }
+        let scale = sceneScale
+        let radius = 42.0 * scale
         let start = particles.count
 
         for i in 0 ..< nodes {
@@ -574,25 +645,25 @@ extension ParticleEngine {
                 y: centreY + jsSin(angle) * radius,
                 velocityX: 0,
                 velocityY: 0,
-                radius: 3,
+                radius: 3 * scale,
                 color: PackedColor(hue: 320 + Double(i) * 3, saturation: 0.80, lightness: 0.68)
             )
         }
         for i in 0 ..< nodes {
             // Around the rim, holding its shape.
-            springs.append(Spring(
+            addSpring(
                 a: start + i,
                 b: start + ((i + 1) % nodes),
                 rest: (2 * Double.pi * radius) / Double(nodes),
                 k: 0.22
-            ))
+            )
             // Across the middle, much slacker, so it squashes rather than folding.
-            springs.append(Spring(
+            addSpring(
                 a: start + i,
                 b: start + ((i + nodes / 2) % nodes),
                 rest: radius * 2,
                 k: 0.05
-            ))
+            )
         }
     }
 

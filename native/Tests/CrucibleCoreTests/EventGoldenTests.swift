@@ -241,17 +241,26 @@ struct EventGoldenTests {
         // The surge and the meteor both write momentum directly, and it is the only reason the
         // water travels sideways instead of just appearing. A grid comparison would not see it.
         let result = run(event)
-        let actual = momentum(result.engine)
+        // Only where there is material — see the note on the powder comparison's momentum test.
+        let engine = result.engine
+        func occupied(_ entry: String) -> Bool {
+            guard let index = Int(entry.split(separator: ":").first ?? ""), index >= 0, index < engine.cellCount else {
+                return false
+            }
+            return engine.type[index] != Element.empty
+        }
+        let actual = momentum(engine).filter(occupied)
+        let expectedMomentum = event.momentum.filter(occupied)
         #expect(
-            actual.count == event.momentum.count,
-            "\(event.testDescription): \(actual.count) cells carrying momentum, web engine had \(event.momentum.count)"
+            actual.count == expectedMomentum.count,
+            "\(event.testDescription): \(actual.count) cells carrying momentum, web engine had \(expectedMomentum.count)"
         )
-        for i in 0 ..< min(actual.count, event.momentum.count) where actual[i] != event.momentum[i] {
+        for i in 0 ..< min(actual.count, expectedMomentum.count) where actual[i] != expectedMomentum[i] {
             Issue.record(
                 """
                 \(event.testDescription), momentum \(i) differs
                   native: \(actual[i])
-                  web:    \(event.momentum[i])
+                  web:    \(expectedMomentum[i])
                 """
             )
             break

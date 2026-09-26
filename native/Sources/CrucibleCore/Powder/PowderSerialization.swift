@@ -184,6 +184,24 @@ extension PowderEngine {
     /// Whether a pair of dimensions can be used.
     public static func isValidSize(width: Int, height: Int) -> Bool {
         width > 0 && height > 0 && width <= maximumDimension && height <= maximumDimension
+            && width * height <= maximumCells
+    }
+
+    /// The most cells a loaded world may have.
+    ///
+    /// Four million: more than one cell per pixel of the largest phone screen, and a quarter of a gigabyte
+    /// less than the eight thousand by eight thousand the side limit alone allowed. A save file or a packet
+    /// from another phone of a few bytes could ask for sixty-seven million cells, over a gigabyte, and the
+    /// phone would stop the app to get the memory back.
+    public static let maximumCells = 4_000_000
+
+    /// Gravity from a file or another phone, pulled into a range the physics can use.
+    ///
+    /// Tilt gives at most about one either way, and nothing in the interface goes past four. Ten leaves plenty
+    /// of room for anything legitimate and none for a number that crashes the fingerprint or flings every
+    /// grain out of the world on the first moment.
+    static func usableGravity(_ value: Double) -> Double {
+        max(-10, min(10, value))
     }
 
     /// One cell as the compact format carries it.
@@ -229,6 +247,9 @@ extension PowderEngine {
             guard state.width == width, state.height == height else { return false }
         }
 
+        // Before the grid is reset, because resetting fills every cell at the ambient temperature and a cell
+        // with an unreadable saved temperature falls back to it — both used the previous world's ambient.
+        if state.ambientTemp.isFinite { ambientTemp = state.ambientTemp }
         resetGrid()
         let count = min(cellCount, state.gridType.count)
 
@@ -255,9 +276,8 @@ extension PowderEngine {
             life[i] = state.gridLife[i]
         }
 
-        if state.gravityX.isFinite { gravityX = state.gravityX }
-        if state.gravityY.isFinite { gravityY = state.gravityY }
-        if state.ambientTemp.isFinite { ambientTemp = state.ambientTemp }
+        if state.gravityX.isFinite { gravityX = Self.usableGravity(state.gravityX) }
+        if state.gravityY.isFinite { gravityY = Self.usableGravity(state.gravityY) }
         // Through the clamp, like every other writer.
         if state.windX.isFinite { setWind(state.windX) }
         return true
@@ -344,8 +364,8 @@ extension PowderEngine {
     public func apply(lite state: PowderLiteState) -> Bool {
         guard let bytes = Base64.decode(state.t) else { return false }
         guard adoptCompactCells(bytes, width: state.w, height: state.h) else { return false }
-        if let gx = state.gx, gx.isFinite { gravityX = gx }
-        if let gy = state.gy, gy.isFinite { gravityY = gy }
+        if let gx = state.gx, gx.isFinite { gravityX = Self.usableGravity(gx) }
+        if let gy = state.gy, gy.isFinite { gravityY = Self.usableGravity(gy) }
         return true
     }
 }

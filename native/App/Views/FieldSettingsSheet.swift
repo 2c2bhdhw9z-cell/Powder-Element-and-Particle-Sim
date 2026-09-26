@@ -474,7 +474,7 @@ struct FieldSettingsSheet: View {
                         get: { model.playhead.at },
                         set: { model.scrubTimeline(to: $0) }
                     ),
-                    range: 0 ... max(0.1, model.timeline.duration),
+                    range: 0 ... (model.timeline.duration + ParticleTimeline.roomToRecord),
                     step: 0.05
                 ) { "\($0.formatted(.number.precision(.fractionLength(2))))s" }
 

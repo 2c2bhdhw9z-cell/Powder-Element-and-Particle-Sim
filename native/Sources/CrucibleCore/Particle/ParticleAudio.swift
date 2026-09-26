@@ -308,7 +308,12 @@ public enum ParticleAudio {
             glowStrength: max(0, min(4, settled(baseline.glowStrength, fallback: 0) + glowShare * 1.2)),
             // Wrapped rather than clamped: a colour ramp has no end, so the shift should keep going round
             // rather than stopping when it reaches the last colour.
-            colourShift: colourShare.truncatingRemainder(dividingBy: 1),
+            // A whole number of turns is kept just short of the next one rather than dropping to nought: at
+            // exactly full loudness the shift used to snap from all the way round back to none, which read
+            // as the colour flickering off on every loud beat.
+            colourShift: colourShare > 0 && colourShare.truncatingRemainder(dividingBy: 1) == 0
+                ? 0.9999
+                : colourShare.truncatingRemainder(dividingBy: 1),
             burst: min(1, burstShare)
         )
     }

@@ -136,8 +136,8 @@ final class SwarmGrid {
             // there would make it a neighbour of everything in the top-left square, and it would then
             // push real bodies about with numbers that are not numbers.
             guard x.isFinite, y.isFinite else { continue }
-            let column = max(0, min(lastColumn, Int(x * inverseCell)))
-            let row = max(0, min(lastRow, Int(y * inverseCell)))
+            let column = JS.clampedInt(x * inverseCell, 0, lastColumn)
+            let row = JS.clampedInt(y * inverseCell, 0, lastRow)
             let cell = row * columns + column
             let filled = Int(counts[cell])
             if filled < Self.bodiesPerCell {
@@ -171,8 +171,8 @@ final class SwarmGrid {
         func cell(atX x: Double, y: Double) -> (column: Int, row: Int) {
             let inverse = 1 / cellSize
             return (
-                max(0, min(columns - 1, Int(x * inverse))),
-                max(0, min(rows - 1, Int(y * inverse)))
+                JS.clampedInt(x * inverse, 0, columns - 1),
+                JS.clampedInt(y * inverse, 0, rows - 1)
             )
         }
     }

@@ -131,15 +131,25 @@ extension PowderEngine {
         let stepX = bestX > x ? 1 : (bestX < x ? -1 : 0)
         let stepY = bestY > y ? 1 : (bestY < y ? -1 : 0)
 
-        // Try the cells heading toward the target first, then every neighbour.
-        // Entries repeat, and that is harmless — the first one that resolves wins.
-        let candidates: [(Int, Int)] = [
+        // Try the cells heading toward the target first, then every neighbour — each one once.
+        //
+        // The list used to repeat entries on the claim that the first one to resolve wins. That holds for water
+        // and fuel, which stop the search, but not for wire, which carries on: with the target straight
+        // across, the cell beside the spark appeared three times, so one wire cell was flooded three times,
+        // could hop up to three sparks, and rolled to burn out three times — nearly a one-in-three chance
+        // rather than the one-in-eight intended.
+        let ordered: [(Int, Int)] = [
             (x + stepX, y + stepY),
             (x + stepX, y),
             (x, y + stepY),
             (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1),
             (x + 1, y + 1), (x + 1, y - 1), (x - 1, y + 1), (x - 1, y - 1),
         ]
+        var candidates: [(Int, Int)] = []
+        candidates.reserveCapacity(ordered.count)
+        for entry in ordered where !candidates.contains(where: { $0 == entry }) {
+            candidates.append(entry)
+        }
 
         for (nx, ny) in candidates {
             guard isValid(nx, ny), !(nx == x && ny == y) else { continue }

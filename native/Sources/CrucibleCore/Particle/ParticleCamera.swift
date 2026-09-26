@@ -119,6 +119,42 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         self.autoOrbitAngle = Self.wrapDegrees(autoOrbitAngle)
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case zoom, panX, panY, yaw, pitch, growsWorldWhenZoomedOut, autoOrbit, autoOrbitAngle
+    }
+
+    /// Read from a file with anything missing taken as its resting value.
+    ///
+    /// The generated reader demanded every field. "Zooming out adds room" arrived eleven commits after the
+    /// camera did, so every scene saved in between failed to read its camera — and a scene whose camera
+    /// could not be read could not be read at all. Every number also goes through the same clamps as
+    /// anything set by hand.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            zoom: (try? c.decodeIfPresent(Double.self, forKey: .zoom)) ?? 1,
+            panX: (try? c.decodeIfPresent(Double.self, forKey: .panX)) ?? 0,
+            panY: (try? c.decodeIfPresent(Double.self, forKey: .panY)) ?? 0,
+            yaw: (try? c.decodeIfPresent(Double.self, forKey: .yaw)) ?? 0,
+            pitch: (try? c.decodeIfPresent(Double.self, forKey: .pitch)) ?? 0,
+            growsWorldWhenZoomedOut: (try? c.decodeIfPresent(Bool.self, forKey: .growsWorldWhenZoomedOut)) ?? true,
+            autoOrbit: (try? c.decodeIfPresent(Bool.self, forKey: .autoOrbit)) ?? false,
+            autoOrbitAngle: (try? c.decodeIfPresent(Double.self, forKey: .autoOrbitAngle)) ?? 0
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(zoom, forKey: .zoom)
+        try c.encode(panX, forKey: .panX)
+        try c.encode(panY, forKey: .panY)
+        try c.encode(yaw, forKey: .yaw)
+        try c.encode(pitch, forKey: .pitch)
+        try c.encode(growsWorldWhenZoomedOut, forKey: .growsWorldWhenZoomedOut)
+        try c.encode(autoOrbit, forKey: .autoOrbit)
+        try c.encode(autoOrbitAngle, forKey: .autoOrbitAngle)
+    }
+
     /// Looking straight down at the whole world, centred.
     public static let identity = ParticleCamera()
 
@@ -477,8 +513,8 @@ extension ParticleCamera {
             let x = Double(positions[pair])
             let y = Double(positions[pair + 1])
             guard x.isFinite, y.isFinite else { continue }
-            columns[max(0, min(lastBin, Int(x * xScale)))] += 1
-            rows[max(0, min(lastBin, Int(y * yScale)))] += 1
+            columns[JS.clampedInt(x * xScale, 0, lastBin)] += 1
+            rows[JS.clampedInt(y * yScale, 0, lastBin)] += 1
             counted += 1
         }
 
@@ -596,12 +632,18 @@ extension ParticleCamera {
         // The screen is two units across and two tall, so fitting a span means dividing two by it.
         // The smaller of the two, so both axes fit rather than one overflowing.
         zoom = Self.clampZoom(min(2 / spanX, 2 / spanY) * room)
+        // With zooming out set to add room, pulling back does not make anything smaller — it grows the world
+        // — so it can never help fit what is already there, and asking for it resized the world under the
+        // framing that had just been measured, so a second fit disagreed with the first. Everything in the
+        // field is inside the world, so the whole world at its true size always fits: never below one.
+        if growsWorldWhenZoomedOut { zoom = max(1, zoom) }
 
         // And centre it. The middle of the projected content, moved to the middle of the screen, in
         // screen points — which is the reverse of what `project` does with the pan.
         let middleX = (lowX + highX) * 0.5
         let middleY = (lowY + highY) * 0.5
-        panX = -middleX * zoom * (viewWidth * 0.5)
-        panY = middleY * zoom * (viewHeight * 0.5)
+        // The picture's scale rather than the zoom, because that is what the projection multiplies by.
+        panX = -middleX * pictureScale * (viewWidth * 0.5)
+        panY = middleY * pictureScale * (viewHeight * 0.5)
     }
 }

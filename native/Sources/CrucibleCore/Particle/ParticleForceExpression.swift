@@ -216,7 +216,10 @@ public struct ParticleForceExpression: Sendable, Hashable {
         // bodies that was most of the fourteen milliseconds the whole pass cost, for arithmetic worth a
         // dozen operations. Thirty-two deep is plenty: the step limit bounds how deeply brackets can nest
         // long before the stack could fill.
-        return withUnsafeTemporaryAllocation(of: Double.self, capacity: 32) { stack in
+        // As deep as the expression could possibly need — never deeper than one number per step. A fixed
+        // thirty-two used to drop whatever went past it, so a deeply nested expression that fitted inside the
+        // length limit quietly gave the wrong answer.
+        return withUnsafeTemporaryAllocation(of: Double.self, capacity: max(32, steps.count + 1)) { stack in
             evaluate(steps: steps, into: stack, inputs: inputs)
         }
     }
@@ -478,11 +481,13 @@ public struct ParticleForceExpression: Sendable, Hashable {
             let lowered = name.lowercased()
 
             // A name followed by a bracket is a call.
+            // Through `take`, which steps over any space first. Stepping one character along instead stepped
+            // over the space and left the bracket behind, so `sin (x)` was refused as a bracket never closed.
             if peek() == "(" {
-                position += 1
+                _ = take("(")
                 var arguments = 0
                 if peek() == ")" {
-                    position += 1
+                    _ = take(")")
                 } else {
                     repeat {
                         try parseExpression()

@@ -352,7 +352,8 @@ struct ParticleTextShapeTests {
         engine.spawnBatch(count: 1_000)
         let before = engine.swarm.count
         let placed = engine.spawnTextCloud(
-            coverage: letterH(width: 256, height: 96), width: 256, height: 96, count: 2_000
+            coverage: letterH(width: 256, height: 96), width: 256, height: 96, count: 2_000,
+            replacingField: false
         )
         #expect(placed == 0)
         #expect(engine.swarm.count == before)

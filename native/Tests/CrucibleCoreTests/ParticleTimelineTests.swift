@@ -307,11 +307,15 @@ struct ParticleTimelineTests {
         )
     }
 
-    @Test("Scrubbing stays inside the timeline and does not start or stop it")
+    /// Past the end by a fixed margin, so there is somewhere to move to and record the next keyframe. Held to
+    /// the end exactly, a timeline of one keyframe had no length and the playhead could not move at all.
+    @Test("Scrubbing reaches a little past the end, and does not start or stop the timeline")
     func scrubbingIsBounded() {
         let out = timeline([(0, .smooth, [.glow: 0]), (4, .smooth, [.glow: 4])])
         let playing = ParticlePlayhead(isPlaying: true, at: 1)
-        #expect(playing.scrubbed(to: 99, through: out).at == 4)
+        #expect(playing.scrubbed(to: 99, through: out).at == 4 + ParticleTimeline.roomToRecord)
+        let single = timeline([(0, .smooth, [.glow: 1])])
+        #expect(ParticlePlayhead().scrubbed(to: 3, through: single).at == 3, "one keyframe left nowhere to go")
         #expect(playing.scrubbed(to: -9, through: out).at == 0)
         #expect(playing.scrubbed(to: 2, through: out).isPlaying, "scrubbing should not stop playback")
         #expect(playing.scrubbed(to: .nan, through: out).at == 0)
@@ -419,7 +423,9 @@ struct ParticleTimelineTests {
         #expect(!loaded.playhead.isPlaying, "a loaded scene should not start playing on its own")
     }
 
-    @Test("A scene with no timeline leaves the current one alone")
+    /// A saved scene with no timeline is a scene with no timeline. This used to keep whatever the field had
+    /// before, so a recording made for one scene went on overwriting the gravity and the glow of the next.
+    @Test("A scene with no timeline has none once loaded")
     func olderScenesHaveNoTimeline() throws {
         let source = ParticleEngine(width: 400, height: 700, seed: 3)
         source.addParticle(x: 10, y: 20, velocityX: 0, velocityY: 0, radius: 2, charge: 0)
@@ -431,7 +437,7 @@ struct ParticleTimelineTests {
             ParticleKeyframe(at: 1, curve: .smooth, values: [.glow: 1])
         ])
         #expect(loaded.apply(state))
-        #expect(loaded.timeline.keyframes.count == 1, "an absent timeline leaves the current one alone")
+        #expect(loaded.timeline.keyframes.isEmpty, "the previous field's recording was carried into this one")
     }
 
     @Test("A hand-edited timeline is put in order on the way in")
@@ -463,5 +469,14 @@ struct ParticleTimelineTests {
         let head = ParticlePlayhead(isPlaying: true, at: 1.25)
         let headBytes = try JSONEncoder().encode(head)
         #expect(try JSONDecoder().decode(ParticlePlayhead.self, from: headBytes) == head)
+    }
+
+    @Test("A stopped timeline does not pin the settings it records")
+    func stoppedTimelineLeavesSettingsAlone() {
+        let engine = ParticleEngine(width: 400, height: 700, seed: 1)
+        engine.timeline = timeline([(0, .smooth, [.gravityY: 0.3])])
+        engine.gravityY = 0.9
+        engine.step()
+        #expect(engine.gravityY == 0.9, "a slider moved while the timeline was stopped snapped back")
     }
 }

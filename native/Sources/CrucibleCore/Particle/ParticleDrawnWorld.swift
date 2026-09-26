@@ -37,6 +37,37 @@ public struct ParticleCurrentField: Sendable, Hashable, Codable {
         self.vectors = [Double](repeating: 0, count: size * size * 2)
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case resolution
+        case vectors
+    }
+
+    /// Read from a file with every number checked.
+    ///
+    /// The generated reader took the grid size and the list of pushes on trust, separately. A file saying
+    /// twenty-four squares across but carrying two numbers crashed the app on the first moment, looking up a
+    /// square that was not there. A size out of range, or a list that does not match it, now loads as no wind
+    /// at all rather than as a crash.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let asked = (try? container.decode(Int.self, forKey: .resolution)) ?? Self.defaultResolution
+        let size = max(Self.minimumResolution, min(Self.maximumResolution, asked))
+        let saved = (try? container.decode([Double].self, forKey: .vectors)) ?? []
+        self.resolution = size
+        if size == asked, saved.count == size * size * 2 {
+            // Each push is a direction of at most unit length, so anything else is pulled back into range.
+            self.vectors = saved.map { $0.isFinite ? max(-1, min(1, $0)) : 0 }
+        } else {
+            self.vectors = [Double](repeating: 0, count: size * size * 2)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(resolution, forKey: .resolution)
+        try container.encode(vectors, forKey: .vectors)
+    }
+
     /// Whether anything has been painted.
     ///
     /// Tracked by looking rather than by a flag, because a flag would have to be kept right through
@@ -72,6 +103,43 @@ public struct ParticleCurrentField: Sendable, Hashable, Codable {
         }
         resolution = size
         vectors = resampled
+    }
+
+    /// The same wind, laid over a world that has been resized round it.
+    ///
+    /// - Parameters:
+    ///   - fromWidth: the world's width before.
+    ///   - toWidth: after.
+    ///   - shiftX: how far everything in the world was moved across, in pixels.
+    ///
+    /// The wind is painted in fractions of the world, so without this, growing the world stretched every
+    /// painted current across the new, larger world — while the bodies it was painted to steer stayed where
+    /// they were, in the middle. Now the painted part stays under the bodies it was painted for, and the new
+    /// room round the edge is still air.
+    public func refitted(
+        fromWidth: Double,
+        fromHeight: Double,
+        toWidth: Double,
+        toHeight: Double,
+        shiftX: Double,
+        shiftY: Double
+    ) -> ParticleCurrentField {
+        guard !isEmpty, fromWidth > 0, fromHeight > 0, toWidth > 0, toHeight > 0 else { return self }
+        var out = ParticleCurrentField(resolution: resolution)
+        for row in 0 ..< resolution {
+            for column in 0 ..< resolution {
+                let newX = (Double(column) + 0.5) / Double(resolution) * toWidth
+                let newY = (Double(row) + 0.5) / Double(resolution) * toHeight
+                let oldX = (newX - shiftX) / fromWidth
+                let oldY = (newY - shiftY) / fromHeight
+                guard oldX >= 0, oldX <= 1, oldY >= 0, oldY <= 1 else { continue }
+                let push = sample(atFractionX: oldX, y: oldY)
+                let at = (row * resolution + column) * 2
+                out.vectors[at] = push.x
+                out.vectors[at + 1] = push.y
+            }
+        }
+        return out
     }
 
     /// Paints a push in a direction, softly, around a place.
@@ -412,12 +480,34 @@ public enum SwarmDrawnWorld {
                 let nowSide = gapX * outX + gapY * outY
                 // Either resting against it, or it has crossed to the other side since the last frame.
                 let touching = gapSquared < thicknessSquared
-                let crossed = nowSide < 0 && wasSide != 0
+                // Crossed means the path it took this moment actually passes through the wall — not merely
+                // that it changed sides of the endless line the wall happens to lie on. That was the old test,
+                // and it grabbed any body crossing that line anywhere along it: a body passing three hundred
+                // pixels beyond the end of a wall was snatched sideways onto the wall's tip.
+                var crossed = false
+                var crossingAlong = along
+                if nowSide < 0, wasSide != 0 {
+                    let moveX = x - cameFromX
+                    let moveY = y - cameFromY
+                    let denominator = moveX * segment.alongY - moveY * segment.alongX
+                    if denominator != 0 {
+                        let startX = segment.fromX - cameFromX
+                        let startY = segment.fromY - cameFromY
+                        let throughMove = (startX * segment.alongY - startY * segment.alongX) / denominator
+                        let throughWall = (startX * moveY - startY * moveX) / denominator
+                        if throughMove >= 0, throughMove <= 1, throughWall >= 0, throughWall <= 1 {
+                            crossed = true
+                            crossingAlong = throughWall
+                        }
+                    }
+                }
                 guard touching || crossed else { continue }
 
-                // Put back onto the near face.
-                x = nearestX + outX * thickness
-                y = nearestY + outY * thickness
+                // Put back onto the near face — where it went through, if it went through.
+                let faceX = crossed ? segment.fromX + segment.alongX * crossingAlong : nearestX
+                let faceY = crossed ? segment.fromY + segment.alongY * crossingAlong : nearestY
+                x = faceX + outX * thickness
+                y = faceY + outY * thickness
 
                 // And turned around, if it was heading in.
                 let intoWall = velX * outX + velY * outY

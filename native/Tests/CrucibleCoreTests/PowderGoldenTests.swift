@@ -178,7 +178,14 @@ struct PowderGoldenTests {
     /// for this one scenario is retired rather than regenerated. What replaces it is
     /// `LaserTests`, which asserts what a beam is supposed to do instead of what the reference
     /// happened to do. The other thirty-seven are untouched and still compared cell for cell.
-    static let comparedScenarios = fixture.scenarios.filter { $0.name != "laser-stops-at-bedrock" }
+    ///
+    /// A second is retired for the same reason. `spark-seeks-water-along-wire` recorded a spark that
+    /// visited the cell beside it up to three times in one search — flooding the same wire three times and
+    /// rolling to burn it out three times — because the list of places to look repeated itself. Each place
+    /// is now looked at once, and `PowderIntentTests` checks that a spark still runs along a wire to water.
+    static let retiredScenarios: Set<String> = ["laser-stops-at-bedrock", "spark-seeks-water-along-wire"]
+
+    static let comparedScenarios = fixture.scenarios.filter { !retiredScenarios.contains($0.name) }
 
     @Test("The fixture loaded and covers every scenario")
     func fixtureLoads() {
@@ -243,14 +250,22 @@ struct PowderGoldenTests {
     func momentumMatches(scenario: Scenario) {
         let engine = play(scenario)
 
+        // Only where there is material. The reference's blasts left momentum in empty air, where nothing
+        // ever damps it and the next grain to drift in is launched by it long afterwards; the native engine no
+        // longer does. The cells themselves are compared exactly elsewhere and still match, so comparing the
+        // momentum of what is actually there loses nothing but the fault.
         var produced: [[Int]] = []
-        for i in 0 ..< engine.cellCount where engine.velocityX[i] != 0 || engine.velocityY[i] != 0 {
+        for i in 0 ..< engine.cellCount
+        where (engine.velocityX[i] != 0 || engine.velocityY[i] != 0) && engine.type[i] != Element.empty {
             produced.append([i, Int(engine.velocityX[i]), Int(engine.velocityY[i])])
+        }
+        let expected = scenario.velocityNonZero.filter { entry in
+            entry[0] >= 0 && entry[0] < engine.cellCount && engine.type[entry[0]] != Element.empty
         }
 
         #expect(
-            produced == scenario.velocityNonZero,
-            "\(scenario.name): momentum differs. native \(produced), web \(scenario.velocityNonZero)"
+            produced == expected,
+            "\(scenario.name): momentum differs. native \(produced), web \(expected)"
         )
     }
 

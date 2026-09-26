@@ -345,7 +345,8 @@ extension ParticleEngine {
                             bodies[i].x = 10
                             bodies[i].trail.removeAll()
                         }
-                        let wavelength = 120.0
+                        // The strand's size is its scale: one for the original, larger on a larger field.
+                        let wavelength = 120.0 * max(1, abs(strand))
                         let angle = (bodies[i].x / wavelength) * Double.pi * 2
                         let targetY = worldHeight / 2 + jsSin(angle) * 50 * strand
                         bodies[i].velocityY += (targetY - bodies[i].y) * 0.2
@@ -629,6 +630,23 @@ extension ParticleEngine {
             )
         }
 
+        // Black holes and repulsors reach the crowd as well as the object bodies. See
+        // `Swarm.applyAttractors` for why.
+        var attractors: [Swarm.Attractor] = []
+        for body in particles where body.kind == .blackhole || body.kind == .repulsor {
+            guard body.x.isFinite, body.y.isFinite else { continue }
+            attractors.append(Swarm.Attractor(
+                x: body.x,
+                y: body.y,
+                mass: body.mass,
+                radius: body.radius,
+                repels: body.kind == .repulsor
+            ))
+        }
+        if !attractors.isEmpty {
+            swarm.applyAttractors(attractors, span: min(width, height), rng: &rng)
+        }
+
         let effect = swarmMouseEffect
         swarm.step(Swarm.StepOptions(
             width: width,
@@ -646,7 +664,8 @@ extension ParticleEngine {
             mouseForce: mouseForceMultiplier * (mouseMode == .hawk ? 2.4 : 1),
             mouseRadius: mouseRadius,
             attract: effect.attract,
-            contact: contactSettings.sanitized
+            contact: contactSettings.sanitized,
+            deferAgeing: !storedWalls.isEmpty
         ))
 
         // After the move, because a wall is about where something has got to rather than where it was
@@ -663,6 +682,7 @@ extension ParticleEngine {
                     height: height
                 )
             }
+            if swarm.hasMortalBodies { swarm.age(by: 1) }
         }
     }
 

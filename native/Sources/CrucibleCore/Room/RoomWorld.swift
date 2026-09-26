@@ -330,8 +330,8 @@ extension PowderEngine {
         // has to be complete in every respect the fingerprint covers by then.
         let previousGravityX = gravityX
         let previousGravityY = gravityY
-        if world.gravityX.isFinite { gravityX = world.gravityX }
-        if world.gravityY.isFinite { gravityY = world.gravityY }
+        if world.gravityX.isFinite { gravityX = Self.usableGravity(world.gravityX) }
+        if world.gravityY.isFinite { gravityY = Self.usableGravity(world.gravityY) }
 
         guard adoptCompactCells(world.cells, width: world.width, height: world.height) else {
             // Put back, so a refused frame really does leave everything as it was.

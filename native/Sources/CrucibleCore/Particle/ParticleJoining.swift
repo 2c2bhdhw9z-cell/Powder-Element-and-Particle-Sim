@@ -1,0 +1,306 @@
+/// Adding bodies that take part in what the field is doing.
+///
+/// ## What was wrong
+///
+/// Adding bodies always did the same thing whatever was on screen: it scattered them in a ring round the
+/// middle with random speeds. Ten thousand bodies added to a galaxy ignored the black hole and flew about
+/// through the disc; bodies added to a sunflower were a fog over it; bodies added to a fire did not burn.
+/// The one exception was a small batch dropped into a galaxy, which quietly went into orbit — and nothing
+/// said so, and it stopped working past four thousand.
+///
+/// ## What joining means
+///
+/// It depends on what the arrangement is, and ``ParticleArrangement/Joining`` names the four kinds:
+///
+///   - **Orbit.** New bodies go into orbit round the black holes, at the distances the arrangement's own
+///     bodies orbit at. Each one is a copy of a body already orbiting, turned to a random place round the
+///     same centre — which puts it on an orbit that is known to work, rather than on one worked out afresh
+///     that might not suit a pair of wells.
+///   - **Crowd.** New bodies copy a body of the crowd: its speed, colour, weight and how long it has left,
+///     and its place in a shape if it holds one. A sunflower gets denser, a fire gets hotter, a pour gets
+///     deeper.
+///   - **Objects.** The same, for arrangements whose behaviour belongs to the object list — a flare's
+///     recycling, a helix's strands, a flock's steering. The object list is the expensive one, so there is
+///     a ceiling on how many can join, and the caller is told how many did.
+///   - **Structure.** A cloth or a rope is a built thing, so adding to it builds another.
+///
+/// Turned off, adding scatters bodies exactly as it always has — somebody who wants to see what a galaxy
+/// does to a crowd dropped into it can still have that.
+extension ParticleEngine {
+    /// The most object bodies joining may bring the field to.
+    ///
+    /// The object list carries a dozen properties a body and is copied whole for every undo point, so it is
+    /// kept to a size where both stay quick. The crowd has no such limit, which is why most arrangements
+    /// join through it.
+    public static let joinedObjectLimit = 8_000
+
+    /// Whether new sources should pour bodies that join the arrangement.
+    ///
+    /// Set by the interface from the same switch as adding bodies, so a source placed in a galaxy pours a
+    /// stream that goes into orbit rather than one that falls through the disc.
+    public var joinsArrangement: Bool {
+        get { storedJoinsArrangement }
+        set { storedJoinsArrangement = newValue }
+    }
+
+    /// Adds bodies that take part in the arrangement, or scatters them if there is nothing to join.
+    ///
+    /// - Returns: how many bodies were added. For a structure, that is the size of the one built — the
+    ///   count asked for is not meaningful for "another rope".
+    @discardableResult
+    public func spawnJoining(count requested: Int) -> Int {
+        let before = bodyCount
+        guard let details = arrangementDetails, canJoinArrangement else {
+            spawnBatch(count: requested)
+            return bodyCount - before
+        }
+        pushUndo()
+        switch details.joining {
+        case .orbit:
+            joinOrbit(count: requested)
+        case .crowd:
+            joinCrowd(count: requested)
+        case .objects:
+            joinObjects(count: requested, flock: details.id == "flock")
+        case .structure:
+            joinStructure(details.id)
+        case .none:
+            break
+        }
+        return max(0, bodyCount - before)
+    }
+
+    // MARK: - Orbit
+
+    private func joinOrbit(count requested: Int) {
+        let room = max(0, maxParticles - particles.count - swarm.count)
+        let total = min(requested, room)
+        guard total > 0 else { return }
+
+        let holes = particles.filter { $0.kind == .blackhole && $0.x.isFinite && $0.y.isFinite }
+        guard !holes.isEmpty else {
+            // The black holes have gone — somebody undid them, or loaded something odd. Nothing to orbit.
+            joinCrowd(count: total)
+            return
+        }
+
+        // Bodies already orbiting, to copy. Object bodies first, since those are the arrangement's own.
+        let members = particles.indices.filter { index in
+            let body = particles[index]
+            return body.kind == .standard && !body.isFixed && body.ignoresGravity && body.isFinite
+        }
+        let budget = maxParticles - particles.count
+
+        func nearestHole(toX x: Double, y: Double) -> ParticleObject {
+            var best = holes[0]
+            var bestDistance = Double.infinity
+            for hole in holes {
+                let dx = hole.x - x
+                let dy = hole.y - y
+                let distance = dx * dx + dy * dy
+                if distance < bestDistance {
+                    bestDistance = distance
+                    best = hole
+                }
+            }
+            return best
+        }
+
+        for _ in 0 ..< total {
+            var x: Double
+            var y: Double
+            var velX: Double
+            var velY: Double
+            var colour: UInt32
+
+            if !members.isEmpty {
+                let member = particles[members[Int(rng.next() * Double(members.count)) % members.count]]
+                // Turned about whatever it orbits: its own recorded centre when it has one — which is how a
+                // synchrotron's bodies circle the midpoint between its wells — and otherwise the nearest hole.
+                let centreX: Double
+                let centreY: Double
+                if let originX = member.originX, let originY = member.originY {
+                    centreX = originX
+                    centreY = originY
+                } else {
+                    let hole = nearestHole(toX: member.x, y: member.y)
+                    centreX = hole.x
+                    centreY = hole.y
+                }
+                let turn = rng.next() * Double.pi * 2
+                let c = jsCos(turn)
+                let s = jsSin(turn)
+                // A little further in or out, with the speed adjusted to match, so the new bodies fill the
+                // disc rather than landing exactly on the orbits that already exist.
+                let stretch = 0.92 + rng.next() * 0.16
+                let offsetX = (member.x - centreX) * stretch
+                let offsetY = (member.y - centreY) * stretch
+                x = centreX + offsetX * c - offsetY * s
+                y = centreY + offsetX * s + offsetY * c
+                let slow = 1 / stretch.squareRoot()
+                velX = (member.velocityX * c - member.velocityY * s) * slow
+                velY = (member.velocityX * s + member.velocityY * c) * slow
+                colour = member.color.packedRGBA
+            } else {
+                let hole = holes[Int(rng.next() * Double(holes.count)) % holes.count]
+                let distance = rng.next() * (patternSpan * 0.4) + 30 * sceneScale
+                let angle = rng.next() * Double.pi * 2
+                let speed = (hole.mass * 200 / distance).squareRoot()
+                x = hole.x + jsCos(angle) * distance
+                y = hole.y + jsSin(angle) * distance
+                velX = -jsSin(angle) * speed
+                velY = jsCos(angle) * speed
+                colour = PackedColor(hue: (distance * 2.8).truncatingRemainder(dividingBy: 360), saturation: 0.95, lightness: 0.7)
+                    .packedRGBA
+            }
+
+            guard swarm.append(
+                x: x,
+                y: y,
+                velocityX: velX,
+                velocityY: velY,
+                color: colour,
+                budget: budget,
+                role: .orbits
+            ) else { return }
+        }
+    }
+
+    // MARK: - Crowd
+
+    private func joinCrowd(count requested: Int) {
+        let room = max(0, maxParticles - particles.count - swarm.count)
+        let total = min(requested, room)
+        guard total > 0 else { return }
+
+        let existing = swarm.count
+        guard existing > 0 else {
+            // Between shells, or after a storm's last bolt has faded, there is nobody to copy. Scatter them
+            // rather than refusing, so the button never silently does nothing.
+            swarm.spawn(count: total, width: width, height: height, color: 0, budget: maxParticles - particles.count, rng: &rng)
+            return
+        }
+
+        let budget = maxParticles - particles.count
+        let nudge = 0.004 * patternSpan
+        for _ in 0 ..< total {
+            // Copied from the bodies there were before this press, so a large addition copies the
+            // arrangement rather than copies of copies of one unlucky body.
+            let source = Int(rng.next() * Double(existing)) % existing
+            let pair = source * 2
+            var velX = Double(swarm.velocities[pair]) + (rng.next() - 0.5) * 0.2
+            var velY = Double(swarm.velocities[pair + 1]) + (rng.next() - 0.5) * 0.2
+            let mass = Double(swarm.masses[source])
+            let left = Double(swarm.lives[source])
+            // A body that will expire gets a fresh share of what its original started with, so a thousand
+            // embers added at once do not all go out on the same moment.
+            let life = left < 0 ? -1 : max(1, Double(swarm.maxLives[source]) * (0.5 + rng.next() * 0.5))
+            let role = swarm.role(at: source)
+            var home = swarm.home(at: source)
+            var x: Double
+            var y: Double
+            if var place = home {
+                if place.radius > 0 {
+                    place.radius *= 0.98 + rng.next() * 0.04
+                    place.angle += (rng.next() - 0.5) * 0.04
+                } else {
+                    place.anchorX += (rng.next() - 0.5) * 2 * nudge
+                    place.anchorY += (rng.next() - 0.5) * 2 * nudge
+                }
+                home = place
+                let point = place.point
+                x = point.x
+                y = point.y
+            } else {
+                x = Double(swarm.positions[pair]) + (rng.next() - 0.5) * 2 * nudge
+                y = Double(swarm.positions[pair + 1]) + (rng.next() - 0.5) * 2 * nudge
+            }
+            if !x.isFinite || !y.isFinite {
+                x = width * 0.5
+                y = height * 0.5
+                velX = 0
+                velY = 0
+            }
+            guard swarm.append(
+                x: x,
+                y: y,
+                velocityX: velX,
+                velocityY: velY,
+                color: swarm.colors[source],
+                budget: budget,
+                mass: mass,
+                life: life,
+                role: role,
+                home: home
+            ) else { return }
+        }
+    }
+
+    // MARK: - Objects
+
+    private func joinObjects(count requested: Int, flock: Bool) {
+        var ceiling = Self.joinedObjectLimit
+        // Only the first so many bodies flock at all, so bodies past that would sit among the flock ignoring
+        // it — which is exactly what joining is meant to stop.
+        if flock { ceiling = min(ceiling, flockSettings.sanitized.limit) }
+        let room = max(0, min(ceiling - particles.count, maxParticles - particles.count - swarm.count))
+        let total = min(requested, room)
+        guard total > 0 else { return }
+
+        let members = particles.indices.filter { index in
+            let body = particles[index]
+            return body.kind == .standard && !body.isFixed && body.isFinite
+        }
+        guard !members.isEmpty else { return }
+        let nudge = 3 * sceneScale
+
+        for _ in 0 ..< total {
+            let member = particles[members[Int(rng.next() * Double(members.count)) % members.count]]
+            // A share of what it started with, so the new ones do not all recycle on the same moment.
+            let life: Int? = member.lifespan.map { _ in
+                let longest = max(1, member.maxLife ?? 100)
+                return max(1, Int((rng.next() * Double(longest)).rounded(.down)))
+            }
+            addParticle(
+                x: member.x + (rng.next() - 0.5) * 2 * nudge,
+                y: member.y + (rng.next() - 0.5) * 2 * nudge,
+                velocityX: member.velocityX + (rng.next() - 0.5) * 0.3,
+                velocityY: member.velocityY + (rng.next() - 0.5) * 0.3,
+                radius: member.radius,
+                mass: member.mass,
+                charge: member.charge,
+                color: member.color,
+                lifespan: life,
+                maxLife: member.maxLife,
+                ignoresGravity: member.ignoresGravity,
+                originX: member.originX,
+                originY: member.originY,
+                latticeBound: member.latticeBound,
+                helixStrand: member.helixStrand,
+                kind: .standard
+            )
+        }
+    }
+
+    // MARK: - Structures
+
+    private func joinStructure(_ id: String) {
+        switch id {
+        case "rope":
+            addRope(length: 32, atX: width * (0.12 + rng.next() * 0.76))
+        case "blob":
+            addBlob(nodes: 24, centreX: width * (0.2 + rng.next() * 0.6), centreY: height * (0.15 + rng.next() * 0.3))
+        case "cloth":
+            addCloth(
+                cols: 10,
+                rows: 8,
+                centreX: width * (0.25 + rng.next() * 0.5),
+                top: height * (0.05 + rng.next() * 0.35)
+            )
+        case "molecules":
+            addMolecules(count: 60, laidOut: false)
+        default:
+            break
+        }
+    }
+}

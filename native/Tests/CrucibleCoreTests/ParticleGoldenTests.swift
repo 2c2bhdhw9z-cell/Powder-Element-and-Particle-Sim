@@ -101,6 +101,22 @@ struct ParticleGoldenTests {
         var scenarios: [Scenario]
     }
 
+    /// Scenarios retired from the comparison, and why.
+    ///
+    /// Both scenes were rebuilt because the reference's versions did not do what they were named for, and
+    /// holding the rebuilt ones to its output would be holding them to the fault. See `PORT-STATUS.md`.
+    ///
+    ///   - **pour-fluid-mode.** Laid its liquid into the object list, which neither the fluid nor collisions
+    ///     act on, so it was four hundred beads falling through one another. Now made of the crowd.
+    ///   - **nbody-mutual-gravity.** Laid its bodies into the object list, which gravity between bodies does
+    ///     not act on, so nothing pulled on anything. Now made of the crowd.
+    ///
+    /// Replaced by `ParticleArrangementTests`, which check what each is meant to do.
+    static let retired: Set<String> = ["pour-fluid-mode", "nbody-mutual-gravity"]
+
+    /// The scenarios still compared.
+    static let compared: [Scenario] = fixture.scenarios.filter { !retired.contains($0.name) }
+
     static let fixture: Fixture = {
         guard let url = Bundle.module.url(
             forResource: "web-particle-golden",
@@ -313,7 +329,7 @@ struct ParticleGoldenTests {
         #expect(Self.fixture.scenarios.count >= 38)
     }
 
-    @Test("Every body matches the web engine", arguments: fixture.scenarios)
+    @Test("Every body matches the web engine", arguments: compared)
     func bodiesMatch(scenario: Scenario) {
         let engine = play(scenario)
         let actual = engine.particles.map(Self.line(for:))
@@ -345,7 +361,7 @@ struct ParticleGoldenTests {
         }
     }
 
-    @Test("Springs match the web engine", arguments: fixture.scenarios)
+    @Test("Springs match the web engine", arguments: compared)
     func springsMatch(scenario: Scenario) {
         let engine = play(scenario)
         let actual = engine.springs.map { spring in
@@ -354,7 +370,7 @@ struct ParticleGoldenTests {
         #expect(actual == scenario.springs, "\(scenario.name): spring set differs")
     }
 
-    @Test("The swarm matches the web engine", arguments: fixture.scenarios)
+    @Test("The swarm matches the web engine", arguments: compared)
     func swarmMatches(scenario: Scenario) {
         let engine = play(scenario)
         #expect(
@@ -405,7 +421,7 @@ struct ParticleGoldenTests {
         )
     }
 
-    @Test("The random stream is consumed identically", arguments: fixture.scenarios)
+    @Test("The random stream is consumed identically", arguments: compared)
     func drawCountsMatch(scenario: Scenario) {
         let engine = play(scenario)
         // A generous ceiling: enough to find the real count, bounded so a mismatch fails
@@ -424,7 +440,7 @@ struct ParticleGoldenTests {
 
     @Test("The whole field's population matches")
     func populationMatches() {
-        for scenario in Self.fixture.scenarios {
+        for scenario in Self.compared {
             let engine = play(scenario)
             #expect(
                 engine.bodyCount == scenario.bodyCount,

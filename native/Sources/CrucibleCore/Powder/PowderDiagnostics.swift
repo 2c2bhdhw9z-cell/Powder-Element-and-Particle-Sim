@@ -38,6 +38,14 @@ public struct PowderDiagnostics: Sendable {
 }
 
 extension PowderEngine {
+    /// A temperature as a whole number of degrees, whatever it is. Past what a whole number can hold it is
+    /// held at the limit rather than crashing the report that exists to find exactly such values.
+    static func whole(_ value: Double) -> Int {
+        JS.clampedInt(JS.round(value), -1_000_000_000, 1_000_000_000)
+    }
+}
+
+extension PowderEngine {
     /// Bytes of grid state per cell.
     ///
     /// Element 2, temperature 4, lifetime 2, visited mark 1, two momentum bytes, and two
@@ -73,22 +81,24 @@ extension PowderEngine {
         var sumTemp = 0.0
         var readableTempCount = 0
 
+        let table = registry.table
         for i in 0 ..< cellCount {
             var cellIsCorrupt = false
             let id = type[i]
             if id != Element.empty {
                 activeCells += 1
-                // Bounded by what the registry can describe. A looser bound left a band of
-                // ids that drew as air, behaved as air, were invisible to this count,
-                // could not be cleared by any repair, and still counted as real particles
-                // forever.
-                if id > Element.customIDEnd {
+                // Anything the registry does not describe — past the end of it, or a custom material that
+                // has since been deleted. Checking only the end left deleted materials in the grid,
+                // behaving as air, counted as real, and reported healthy.
+                if id > Element.customIDEnd || !table[id].isDefined {
                     corruptTypeCount += 1
                     cellIsCorrupt = true
                 }
             }
             let t = Double(temperature[i])
-            if t.isNaN {
+            // Infinite as well as not a number. An infinite temperature used to reach the whole-number
+            // conversion below and crash the report — and the automatic repair, which reads it first.
+            if !t.isFinite {
                 unreadableTempCount += 1
                 cellIsCorrupt = true
             } else {
@@ -114,7 +124,7 @@ extension PowderEngine {
         }
         if sawTemp, maxTemp > Self.hottestReasonable || minTemp < Self.coldestReasonable {
             issues.append(
-                "Thermal extremes detected (\(Int(JS.round(minTemp)))°C to \(Int(JS.round(maxTemp)))°C)"
+                "Thermal extremes detected (\(Self.whole(minTemp))°C to \(Self.whole(maxTemp))°C)"
             )
         }
         if totalCellsExceedDensity(activeCells) {
@@ -132,9 +142,9 @@ extension PowderEngine {
             loadPercentage: cellCount > 0
                 ? Int(JS.round(Double(activeCells) / Double(cellCount) * 100))
                 : 0,
-            maxTemp: Int(sawTemp ? JS.round(maxTemp) : JS.round(ambientTemp)),
-            minTemp: Int(sawTemp ? JS.round(minTemp) : JS.round(ambientTemp)),
-            avgTemp: Int(avgTemp),
+            maxTemp: Self.whole(sawTemp ? maxTemp : ambientTemp),
+            minTemp: Self.whole(sawTemp ? minTemp : ambientTemp),
+            avgTemp: Self.whole(avgTemp),
             memoryBytes: cellCount * Self.bytesPerCell,
             frameCount: frameCount,
             gravityX: gravityX,
@@ -154,7 +164,10 @@ extension PowderEngine {
     public func flushStuckCells() -> Int {
         var cleared = 0
         visited.update(repeating: 0, count: cellCount)
-        for i in 0 ..< cellCount where type[i] > Element.customIDEnd {
+        let table = registry.table
+        for i in 0 ..< cellCount where type[i] != Element.empty
+            && (type[i] > Element.customIDEnd || !table[type[i]].isDefined)
+        {
             // Emptied completely. Clearing only the element and its temperature left the
             // cell holding the lifetime and momentum of whatever had been there, so the
             // next thing to occupy it inherited a stranger's motion and a countdown to
@@ -176,7 +189,7 @@ extension PowderEngine {
         let ambient = JS.toFloat32(ambientTemp)
         for i in 0 ..< cellCount {
             let t = Double(temperature[i])
-            if t.isNaN || t > Self.hottestReasonable || t < Self.coldestReasonable {
+            if !t.isFinite || t > Self.hottestReasonable || t < Self.coldestReasonable {
                 // The world's own ambient, not a hardcoded room temperature. Half the
                 // repairs used one and half the other, so on a world set to forty below
                 // they disagreed with each other and with the physics being restored.
@@ -390,12 +403,10 @@ extension PowderEngine {
             steps.append("Returned \(normaliseTemperatures()) unusable temperatures to ambient.")
         }
 
-        let purged = purgeOutOfBounds()
-        if purged > 0 {
-            steps.append("Cleared \(purged) cells wedged against the world frame.")
-        }
-
-        // Note: the perimeter is deliberately not sealed here. See `sealBedrockBorders`.
+        // Note: neither the edge nor the perimeter is touched here. Clearing everything along the frame is a
+        // repair of its own behind its own button, not part of an automatic pass: done automatically it
+        // deleted the edges of perfectly healthy scenes — twenty-five cells of a beach, fixing an unrelated
+        // fault — which is the same objection that keeps `sealBedrockBorders` out of here.
 
         resetScratchBuffers()
         steps.append("Reset the per-tick movement marks.")

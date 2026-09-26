@@ -75,8 +75,12 @@ public final class SwarmGravity {
     /// distant pull, which is discussed under the approximation above.
     private var farX: [Double] = []
     private var farY: [Double] = []
-    /// Which bodies are in each square, for the near ring.
-    private let near = SwarmGrid()
+    /// Where each square's bodies begin in ``order``, and where they end — the next square's beginning.
+    private var cellStart: [Int32] = []
+    /// Every body, sorted by the square it is in.
+    private var order: [Int32] = []
+    /// Which square each body is in, while sorting.
+    private var bodyCell: [Int32] = []
 
     public init() {}
 
@@ -184,14 +188,17 @@ public final class SwarmGravity {
 
         // The near ring is found with the general-purpose grid, sized so that one of its squares is one
         // of the mass grid's — so "the eight around me" means the same thing to both.
-        near.build(
-            positions: swarm.positions,
-            count: bodies,
-            width: width,
-            height: height,
-            cellSize: min(cellWidth, cellHeight)
-        )
-        guard let ring = near.storage() else { return }
+        // Which bodies are in each square, sorted by square, on exactly the grid the lumps are made on.
+        //
+        // This used to be a separate grid of *square* cells as wide as the narrower side of these. On any
+        // world that is not square — which is every phone — the two did not line up: the near part looked
+        // one small square either way while the far part left out one tall rectangle either way, so a band
+        // above and below every body was counted by neither, and a heavy body twenty pixels away could
+        // pull on nothing at all. It also silently dropped anything past the forty-eighth body in a square,
+        // which gravity, pulling everything together, makes common.
+        if cellStart.count < cells + 1 { cellStart = [Int32](repeating: 0, count: cells + 1) }
+        if order.count < bodies { order = [Int32](repeating: 0, count: bodies) }
+        if bodyCell.count < bodies { bodyCell = [Int32](repeating: 0, count: bodies) }
 
         let positions = swarm.positions
         let velocities = swarm.velocities
@@ -220,8 +227,8 @@ public final class SwarmGravity {
                 let x = Double(positions[pair])
                 let y = Double(positions[pair + 1])
                 guard x.isFinite, y.isFinite else { continue }
-                let column = max(0, min(lastColumn, Int(x / cellWidth)))
-                let row = max(0, min(lastRow, Int(y / cellHeight)))
+                let column = JS.clampedInt(x / cellWidth, 0, lastColumn)
+                let row = JS.clampedInt(y / cellHeight, 0, lastRow)
                 let cell = row * columns + column
                 // Weighted, so a cell holding one heavy body pulls as hard as one holding several light
                 // ones — and its centre of mass sits where the weight is rather than where the count is.
@@ -234,6 +241,34 @@ public final class SwarmGravity {
             for cell in 0 ..< cells where mass[cell] > 0 {
                 centreX[cell] /= mass[cell]
                 centreY[cell] /= mass[cell]
+            }
+
+            cellStart.withUnsafeMutableBufferPointer { start in
+            order.withUnsafeMutableBufferPointer { sorted in
+            bodyCell.withUnsafeMutableBufferPointer { home in
+                for cell in 0 ... cells { start[cell] = 0 }
+                for index in 0 ..< bodies {
+                    let pair = index * 2
+                    let x = Double(positions[pair])
+                    let y = Double(positions[pair + 1])
+                    guard x.isFinite, y.isFinite else {
+                        home[index] = -1
+                        continue
+                    }
+                    let cell = JS.clampedInt(y / cellHeight, 0, lastRow) * columns
+                        + JS.clampedInt(x / cellWidth, 0, lastColumn)
+                    home[index] = Int32(cell)
+                    start[cell + 1] += 1
+                }
+                for cell in 0 ..< cells { start[cell + 1] += start[cell] }
+                var fill = [Int32](start[0 ..< cells])
+                for index in 0 ..< bodies where home[index] >= 0 {
+                    let cell = Int(home[index])
+                    sorted[Int(fill[cell])] = Int32(index)
+                    fill[cell] += 1
+                }
+            }
+            }
             }
 
             // MARK: What each square feels from every distant square
@@ -290,29 +325,27 @@ public final class SwarmGravity {
                 let y = Double(positions[pair + 1])
                 guard x.isFinite, y.isFinite else { continue }
 
-                let column = max(0, min(lastColumn, Int(x / cellWidth)))
-                let row = max(0, min(lastRow, Int(y / cellHeight)))
+                let column = JS.clampedInt(x / cellWidth, 0, lastColumn)
+                let row = JS.clampedInt(y / cellHeight, 0, lastRow)
                 var pullX = distantX[row * columns + column]
                 var pullY = distantY[row * columns + column]
 
                 // Everything close by, one body at a time. Itself left out — the reference
                 // implementation leaves a body's own mass in its own square's lump, so every body there
                 // is pulled toward where it already is.
-                let (ownColumn, ownRow) = ring.cell(atX: x, y: y)
-                var scanRow = max(0, ownRow - 1)
-                let ringLastRow = min(ring.rows - 1, ownRow + 1)
-                let ringFirstColumn = max(0, ownColumn - 1)
-                let ringLastColumn = min(ring.columns - 1, ownColumn + 1)
-                while scanRow <= ringLastRow {
-                    let rowStart = scanRow * ring.columns
-                    var scanColumn = ringFirstColumn
-                    while scanColumn <= ringLastColumn {
+                var scanRow = max(0, row - 1)
+                let nearLastRow = min(lastRow, row + 1)
+                let nearFirstColumn = max(0, column - 1)
+                let nearLastColumn = min(lastColumn, column + 1)
+                while scanRow <= nearLastRow {
+                    let rowStart = scanRow * columns
+                    var scanColumn = nearFirstColumn
+                    while scanColumn <= nearLastColumn {
                         let cell = rowStart + scanColumn
-                        let filled = Int(ring.counts[cell])
-                        let base = cell * ring.stride
-                        var slot = 0
-                        while slot < filled {
-                            let other = Int(ring.entries[base + slot])
+                        var slot = Int(cellStart[cell])
+                        let end = Int(cellStart[cell + 1])
+                        while slot < end {
+                            let other = Int(order[slot])
                             slot += 1
                             guard other != index else { continue }
                             let otherPair = other * 2

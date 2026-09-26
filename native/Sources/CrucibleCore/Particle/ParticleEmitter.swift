@@ -199,6 +199,10 @@ extension ParticleEngine {
         guard !storedEmitters.isEmpty, width > 0, height > 0 else { return }
         let budget = maxParticles - particles.count
         guard budget > swarm.count else { return }
+        // In an orbiting arrangement with joining on, what a source pours goes into orbit: it keeps its speed
+        // rather than being dragged down by the world's gravity, so a stream aimed across a galaxy curls round
+        // the hole instead of falling through the disc.
+        let pouredRole: Swarm.Role = storedJoinsArrangement && arrangementDetails?.joining == .orbit ? .orbits : []
 
         for index in storedEmitters.indices {
             var emitter = storedEmitters[index].sanitized
@@ -232,7 +236,8 @@ extension ParticleEngine {
                     color: colour.packedRGBA,
                     budget: budget,
                     mass: weight,
-                    life: emitter.lifespan > 0 ? emitter.lifespan : -1
+                    life: emitter.lifespan > 0 ? emitter.lifespan : -1,
+                    role: pouredRole
                 )
                 // Full. Stop, rather than spinning through the rest of the count for nothing — and keep what
                 // is owed at nought so it does not build up into a burst the moment room appears.

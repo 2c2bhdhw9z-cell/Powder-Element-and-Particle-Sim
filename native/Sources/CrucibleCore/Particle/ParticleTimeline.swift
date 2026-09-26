@@ -147,6 +147,9 @@ public struct ParticleTimeline: Sendable, Hashable, Codable {
     /// How long the whole thing runs.
     public var duration: Double { keyframes.last?.at ?? 0 }
 
+    /// How far past the last keyframe the playhead may be moved, in seconds, to record the next one.
+    public static let roomToRecord = 30.0
+
     /// Whether there is anything to play.
     public var isEmpty: Bool { keyframes.isEmpty }
 
@@ -282,9 +285,12 @@ public struct ParticlePlayhead: Sendable, Hashable, Codable {
     /// Moves it to a particular moment, without starting or stopping it.
     public func scrubbed(to moment: Double, through timeline: ParticleTimeline) -> ParticlePlayhead {
         let when = moment.isFinite ? moment : 0
+        // Past the last keyframe as well, by up to ``ParticleTimeline/roomToRecord``. Clamped to the end, a
+        // timeline with one keyframe at the start had no length at all, so the playhead could not be moved
+        // anywhere to record the second one.
         return ParticlePlayhead(
             isPlaying: isPlaying,
-            at: max(0, min(timeline.duration, when))
+            at: max(0, min(timeline.duration + ParticleTimeline.roomToRecord, when))
         )
     }
 }
@@ -348,10 +354,12 @@ extension ParticleEngine {
     /// Called from the tick, so the timeline advances with the simulation rather than with the wall clock —
     /// which means a recorded piece plays back the same whatever the field is doing to the frame rate.
     public func advanceTimeline() {
-        guard !timeline.isEmpty else { return }
-        if playhead.isPlaying {
-            playhead = playhead.advanced(by: 1.0 / 60.0, through: timeline)
-        }
+        // Only while it plays. It used to apply itself every moment even while stopped, so once a single
+        // keyframe existed every setting it records was pinned: drag a slider and it snapped back within a
+        // frame, which made recording a second, different keyframe impossible. Scrubbing applies what is
+        // under the playhead on its own, so a stopped timeline still shows where it has been moved to.
+        guard !timeline.isEmpty, playhead.isPlaying else { return }
+        playhead = playhead.advanced(by: 1.0 / 60.0, through: timeline)
         applyTimelineValues(timeline.values(at: playhead.at))
     }
 }

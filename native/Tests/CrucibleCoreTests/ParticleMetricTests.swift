@@ -249,8 +249,8 @@ struct ParticleMetricTests {
 
         field.paletteEnabled = true
         let expected: [ParticleColorMode: Bool] = [
-            .velocity: true, .density: true,
-            .native: false, .charge: false, .rainbow: false, .lifespan: false,
+            .velocity: true, .density: true, .rainbow: true,
+            .native: false, .charge: false, .lifespan: false,
         ]
         for (mode, shouldMove) in expected {
             field.colorMode = mode

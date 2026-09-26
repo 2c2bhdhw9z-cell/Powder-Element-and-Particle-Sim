@@ -126,6 +126,19 @@ public final class ParticleEngine {
     /// wrong — which is what the reference implementation does.
     public var fluidIsOverCrowded: Bool { fluid.isOverCrowded }
 
+    /// Which arrangement the field is showing. Reached through ``arrangement``.
+    var storedArrangement: String?
+    /// Moments since the arrangement was laid out, for the ones that keep doing something — a storm that
+    /// strikes again, a fireworks display that keeps launching.
+    var arrangementAge: Int = 0
+    /// The ramp baked into a table, and what it was baked from, so drawing does not rebake it every frame.
+    var cachedLookup: [UInt32] = []
+    var cachedLookupKey: ParticlePaletteSpec?
+    /// Where the ramp's colours are worked out before fading, kept between frames.
+    var drawColorScratch: [UInt32] = []
+    /// Whether sources pour bodies that join the arrangement. Reached through ``joinsArrangement``.
+    var storedJoinsArrangement = false
+
     /// Sources pouring into the world. Reached through ``emitters``.
     var storedEmitters: [ParticleEmitter] = []
     /// What a newly placed source will be like. Reached through ``emitterTemplate``.
@@ -251,8 +264,35 @@ public final class ParticleEngine {
 
         let shiftX = (safeWidth - width) * 0.5
         let shiftY = (safeHeight - height) * 0.5
+        let oldWidth = width
+        let oldHeight = height
         width = safeWidth
         height = safeHeight
+
+        // What was drawn into the world is kept in fractions of it, so it has to be refitted or it would
+        // stretch out across the new room while the bodies it was drawn for stayed in the middle: a wall
+        // drawn under a pile of bodies would end up somewhere else entirely.
+        if oldWidth > 0, oldHeight > 0 {
+            func across(_ fraction: Double) -> Double { (fraction * oldWidth + shiftX) / safeWidth }
+            func down(_ fraction: Double) -> Double { (fraction * oldHeight + shiftY) / safeHeight }
+            storedWalls = storedWalls.map { wall in
+                ParticleWall(fromX: across(wall.fromX), fromY: down(wall.fromY), toX: across(wall.toX), toY: down(wall.toY))
+            }
+            storedEmitters = storedEmitters.map { emitter in
+                var moved = emitter
+                moved.atFractionX = across(emitter.atFractionX)
+                moved.atFractionY = down(emitter.atFractionY)
+                return moved
+            }
+            storedCurrent = storedCurrent.refitted(
+                fromWidth: oldWidth,
+                fromHeight: oldHeight,
+                toWidth: safeWidth,
+                toHeight: safeHeight,
+                shiftX: shiftX,
+                shiftY: shiftY
+            )
+        }
 
         guard shiftX != 0 || shiftY != 0 else { return }
         for index in particles.indices {
@@ -286,6 +326,11 @@ public final class ParticleEngine {
         storedWalls = []
         storedCurrent.clear()
         storedEmitters.removeAll()
+        storedArrangement = nil
+        arrangementAge = 0
+        // A recording left playing would overwrite, on the very next moment, whatever the field is about to
+        // be set up as. Paused rather than deleted: it is somebody's work.
+        storedPlayhead.isPlaying = false
         flockEnabled = false
         nbodyEnabled = false
         fluidEnabled = false
@@ -468,6 +513,17 @@ public final class ParticleEngine {
         public var vortexForce: Double
         public var decaySpeed: Double
         public var boundaryMode: ParticleBoundaryMode
+        /// Everything below was missing, so undoing a clear brought the bodies back but left the walls,
+        /// the sources and the painted wind gone — and undoing a scene that set gravity left the gravity.
+        public var gravityX: Double = 0
+        public var gravityY: Double = 0.3
+        public var collisionsEnabled: Bool = true
+        public var flowEnabled: Bool = false
+        public var walls: [ParticleWall] = []
+        public var emitters: [ParticleEmitter] = []
+        public var current: ParticleCurrentField = ParticleCurrentField()
+        public var arrangement: String?
+        public var arrangementAge: Int = 0
     }
 
     /// Largest swarm that is worth copying into an undo entry.
@@ -487,7 +543,16 @@ public final class ParticleEngine {
             fluidEnabled: fluidEnabled,
             vortexForce: vortexForce,
             decaySpeed: decaySpeed,
-            boundaryMode: boundaryMode
+            boundaryMode: boundaryMode,
+            gravityX: gravityX,
+            gravityY: gravityY,
+            collisionsEnabled: collisionsEnabled,
+            flowEnabled: storedFlowEnabled,
+            walls: storedWalls,
+            emitters: storedEmitters,
+            current: storedCurrent,
+            arrangement: storedArrangement,
+            arrangementAge: arrangementAge
         )
     }
 
@@ -500,6 +565,15 @@ public final class ParticleEngine {
         vortexForce = snapshot.vortexForce
         decaySpeed = snapshot.decaySpeed
         boundaryMode = snapshot.boundaryMode
+        gravityX = snapshot.gravityX
+        gravityY = snapshot.gravityY
+        collisionsEnabled = snapshot.collisionsEnabled
+        storedFlowEnabled = snapshot.flowEnabled
+        storedWalls = snapshot.walls
+        storedEmitters = snapshot.emitters
+        storedCurrent = snapshot.current
+        storedArrangement = snapshot.arrangement
+        arrangementAge = snapshot.arrangementAge
         if let swarmSnapshot = snapshot.swarm {
             swarm.restore(from: swarmSnapshot, budget: max(0, maxParticles - particles.count))
         } else {
@@ -568,6 +642,9 @@ public final class ParticleEngine {
         // rather than the previous moment's.
         advanceTimeline()
 
+        // Whatever the arrangement does by itself — a storm striking again, another shell going up.
+        stepArrangement()
+
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             spawnEmitter(at: mouseX, y: mouseY)
         }
@@ -586,11 +663,8 @@ public final class ParticleEngine {
         rememberSwarmPositions()
         stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive)
 
-        // Swarm colours are stored per body, so a palette driven by something that moves has to be
-        // reapplied. Only when it actually moves: a fixed position per body, or a position in the
-        // world, does not change as the bodies do, and at a million bodies the difference between
-        // "every frame" and "when something changes" is the entire cost of the feature.
-        if swarmColorsAreDynamic { recolorSwarm() }
+        // The colour ramp is no longer painted into the crowd here: it is worked out as each picture is
+        // drawn, so the bodies keep their own colours. See `fillSwarmDrawColors`.
 
         onAfterStep?()
     }

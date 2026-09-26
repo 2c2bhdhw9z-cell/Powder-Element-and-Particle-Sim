@@ -208,8 +208,9 @@ public final class SwarmFlow {
         let acrossCell = smoothed(x - cellX)
         let downCell = smoothed(y - cellY)
 
-        let column = Int(cellX)
-        let row = Int(cellY)
+        // Clamped rather than converted, so a body holding an unusable number cannot crash the wind.
+        let column = JS.clampedInt(cellX, -1_000_000, 1_000_000)
+        let row = JS.clampedInt(cellY, -1_000_000, 1_000_000)
         let topLeft = corner(column, row, layer)
         let topRight = corner(column + 1, row, layer)
         let bottomLeft = corner(column, row + 1, layer)
@@ -236,8 +237,9 @@ public final class SwarmFlow {
         let acrossSlope = smoothedSlope(acrossFraction)
         let downSlope = smoothedSlope(downFraction)
 
-        let column = Int(cellX)
-        let row = Int(cellY)
+        // Clamped rather than converted, so a body holding an unusable number cannot crash the wind.
+        let column = JS.clampedInt(cellX, -1_000_000, 1_000_000)
+        let row = JS.clampedInt(cellY, -1_000_000, 1_000_000)
         let topLeft = corner(column, row, layer)
         let topRight = corner(column + 1, row, layer)
         let bottomLeft = corner(column, row + 1, layer)

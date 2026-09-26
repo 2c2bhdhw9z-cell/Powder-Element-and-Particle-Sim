@@ -101,6 +101,56 @@ public enum JS {
         return UInt16(truncatingIfNeeded: Int(wrapped))
     }
 
+    /// JavaScript's `value | 0`: truncate toward zero, wrap modulo 2³² into signed range, not-finite
+    /// becomes zero.
+    ///
+    /// Swift's `Int(_:)` traps on anything past about nine quintillion and on infinity, and several values
+    /// that reach this kind of conversion arrive from files or from another phone. One packet claiming a
+    /// gravity of 10³⁰⁰ used to be enough to crash the receiver.
+    @inlinable
+    public static func toInt32(_ value: Double) -> Int32 {
+        guard value.isFinite else { return 0 }
+        let wrapped = value.rounded(.towardZero).truncatingRemainder(dividingBy: 4_294_967_296)
+        return Int32(truncatingIfNeeded: Int64(wrapped))
+    }
+
+    /// A whole number from a double that cannot trap: not-finite becomes `fallback`, and anything outside
+    /// the given range is pulled into it before converting.
+    @inlinable
+    public static func clampedInt(_ value: Double, _ low: Int, _ high: Int, fallback: Int = 0) -> Int {
+        guard value.isFinite else { return fallback }
+        if value <= Double(low) { return low }
+        if value >= Double(high) { return high }
+        return Int(value)
+    }
+
+    /// Which way a pair of offsets points, in radians, from minus a half turn to a half turn.
+    ///
+    /// The engine imports no maths library, so it has no inverse tangent of its own. A rational estimate
+    /// gets within about a thousandth of a radian, and one Newton step using the engine's own sine and
+    /// cosine then takes it to the last few digits — which matters when the answer is used to place a
+    /// body on a circle hundreds of pixels across, where a thousandth of a radian is half a pixel out.
+    public static func atan2(_ y: Double, _ x: Double) -> Double {
+        guard x.isFinite, y.isFinite, x != 0 || y != 0 else { return 0 }
+        let absX = Swift.abs(x)
+        let absY = Swift.abs(y)
+        let ratio = absY < absX ? absY / absX : absX / absY
+        let squared = ratio * ratio
+        var angle = ((-0.013_480_47 * squared + 0.057_477_314) * squared - 0.121_239_071) * squared
+        angle = ((angle + 0.195_635_925) * squared - 0.332_994_597) * squared
+        angle = (angle + 0.999_995_630) * ratio
+        if absY >= absX { angle = 1.570_796_326_794_896_6 - angle }
+        if x < 0 { angle = 3.141_592_653_589_793 - angle }
+        if y < 0 { angle = -angle }
+        // One Newton step on the angle whose direction is (x, y): the error is the sideways component of
+        // (x, y) against the estimate, over its component along it.
+        let c = jsCos(angle)
+        let s = jsSin(angle)
+        let along = x * c + y * s
+        if along > 0 { angle += (y * c - x * s) / along }
+        return angle
+    }
+
     /// Assignment into a `Float32Array`: narrow to single precision.
     ///
     /// Always narrow on *store* and widen on *load*, computing in between at

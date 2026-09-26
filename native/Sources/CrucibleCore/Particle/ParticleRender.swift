@@ -33,8 +33,8 @@ public struct ParticleDensityGrid: Sendable {
         var counts = [UInt16](repeating: 0, count: columns * rows)
         for body in bodies {
             guard body.x.isFinite, body.y.isFinite else { continue }
-            let column = min(max(0, Int(JS.trunc(body.x / Self.cellSize))), columns - 1)
-            let row = min(max(0, Int(JS.trunc(body.y / Self.cellSize))), rows - 1)
+            let column = JS.clampedInt(JS.trunc(body.x / Self.cellSize), 0, columns - 1)
+            let row = JS.clampedInt(JS.trunc(body.y / Self.cellSize), 0, rows - 1)
             let at = row * columns + column
             if counts[at] < UInt16.max { counts[at] += 1 }
         }
@@ -47,8 +47,8 @@ public struct ParticleDensityGrid: Sendable {
     /// only honest answer and avoids converting it to an index.
     public func crowding(atX x: Double, y: Double) -> Int {
         guard x.isFinite, y.isFinite else { return 0 }
-        let column = min(max(0, Int(JS.trunc(x / Self.cellSize))), columns - 1)
-        let row = min(max(0, Int(JS.trunc(y / Self.cellSize))), rows - 1)
+        let column = JS.clampedInt(JS.trunc(x / Self.cellSize), 0, columns - 1)
+        let row = JS.clampedInt(JS.trunc(y / Self.cellSize), 0, rows - 1)
         return Int(counts[row * columns + column])
     }
 }
@@ -170,8 +170,8 @@ extension ParticleEngine {
             // corrupt bodies used to pile into a bright dot in the corner — the health report
             // counted them while the picture hid where they were.
             guard body.x.isFinite, body.y.isFinite else { continue }
-            let px = Int(JS.trunc(body.x + 0.5))
-            let py = Int(JS.trunc(body.y + 0.5))
+            let px = JS.clampedInt(JS.trunc(body.x + 0.5), -1, w)
+            let py = JS.clampedInt(JS.trunc(body.y + 0.5), -1, h)
             guard px >= 0, px < w, py >= 0, py < h else { continue }
             pixels[py * w + px] = renderColor(of: body, density: density).packedRGBA
         }

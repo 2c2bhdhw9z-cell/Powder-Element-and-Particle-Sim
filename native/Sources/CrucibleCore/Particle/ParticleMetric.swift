@@ -109,11 +109,11 @@ extension ParticleEngine {
     public var swarmColorsAreDynamic: Bool {
         guard paletteEnabled else { return false }
         switch colorMode {
-        case .velocity, .density: return true
-        // Weight and age do change, but only when something sets them — and the pass that does the setting
-        // can repaint at the same time. A crowd of fixed weights would otherwise be repainted every frame
-        // to produce exactly the same picture.
-        case .native, .charge, .rainbow, .lifespan, .mass: return false
+        // Place moves as the bodies do, and so does age once anything is ageing — both used to be counted as
+        // still, so a crowd coloured by place kept the colours of wherever it was when the ramp was chosen.
+        case .velocity, .density, .rainbow: return true
+        case .lifespan: return swarm.hasMortalBodies
+        case .native, .charge, .mass: return false
         }
     }
 
@@ -127,13 +127,25 @@ extension ParticleEngine {
     /// stops, and at a million bodies that walk is the cost of the pass. Written against the
     /// swarm's buffers directly, for the same reason — a closure per body is not free at this size.
     public func recolorSwarm(using lookup: [UInt32]) {
+        recolorSwarm(using: lookup, into: swarm.colors)
+    }
+
+    /// Paints every swarm body from the palette into a buffer of the caller's, leaving the bodies' own
+    /// colours alone.
+    ///
+    /// ## Why into a separate buffer
+    ///
+    /// The ramp used to be painted straight over each body's own colour. So switching the ramp off again
+    /// left the crowd in the ramp's colours for good — a sunflower's seeds, a fire's embers and a word's
+    /// letters all lost the colours they were laid out in the moment somebody tried a ramp. The colours a
+    /// body is drawn in are now worked out for each picture, and the colour it *is* is never touched.
+    public func recolorSwarm(using lookup: [UInt32], into colors: UnsafeMutablePointer<UInt32>) {
         let bodies = swarm.count
         guard !lookup.isEmpty, bodies > 0 else { return }
         let last = lookup.count - 1
         let scale = Float(last)
         let positions = swarm.positions
         let velocities = swarm.velocities
-        let colors = swarm.colors
 
         lookup.withUnsafeBufferPointer { table in
             @inline(__always)
@@ -210,5 +222,62 @@ extension ParticleEngine {
     public func recolorSwarm() {
         guard paletteEnabled else { return }
         recolorSwarm(using: palette.bakeLookup())
+    }
+
+    /// The colours to draw the crowd in this frame: the ramp if one is on, and every body that will expire
+    /// faded by how much of its life is left.
+    ///
+    /// - Parameter doubled: write each colour twice, for when the crowd is drawn as streaks — two ends a body.
+    ///
+    /// The fade is new. Bodies with lifetimes — embers, sparks, smoke, a bolt of lightning — used to be drawn
+    /// at full strength until the moment they vanished, so a flame was a column of dots that blinked out
+    /// rather than a flame that died away.
+    public func fillSwarmDrawColors(into out: inout [UInt32], doubled: Bool = false) {
+        let bodies = swarm.count
+        let needed = doubled ? bodies * 2 : bodies
+        if out.count < needed {
+            out.append(contentsOf: repeatElement(0, count: needed - out.count))
+        }
+        guard bodies > 0 else { return }
+        if paletteEnabled {
+            let key = palette
+            if cachedLookupKey != key || cachedLookup.isEmpty {
+                cachedLookup = key.bakeLookup()
+                cachedLookupKey = key
+            }
+            if drawColorScratch.count < bodies {
+                drawColorScratch.append(contentsOf: repeatElement(0, count: bodies - drawColorScratch.count))
+            }
+            let table = cachedLookup
+            drawColorScratch.withUnsafeMutableBufferPointer { scratch in
+                guard let base = scratch.baseAddress else { return }
+                recolorSwarm(using: table, into: base)
+            }
+        }
+        let fades = swarm.hasMortalBodies
+        let lives = swarm.lives
+        let maxLives = swarm.maxLives
+        let source = swarm.colors
+        let usePalette = paletteEnabled && drawColorScratch.count >= bodies
+        drawColorScratch.withUnsafeBufferPointer { scratch in
+            out.withUnsafeMutableBufferPointer { target in
+                for i in 0 ..< bodies {
+                    var colour = usePalette ? scratch[i] : source[i]
+                    if fades, lives[i] >= 0 {
+                        let share = max(0, min(1, lives[i] / max(1, maxLives[i])))
+                        // Eased, so a body holds most of its brightness for most of its life and then goes.
+                        let eased = share * (2 - share)
+                        let alpha = Float(colour >> 24) * eased
+                        colour = (colour & 0x00FF_FFFF) | (UInt32(max(0, min(255, alpha))) << 24)
+                    }
+                    if doubled {
+                        target[i * 2] = colour
+                        target[i * 2 + 1] = colour
+                    } else {
+                        target[i] = colour
+                    }
+                }
+            }
+        }
     }
 }

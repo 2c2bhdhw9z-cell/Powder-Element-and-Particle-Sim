@@ -9,6 +9,11 @@
 // knows whether it will use them.
 
 extension PowderEngine {
+    /// The widest blast the grid will set off, in cells.
+    public static let largestBlastRadius = 96
+}
+
+extension PowderEngine {
     /// Detonates at a point, remaking the surrounding cells and throwing them
     /// outward.
     ///
@@ -24,6 +29,10 @@ extension PowderEngine {
         maxHeat: Double = 3000
     ) {
         guard cellCount > 0 else { return }
+        // Held to something a world can contain. A custom material's blast size comes from storage or a
+        // shared scene unchecked, and four billion overflowed the arithmetic below while a hundred thousand
+        // was, in effect, a loop that never ended. Nothing built in goes past thirty-six.
+        let radius = max(-1, min(radius, Self.largestBlastRadius))
 
         let radiusSquared = Double(radius * radius)
         let outerRadius = radius * 2
@@ -123,8 +132,15 @@ extension PowderEngine {
                             // Empty space fills with the expanding fireball.
                             setElement(x, y, rng.chance(0.6) ? Element.fire : Element.smoke, temp: 1200, life: 30)
                         }
-                        velocityX[idx] = JS.toInt8(velocityXValue)
-                        velocityY[idx] = JS.toInt8(velocityYValue)
+                        // Only into cells that now hold something, for the reason written out on the outer
+                        // zone below: momentum left in empty air is never damped, and the next grain to drift
+                        // in inherits it and is launched long afterwards. The outer zone was fixed; this one,
+                        // where the fill roll fails half the time, was left writing into hundreds of empty
+                        // cells per blast.
+                        if type[idx] != Element.empty {
+                            velocityX[idx] = JS.toInt8(velocityXValue)
+                            velocityY[idx] = JS.toInt8(velocityYValue)
+                        }
                     } else {
                         // Outer shockwave: matter gets thrown, and anything flammable
                         // probably catches.

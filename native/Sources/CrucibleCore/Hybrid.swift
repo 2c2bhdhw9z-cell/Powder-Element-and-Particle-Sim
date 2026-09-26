@@ -84,7 +84,41 @@ public enum Hybrid {
 
     /// Whether a body should become water rather than sand.
     static func settlesAsWater(_ body: ParticleObject) -> Bool {
-        waterColors.contains { $0.r == body.color.r && $0.g == body.color.g && $0.b == body.color.b }
+        settlesAsWater(body.color)
+    }
+
+    /// Whether a colour reads as water: one of the two named ones, or anything clearly blue.
+    ///
+    /// The two exact colours alone missed nearly every blue in the field — the waterfall's own blue, the
+    /// pour's liquid, the water scene's pool — so pouring a waterfall into the powder world made sand.
+    static func settlesAsWater(_ colour: PackedColor) -> Bool {
+        if waterColors.contains(where: { $0.r == colour.r && $0.g == colour.g && $0.b == colour.b }) {
+            return true
+        }
+        let r = Double(colour.r) / 255
+        let g = Double(colour.g) / 255
+        let b = Double(colour.b) / 255
+        let high = max(r, g, b)
+        let low = min(r, g, b)
+        let spread = high - low
+        // Blue must be the strongest channel by a clear margin, and the colour must not be nearly grey.
+        guard spread > 0.2, high == b else { return false }
+        let hue = 60 * (4 + (r - g) / spread)
+        return hue >= 180 && hue <= 250
+    }
+
+    /// Where a place in the field lands in the grid, or nothing if it lands outside it.
+    ///
+    /// Worked out in floating point and checked before becoming a whole number, because a body far outside
+    /// the field — or a field of no size — used to reach a conversion that cannot hold the answer, and crash.
+    static func gridCell(x: Double, y: Double, field: ParticleEngine, powder: PowderEngine) -> (Int, Int)? {
+        guard field.width > 0, field.height > 0 else { return nil }
+        let across = JS.trunc((x / field.width) * Double(powder.width))
+        let down = JS.trunc((y / field.height) * Double(powder.height))
+        guard across.isFinite, down.isFinite,
+              across >= 0, across < Double(powder.width), down >= 0, down < Double(powder.height)
+        else { return nil }
+        return (Int(across), Int(down))
     }
 
     /// Whether a body is the sort of thing that can settle at all.
@@ -124,9 +158,10 @@ public enum Hybrid {
             guard body.y >= floor, isSlow else { continue }
             guard body.x.isFinite, body.y.isFinite else { continue }
 
-            let gridX = Int(JS.trunc((body.x / field.width) * Double(powder.width)))
+            guard let cell = gridCell(x: body.x, y: body.y, field: field, powder: powder) else { continue }
+            let gridX = cell.0
             // Kept clear of the very bottom rows, which are usually the floor someone built.
-            let gridY = min(powder.height - 3, Int(JS.trunc((body.y / field.height) * Double(powder.height))))
+            let gridY = min(powder.height - 3, cell.1)
             guard powder.isValid(gridX, gridY) else { continue }
             guard powder.type[powder.index(gridX, gridY)] == Element.empty else { continue }
 
@@ -165,8 +200,9 @@ public enum Hybrid {
             if body.y < floor, !isSlow { continue }
             guard body.x.isFinite, body.y.isFinite else { continue }
 
-            let gridX = Int(JS.trunc((body.x / field.width) * Double(powder.width)))
-            let gridY = Int(JS.trunc((body.y / field.height) * Double(powder.height)))
+            guard let cell = gridCell(x: body.x, y: body.y, field: field, powder: powder) else { continue }
+            let gridX = cell.0
+            let gridY = cell.1
             guard powder.isValid(gridX, gridY) else { continue }
             // An occupied cell means this one stays where it is rather than being destroyed.
             guard powder.type[powder.index(gridX, gridY)] == Element.empty else { continue }
@@ -179,6 +215,30 @@ public enum Hybrid {
         if !removeIDs.isEmpty {
             _ = field.removeParticles { removeIDs.contains($0.id) }
         }
-        return settled
+
+        // And the crowd. This used to settle the object bodies only, so pressing "Settle into powder" on a
+        // sunflower, a fire, a pour or any crowd added with the population button did nothing at all —
+        // almost everything in a busy field is in the crowd.
+        let swarm = field.swarm
+        var settledFromCrowd = 0
+        for index in 0 ..< swarm.count {
+            let pair = index * 2
+            let x = Double(swarm.positions[pair])
+            let y = Double(swarm.positions[pair + 1])
+            let vx = Double(swarm.velocities[pair])
+            let vy = Double(swarm.velocities[pair + 1])
+            let isSlow = vx * vx + vy * vy < 9
+            if y < floor, !isSlow { continue }
+            guard let cell = gridCell(x: x, y: y, field: field, powder: powder) else { continue }
+            guard powder.isValid(cell.0, cell.1), powder.type[powder.index(cell.0, cell.1)] == Element.empty else {
+                continue
+            }
+            let colour = PackedColor(packedRGBA: swarm.colors[index])
+            powder.setElement(cell.0, cell.1, settlesAsWater(colour) ? Element.water : Element.sand)
+            swarm.markForRemoval(at: index)
+            settledFromCrowd += 1
+        }
+        if settledFromCrowd > 0 { swarm.removeExpired() }
+        return settled + settledFromCrowd
     }
 }

@@ -651,8 +651,10 @@ private func seedStorm(_ e: PowderEngine, _ random: inout Mulberry32) {
     layer(e, ground, 1, 4, Element.dirt)
     layerDown(e, ground, 4, h - 3, Element.stone)
 
-    // The rod goes on the highest ground, which is where anyone would put it.
-    var best = 0
+    // The rod goes on the highest ground, which is where anyone would put it — searched for across the middle
+    // of the world, and started from the first place searched. Starting from the left-hand wall instead meant
+    // that whenever the wall's column happened to be highest, the rod was built at x = −1, over the bedrock.
+    var best = part(w, 0.2)
     var bx = part(w, 0.2)
     while bx < part(w, 0.8) {
         if at(ground, bx) < at(ground, best) { best = bx }

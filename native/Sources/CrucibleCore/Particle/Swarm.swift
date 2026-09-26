@@ -47,6 +47,103 @@ public final class Swarm {
     public private(set) var lives: UnsafeMutablePointer<Float>
     /// How many it started with, for fading and for colouring by age.
     public private(set) var maxLives: UnsafeMutablePointer<Float>
+    /// What each body does beyond drifting under the world's forces. See ``Role``.
+    ///
+    /// Nought for every body until something says otherwise, and a body with no role takes exactly the path
+    /// through the tick that every body took before roles existed — which is what keeps the recorded
+    /// comparison against the reference implementation exact.
+    public private(set) var roles: UnsafeMutablePointer<UInt8>
+    /// Where a body that holds a shape belongs, six numbers a body. See ``Home``.
+    ///
+    /// Read only for bodies whose role says they hold a shape; for everything else it is left at nought.
+    public private(set) var homes: UnsafeMutablePointer<Float>
+
+    /// Whether any body has a role at all, so a crowd with none pays nothing for the feature.
+    public private(set) var hasRoles = false
+
+    /// What a body in the crowd does, as a set of flags.
+    ///
+    /// ## Why the crowd needed these
+    ///
+    /// The crowd used to be positions, speeds and colours and nothing else, so everything in it behaved
+    /// identically: it fell, it bounced, it was pushed by a finger. That is why a sunflower laid out seed by
+    /// seed collapsed onto the floor the moment it appeared, and why ten thousand bodies added to a galaxy
+    /// ignored the black hole entirely and scattered. A body in the crowd can now *orbit* — it keeps its
+    /// speed rather than being dragged down by the world's gravity and air — and it can *hold* a place in a
+    /// shape, drawn back to it by a spring, so a finger can push the shape about and it reforms.
+    public struct Role: OptionSet, Sendable, Hashable {
+        public let rawValue: UInt8
+        public init(rawValue: UInt8) { self.rawValue = rawValue }
+
+        /// Keeps its speed: exempt from the world's gravity and air friction, as orbiting object bodies are.
+        public static let orbits = Role(rawValue: 1)
+        /// Drawn back to a place in a shape. See ``Home``.
+        public static let holds = Role(rawValue: 2)
+    }
+
+    /// Where a shape-holding body belongs.
+    ///
+    /// Written as a point on a circle round an anchor, because that single description covers every way a
+    /// shape here moves: a still point is a circle of radius nought; a sunflower or a mandala turning is a
+    /// circle whose angle advances; a tornado seen from the side is a circle flattened to a line, so the body
+    /// swings from side to side; an aurora's curtain is the same flattened circle with the angle staggered
+    /// down its length, which is a wave.
+    public struct Home: Sendable, Hashable {
+        public var anchorX: Double
+        public var anchorY: Double
+        public var radius: Double
+        public var angle: Double
+        /// How far the angle advances each moment, in radians. Nought holds still.
+        public var spin: Double
+        /// How much of the circle's height survives: one is a circle, nought a line.
+        public var squash: Double
+        /// How hard the body is pulled back to its place.
+        ///
+        /// Per body, because a still shape and a spinning one want opposite things. A still shape wants a soft
+        /// spring, so a finger can dent it visibly and it eases back. A tornado wants a stiff one: its bodies
+        /// chase a place moving round a funnel several times a second, and a soft spring cannot keep up — it
+        /// lags, then overshoots, and near its own natural rhythm it swings wider and wider.
+        public var stiffness: Double
+
+        public init(
+            anchorX: Double,
+            anchorY: Double,
+            radius: Double = 0,
+            angle: Double = 0,
+            spin: Double = 0,
+            squash: Double = 1,
+            stiffness: Double = Swarm.holdStiffness
+        ) {
+            self.anchorX = anchorX
+            self.anchorY = anchorY
+            self.radius = radius
+            self.angle = angle
+            self.spin = spin
+            self.squash = squash
+            self.stiffness = stiffness
+        }
+
+        /// A place that does not move.
+        public static func fixed(_ x: Double, _ y: Double) -> Home {
+            Home(anchorX: x, anchorY: y)
+        }
+
+        /// Where the body belongs right now.
+        public var point: (x: Double, y: Double) {
+            (anchorX + jsCos(angle) * radius, anchorY + jsSin(angle) * radius * squash)
+        }
+    }
+
+    /// How many numbers each home takes.
+    static let homeStride = 7
+
+    /// How hard a shape pulls its bodies back, and how much of their speed a held body keeps each moment.
+    ///
+    /// The stiffness is the default for a still shape: soft enough that a finger visibly dents it, firm enough
+    /// that it reforms within a couple of seconds. The friction is what stops the spring ringing forever —
+    /// without it a pushed shape would oscillate about its outline indefinitely.
+    public static let holdStiffness = 0.005
+    public static let holdFriction = 0.94
 
     /// Whether any body will ever expire.
     ///
@@ -83,6 +180,10 @@ public final class Swarm {
         self.masses = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.lives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.maxLives = UnsafeMutablePointer<Float>.allocate(capacity: 1)
+        self.roles = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        self.homes = UnsafeMutablePointer<Float>.allocate(capacity: Self.homeStride)
+        self.roles.initialize(repeating: 0, count: 1)
+        self.homes.initialize(repeating: 0, count: Self.homeStride)
         self.positions.initialize(repeating: 0, count: 1)
         self.velocities.initialize(repeating: 0, count: 1)
         self.colors.initialize(repeating: 0, count: 1)
@@ -105,6 +206,10 @@ public final class Swarm {
         lives.deallocate()
         maxLives.deinitialize(count: allocated)
         maxLives.deallocate()
+        roles.deinitialize(count: allocated)
+        roles.deallocate()
+        homes.deinitialize(count: allocated * Self.homeStride)
+        homes.deallocate()
         if let bucketHead {
             bucketHead.deinitialize(count: bucketHeadCount)
             bucketHead.deallocate()
@@ -120,6 +225,7 @@ public final class Swarm {
     /// Empties the swarm. The buffers are kept, so refilling does not reallocate.
     public func removeAll() {
         count = 0
+        hasRoles = false
         generation += 1
     }
 
@@ -146,6 +252,10 @@ public final class Swarm {
         let newMasses = UnsafeMutablePointer<Float>.allocate(capacity: target)
         let newLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
         let newMaxLives = UnsafeMutablePointer<Float>.allocate(capacity: target)
+        let newRoles = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        let newHomes = UnsafeMutablePointer<Float>.allocate(capacity: target * Self.homeStride)
+        newRoles.initialize(repeating: 0, count: target)
+        newHomes.initialize(repeating: 0, count: target * Self.homeStride)
         newPositions.initialize(repeating: 0, count: target * 2)
         newVelocities.initialize(repeating: 0, count: target * 2)
         newColors.initialize(repeating: 0, count: target)
@@ -162,6 +272,8 @@ public final class Swarm {
             newMasses.update(from: masses, count: count)
             newLives.update(from: lives, count: count)
             newMaxLives.update(from: maxLives, count: count)
+            newRoles.update(from: roles, count: count)
+            newHomes.update(from: homes, count: count * Self.homeStride)
         }
 
         let previous = max(1, capacity)
@@ -177,6 +289,10 @@ public final class Swarm {
         lives.deallocate()
         maxLives.deinitialize(count: previous)
         maxLives.deallocate()
+        roles.deinitialize(count: previous)
+        roles.deallocate()
+        homes.deinitialize(count: previous * Self.homeStride)
+        homes.deallocate()
 
         positions = newPositions
         velocities = newVelocities
@@ -184,6 +300,8 @@ public final class Swarm {
         masses = newMasses
         lives = newLives
         maxLives = newMaxLives
+        roles = newRoles
+        homes = newHomes
         capacity = target
     }
 
@@ -231,6 +349,7 @@ public final class Swarm {
             masses[i] = 1
             lives[i] = -1
             maxLives[i] = 1
+            roles[i] = 0
             colors[i] = color != 0
                 ? color
                 : 0xFF00_0000 | UInt32((i * 97) & 255)
@@ -254,6 +373,12 @@ public final class Swarm {
             let pair = index * 2
             positions[pair] += shiftX
             positions[pair + 1] += shiftY
+            // A held shape has to move with its bodies, or it snaps back to where the world used to be.
+            if hasRoles, roles[index] & Role.holds.rawValue != 0 {
+                let at = index * Self.homeStride
+                homes[at] += shiftX
+                homes[at + 1] += shiftY
+            }
         }
         generation += 1
     }
@@ -276,13 +401,19 @@ public final class Swarm {
         color: UInt32,
         budget: Int,
         mass: Double = 1,
-        life: Double = -1
+        life: Double = -1,
+        role: Role = [],
+        home: Home? = nil
     ) -> Bool {
         guard count < min(Self.maximumCount, budget) else { return false }
         reserve(count + 1)
         guard count < capacity else { return false }
 
         let index = count
+        // A body that holds a shape with nowhere to hold it would be pulled toward the top-left corner, so
+        // without a home it holds where it was put.
+        let place = home ?? Home.fixed(x, y)
+        writeRole(role, home: place, at: index)
         let pair = index * 2
         positions[pair] = JS.toFloat32(x)
         positions[pair + 1] = JS.toFloat32(y)
@@ -300,6 +431,58 @@ public final class Swarm {
         return true
     }
 
+    /// Stores a body's role and home.
+    private func writeRole(_ role: Role, home: Home, at index: Int) {
+        roles[index] = role.rawValue
+        if !role.isEmpty { hasRoles = true }
+        let at = index * Self.homeStride
+        if role.contains(.holds) {
+            homes[at] = JS.toFloat32(home.anchorX.isFinite ? home.anchorX : 0)
+            homes[at + 1] = JS.toFloat32(home.anchorY.isFinite ? home.anchorY : 0)
+            homes[at + 2] = JS.toFloat32(home.radius.isFinite ? home.radius : 0)
+            homes[at + 3] = JS.toFloat32(home.angle.isFinite ? home.angle : 0)
+            homes[at + 4] = JS.toFloat32(home.spin.isFinite ? home.spin : 0)
+            homes[at + 5] = JS.toFloat32(home.squash.isFinite ? home.squash : 1)
+            homes[at + 6] = JS.toFloat32(
+                home.stiffness.isFinite ? max(0, min(0.5, home.stiffness)) : Self.holdStiffness
+            )
+        } else {
+            for k in 0 ..< Self.homeStride { homes[at + k] = 0 }
+        }
+    }
+
+    /// Changes one body's role, and where it belongs if it now holds a shape.
+    public func setRole(_ role: Role, home: Home? = nil, at index: Int) {
+        guard index >= 0, index < count else { return }
+        let pair = index * 2
+        writeRole(
+            role,
+            home: home ?? Home.fixed(Double(positions[pair]), Double(positions[pair + 1])),
+            at: index
+        )
+    }
+
+    /// One body's role.
+    public func role(at index: Int) -> Role {
+        guard index >= 0, index < count else { return [] }
+        return Role(rawValue: roles[index])
+    }
+
+    /// Where one body belongs, if it holds a shape.
+    public func home(at index: Int) -> Home? {
+        guard index >= 0, index < count, Role(rawValue: roles[index]).contains(.holds) else { return nil }
+        let at = index * Self.homeStride
+        return Home(
+            anchorX: Double(homes[at]),
+            anchorY: Double(homes[at + 1]),
+            radius: Double(homes[at + 2]),
+            angle: Double(homes[at + 3]),
+            spin: Double(homes[at + 4]),
+            squash: Double(homes[at + 5]),
+            stiffness: Double(homes[at + 6])
+        )
+    }
+
     /// Sets one body's weight.
     public func setMass(_ mass: Double, at index: Int) {
         guard index >= 0, index < count else { return }
@@ -312,7 +495,8 @@ public final class Swarm {
         let usable = life.isFinite ? life : -1
         lives[index] = JS.toFloat32(usable)
         maxLives[index] = JS.toFloat32(usable > 0 ? usable : 1)
-        if usable > 0 { hasMortalBodies = true }
+        // Nought is "remove it", which the next sweep only does if it is told something may have expired.
+        if usable >= 0 { hasMortalBodies = true }
     }
 
     /// How faded a body should be drawn, from nought when it is about to go to one when it is new.
@@ -373,6 +557,10 @@ public final class Swarm {
                     masses[index] = masses[last]
                     lives[index] = lives[last]
                     maxLives[index] = maxLives[last]
+                    roles[index] = roles[last]
+                    let homeHere = index * Self.homeStride
+                    let homeThere = last * Self.homeStride
+                    for k in 0 ..< Self.homeStride { homes[homeHere + k] = homes[homeThere + k] }
                 }
                 count = last
                 removed += 1
@@ -422,6 +610,12 @@ public final class Swarm {
         /// Given a default so that adding it did not have to change every caller — of which the tests are
         /// most, and they are testing the physics rather than the contact numbers.
         public var contact: ContactSettings = .default
+        /// Leave removing the dead to the caller, after this moment's walls.
+        ///
+        /// Removing a body moves the last one into its place, and the walls read where each body was before
+        /// the move by its place in the list — so a removal between the two made a wall read one body's
+        /// history as another's, and push a body that had never touched it to the far side.
+        public var deferAgeing: Bool = false
 
         public init(
             width: Double,
@@ -439,7 +633,8 @@ public final class Swarm {
             mouseForce: Double,
             mouseRadius: Double,
             attract: Bool,
-            contact: ContactSettings = .default
+            contact: ContactSettings = .default,
+            deferAgeing: Bool = false
         ) {
             self.width = width
             self.height = height
@@ -457,6 +652,7 @@ public final class Swarm {
             self.mouseRadius = mouseRadius
             self.attract = attract
             self.contact = contact
+            self.deferAgeing = deferAgeing
         }
     }
 
@@ -481,13 +677,52 @@ public final class Swarm {
         // doubles across the whole update instead would be marginally more accurate,
         // would no longer match the reference implementation, and would model something
         // the buffers cannot actually represent.
+        let anyRoles = hasRoles
+        let holdsBit = Role.holds.rawValue
+        let orbitsBit = Role.orbits.rawValue
         for i in 0 ..< count {
             let pair = i * 2
 
-            velocities[pair] = JS.toFloat32(velocities[pair].asDouble * damping + options.gravityX)
-            velocities[pair + 1] = JS.toFloat32(
-                velocities[pair + 1].asDouble * damping + options.gravityY
-            )
+            let role = anyRoles ? roles[i] : 0
+            if role == 0 {
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * damping + options.gravityX)
+                velocities[pair + 1] = JS.toFloat32(
+                    velocities[pair + 1].asDouble * damping + options.gravityY
+                )
+            } else {
+                var velX = velocities[pair].asDouble
+                var velY = velocities[pair + 1].asDouble
+                if role & holdsBit != 0 {
+                    // Where it belongs this moment, and then the angle moves on so a turning shape turns.
+                    let at = i * Self.homeStride
+                    let radius = homes[at + 2].asDouble
+                    let angle = homes[at + 3].asDouble
+                    let spin = homes[at + 4].asDouble
+                    var homeX = homes[at].asDouble
+                    var homeY = homes[at + 1].asDouble
+                    if radius != 0 {
+                        homeX += jsCos(angle) * radius
+                        homeY += jsSin(angle) * radius * homes[at + 5].asDouble
+                    }
+                    if spin != 0 {
+                        // Kept inside one turn, so a shape left spinning for an hour does not lose the
+                        // precision a single-precision angle needs.
+                        var next = angle + spin
+                        if next > 6.283185307179586 { next -= 6.283185307179586 }
+                        if next < -6.283185307179586 { next += 6.283185307179586 }
+                        homes[at + 3] = JS.toFloat32(next)
+                    }
+                    let stiffness = homes[at + 6].asDouble
+                    velX = (velX + (homeX - positions[pair].asDouble) * stiffness) * Self.holdFriction
+                    velY = (velY + (homeY - positions[pair + 1].asDouble) * stiffness) * Self.holdFriction
+                }
+                if role & orbitsBit == 0 {
+                    velX = velX * damping + options.gravityX
+                    velY = velY * damping + options.gravityY
+                }
+                velocities[pair] = JS.toFloat32(velX)
+                velocities[pair + 1] = JS.toFloat32(velY)
+            }
 
             if options.mouseActive {
                 let dx = options.mouseX - positions[pair].asDouble
@@ -565,7 +800,11 @@ public final class Swarm {
 
         // Ageing before the contact pass, so a body that has expired is gone rather than spending its last
         // moment shoving its neighbours about.
-        if hasMortalBodies { age(by: 1) } else { removeExpired() }
+        //
+        // Only when something can expire. This used to sweep every body looking for the dead on every moment
+        // even when nothing could die — a million-body scan a frame that never found anything, since marking
+        // a body for removal already says that something might.
+        if hasMortalBodies, !options.deferAgeing { age(by: 1) }
 
         if options.collide, count > 1 {
             // More than once, because moving one pair apart pushes each of them into somebody else — one
@@ -753,7 +992,37 @@ public final class Swarm {
         public var masses: [Float] = []
         /// Lifetimes, left empty when nothing expires.
         public var lives: [Float] = []
+        /// How long each body started with. Left empty when nothing expires.
+        ///
+        /// Carried separately because a body's fade and its colour by age are its life left *as a share of*
+        /// what it started with. Without this, a restored body started over at full strength — every fading
+        /// ember jumped back to solid the moment somebody pressed undo.
+        public var maxLives: [Float] = []
+        /// Roles, left empty when no body has one.
+        public var roles: [UInt8] = []
+        /// Homes, six numbers a body, left empty when no body has a role.
+        public var homes: [Float] = []
         public var count: Int { colors.count }
+
+        public init(
+            positions: [Float],
+            velocities: [Float],
+            colors: [UInt32],
+            masses: [Float] = [],
+            lives: [Float] = [],
+            maxLives: [Float] = [],
+            roles: [UInt8] = [],
+            homes: [Float] = []
+        ) {
+            self.positions = positions
+            self.velocities = velocities
+            self.colors = colors
+            self.masses = masses
+            self.lives = lives
+            self.maxLives = maxLives
+            self.roles = roles
+            self.homes = homes
+        }
     }
 
     /// Copies out at most `limit` bodies.
@@ -769,7 +1038,10 @@ public final class Swarm {
             velocities: Array(UnsafeBufferPointer(start: velocities, count: taken * 2)),
             colors: Array(UnsafeBufferPointer(start: colors, count: taken)),
             masses: anyWeighted ? Array(UnsafeBufferPointer(start: masses, count: taken)) : [],
-            lives: hasMortalBodies ? Array(UnsafeBufferPointer(start: lives, count: taken)) : []
+            lives: hasMortalBodies ? Array(UnsafeBufferPointer(start: lives, count: taken)) : [],
+            maxLives: hasMortalBodies ? Array(UnsafeBufferPointer(start: maxLives, count: taken)) : [],
+            roles: hasRoles ? Array(UnsafeBufferPointer(start: roles, count: taken)) : [],
+            homes: hasRoles ? Array(UnsafeBufferPointer(start: homes, count: taken * Self.homeStride)) : []
         )
     }
 
@@ -790,19 +1062,19 @@ public final class Swarm {
         guard actual > 0 else { return }
 
         snapshot.positions.withUnsafeBufferPointer { source in
-            positions.update(from: source.baseAddress!, count: min(actual * 2, source.count))
+            if let base = source.baseAddress { positions.update(from: base, count: min(actual * 2, source.count)) }
         }
         snapshot.velocities.withUnsafeBufferPointer { source in
-            velocities.update(from: source.baseAddress!, count: min(actual * 2, source.count))
+            if let base = source.baseAddress { velocities.update(from: base, count: min(actual * 2, source.count)) }
         }
         snapshot.colors.withUnsafeBufferPointer { source in
-            colors.update(from: source.baseAddress!, count: min(actual, source.count))
+            if let base = source.baseAddress { colors.update(from: base, count: min(actual, source.count)) }
         }
         // Absent means the plain answer — everything weighs one and lives forever — which is what the fresh
         // room was filled with, so there is nothing to do in that case.
         if !snapshot.masses.isEmpty {
             snapshot.masses.withUnsafeBufferPointer { source in
-                masses.update(from: source.baseAddress!, count: min(actual, source.count))
+                if let base = source.baseAddress { masses.update(from: base, count: min(actual, source.count)) }
             }
         } else {
             masses.update(repeating: 1, count: actual)
@@ -810,19 +1082,147 @@ public final class Swarm {
         hasMortalBodies = false
         if !snapshot.lives.isEmpty {
             snapshot.lives.withUnsafeBufferPointer { source in
-                lives.update(from: source.baseAddress!, count: min(actual, source.count))
+                if let base = source.baseAddress { lives.update(from: base, count: min(actual, source.count)) }
             }
+            let started = snapshot.maxLives
             for index in 0 ..< actual {
-                maxLives[index] = max(1, lives[index])
-                if lives[index] > 0 { hasMortalBodies = true }
+                // What it started with when that was kept, and otherwise the best guess there is: what it has
+                // left, which at least never draws a body fainter than it was.
+                let saved = index < started.count && started[index].isFinite ? started[index] : 0
+                maxLives[index] = max(1, max(saved, lives[index]))
+                if lives[index] >= 0 { hasMortalBodies = true }
             }
         } else {
             lives.update(repeating: -1, count: actual)
             maxLives.update(repeating: 1, count: actual)
         }
+        hasRoles = false
+        if !snapshot.roles.isEmpty {
+            let usable = min(actual, snapshot.roles.count)
+            for index in 0 ..< actual {
+                let raw = index < usable ? snapshot.roles[index] : 0
+                // Only the roles this build understands, so a file from a later one cannot switch on
+                // behaviour that does not exist here.
+                roles[index] = raw & (Role.orbits.rawValue | Role.holds.rawValue)
+                if roles[index] != 0 { hasRoles = true }
+            }
+            let homeCount = actual * Self.homeStride
+            for k in 0 ..< homeCount {
+                let value = k < snapshot.homes.count ? snapshot.homes[k] : 0
+                homes[k] = value.isFinite ? value : 0
+            }
+            // A body told to hold a shape with no usable home holds where it is.
+            for index in 0 ..< actual where roles[index] & Role.holds.rawValue != 0
+                && index * Self.homeStride + Self.homeStride > snapshot.homes.count
+            {
+                let at = index * Self.homeStride
+                homes[at] = positions[index * 2]
+                homes[at + 1] = positions[index * 2 + 1]
+                homes[at + 2] = 0
+                homes[at + 3] = 0
+                homes[at + 4] = 0
+                homes[at + 5] = 1
+                homes[at + 6] = Float(Self.holdStiffness)
+            }
+        } else {
+            roles.update(repeating: 0, count: actual)
+        }
         count = actual
         generation += 1
     }
+
+    // MARK: - Black holes and repulsors
+
+    /// Something in the object list that pulls on everything, or pushes everything away.
+    public struct Attractor: Sendable, Hashable {
+        public var x: Double
+        public var y: Double
+        public var mass: Double
+        public var radius: Double
+        /// Pushes rather than pulls.
+        public var repels: Bool
+
+        public init(x: Double, y: Double, mass: Double, radius: Double, repels: Bool) {
+            self.x = x
+            self.y = y
+            self.mass = mass
+            self.radius = radius
+            self.repels = repels
+        }
+    }
+
+    /// Pulls every body in the crowd toward the black holes, and pushes it away from the repulsors.
+    ///
+    /// ## Why the crowd needed this
+    ///
+    /// Only the object list used to feel a black hole. So dropping a well into a field of a hundred thousand
+    /// bodies did nothing at all, and adding ten thousand bodies to a galaxy scattered them across a black
+    /// hole they could not see. The same law the object bodies obey, written the same way, so a body in the
+    /// crowd and a body in the list at the same place move the same way.
+    ///
+    /// A body that reaches a black hole's edge is thrown back out — into a wide orbit, or now and then along
+    /// a jet — exactly as an object body is. Without that the crowd would pile into a single point.
+    ///
+    /// - Parameter span: the shorter side of the world, which sets how wide a re-emitted orbit may be.
+    public func applyAttractors(_ attractors: [Attractor], span: Double, rng: inout Mulberry32) {
+        guard !attractors.isEmpty, count > 0 else { return }
+        for i in 0 ..< count {
+            let pair = i * 2
+            var x = positions[pair].asDouble
+            var y = positions[pair + 1].asDouble
+            var velX = velocities[pair].asDouble
+            var velY = velocities[pair + 1].asDouble
+            var moved = false
+
+            for attractor in attractors {
+                let dx = attractor.x - x
+                let dy = attractor.y - y
+                let distanceSquared = dx * dx + dy * dy + 10
+                let distance = distanceSquared.squareRoot()
+                let mass = attractor.mass == 0 ? 80 : attractor.mass
+                if attractor.repels {
+                    let force = (mass * 150) / distanceSquared
+                    velX -= (dx / distance) * force
+                    velY -= (dy / distance) * force
+                    continue
+                }
+                let edge = (attractor.radius == 0 ? 12 : attractor.radius) + 4
+                if distance < edge {
+                    let pull = mass * 200
+                    if rng.chance(0.15) {
+                        let angle = rng.next() * Double.pi * 2
+                        let speed = (pull / 40).squareRoot() * 1.2
+                        x = attractor.x + jsCos(angle) * (edge + 4)
+                        y = attractor.y + jsSin(angle) * (edge + 4)
+                        velX = jsCos(angle) * speed
+                        velY = jsSin(angle) * speed
+                    } else {
+                        let orbit = rng.next() * (span * 0.4) + 40
+                        let angle = rng.next() * Double.pi * 2
+                        let speed = (pull / orbit).squareRoot()
+                        x = attractor.x + jsCos(angle) * orbit
+                        y = attractor.y + jsSin(angle) * orbit
+                        velX = -jsSin(angle) * speed
+                        velY = jsCos(angle) * speed
+                    }
+                    moved = true
+                    break
+                }
+                let force = (mass * 200) / distanceSquared
+                velX += (dx / distance) * force
+                velY += (dy / distance) * force
+            }
+
+            if moved {
+                positions[pair] = JS.toFloat32(x)
+                positions[pair + 1] = JS.toFloat32(y)
+            }
+            velocities[pair] = JS.toFloat32(velX)
+            velocities[pair + 1] = JS.toFloat32(velY)
+        }
+    }
+
+    // MARK: - Health
 
     /// Whether any body holds an unusable number.
     public func corruptCount() -> Int {
