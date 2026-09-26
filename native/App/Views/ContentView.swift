@@ -632,7 +632,7 @@ struct ContentView: View {
         case .powder:
             ShakenPowderSurface(model: powder, size: size)
         case .field:
-            FieldSurface(model: field)
+            FieldWithLabels(model: field)
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
                     field.resize(toViewSize: new, scale: UIScreen.main.scale)

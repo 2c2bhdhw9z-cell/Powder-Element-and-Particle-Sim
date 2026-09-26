@@ -197,6 +197,9 @@ public final class ParticleEngine {
     var storedGravityZ = 0.0
     /// How big a thing just happened, from nought to one. See `bigMomentStrength`.
     var storedBigMoment = 0.0
+    /// Names hanging in the field. See `ParticleLabel.swift`.
+    var storedLabels: [ParticleLabel] = []
+    var storedShowsLabels = false
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -432,6 +435,8 @@ public final class ParticleEngine {
         storedEmitters.removeAll()
         storedArrangement = nil
         arrangementAge = 0
+        // The names belong to whatever was showing, so they go with it.
+        storedLabels = []
         // A recording left playing would overwrite, on the very next moment, whatever the field is about to
         // be set up as. Paused rather than deleted: it is somebody's work.
         storedPlayhead.isPlaying = false

@@ -310,6 +310,12 @@ struct FieldDock: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
+                    if model.hasLabels {
+                        smallToggle(
+                            "Show the names",
+                            isOn: Binding(get: { model.showsLabels }, set: { model.showsLabels = $0 })
+                        )
+                    }
                     smallToggle(
                         "Colour by how far away things are",
                         isOn: Binding(get: { model.colorsByDistance }, set: { model.colorsByDistance = $0 })

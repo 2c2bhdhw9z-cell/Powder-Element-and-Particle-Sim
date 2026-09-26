@@ -2522,6 +2522,79 @@ final class ParticleFieldModel {
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
 
+    // MARK: - Names hanging in the field
+
+    /// Whether names are shown beside the things they name.
+    var showsLabels: Bool {
+        get { observeEngine(); return engine.showsLabels }
+        set { engine.showsLabels = newValue; engineDidChange() }
+    }
+
+    /// Whether the arrangement showing has any names to offer, so the switch can hide itself when it would do
+    /// nothing.
+    var hasLabels: Bool {
+        observeEngine()
+        return !engine.labels.isEmpty
+    }
+
+    /// One name, and where on the screen it belongs.
+    struct PlacedLabel: Identifiable {
+        var id: String { "\(text)-\(Int(x))-\(Int(y))" }
+        var text: String
+        /// In points from the top left of the view.
+        var x: Double
+        var y: Double
+        /// How much to fade it: far-off names in a box are dimmer, as the bodies there are.
+        var opacity: Double
+    }
+
+    /// Every name that is currently on screen, ready to be drawn.
+    ///
+    /// Worked out here rather than in the view because it needs the camera, and the camera is the model's. Names
+    /// behind the eye, or off the edge of the view, are left out rather than clamped to the border — a name pinned
+    /// to the edge of the screen points at nothing.
+    var placedLabels: [PlacedLabel] {
+        observeEngine()
+        let places = engine.labelPlaces()
+        guard !places.isEmpty else { return [] }
+        let view = viewPixels
+        guard view.width > 1, view.height > 1, viewScale > 0 else { return [] }
+        let drawn = drawingCamera
+        var found: [PlacedLabel] = []
+        found.reserveCapacity(places.count)
+        for place in places {
+            let x: Double
+            let y: Double
+            var fade = 1.0
+            if engine.depthEnabled {
+                let put = drawn.projectInDepth(
+                    x: place.x, y: place.y, z: place.z,
+                    worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth,
+                    viewWidth: view.width, viewHeight: view.height
+                )
+                guard put.isInFront else { continue }
+                x = (put.x + 1) * 0.5 * view.width
+                y = (1 - put.y) * 0.5 * view.height
+                // Dimmer toward the back of the box, so the names sit in it rather than on the glass.
+                fade = 1 - 0.55 * put.depth
+            } else {
+                let put = drawn.project(
+                    x: place.x, y: place.y,
+                    worldWidth: engine.width, worldHeight: engine.height,
+                    viewWidth: view.width, viewHeight: view.height
+                )
+                x = (put.x + 1) * 0.5 * view.width
+                y = (1 - put.y) * 0.5 * view.height
+            }
+            // Off the view, so not drawn. A margin, because a name is wider than the point it hangs from.
+            guard x > -40, x < view.width + 40, y > -20, y < view.height + 20 else { continue }
+            found.append(
+                PlacedLabel(text: place.text, x: x / viewScale, y: y / viewScale, opacity: max(0.25, fade))
+            )
+        }
+        return found
+    }
+
     // MARK: - Relax mode
 
     /// Whether the field shows itself: it drifts from one arrangement to the next by itself, turning slowly.

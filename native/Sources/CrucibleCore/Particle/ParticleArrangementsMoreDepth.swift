@@ -191,6 +191,13 @@ extension ParticleEngine {
             ) { return }
         }
 
+        // The clouds, named where each one sits, since none of them is a body to hang a name on.
+        labels = [
+            ParticleLabel("Nucleus", x: centreX, y: centreY - radius * 0.1, z: 0),
+            ParticleLabel("Inner shell", x: centreX, y: centreY - radius * 0.62, z: 0),
+            ParticleLabel("Lobes", x: centreX + radius * 0.8, y: centreY, z: 0),
+        ]
+
         // Three dumbbells, one along each direction. A lobe is fat where it points and pinched at the middle,
         // which is what squaring the lean along its own direction gives.
         let lobe = (total - nucleus - shell) / 3

@@ -211,7 +211,11 @@ extension ParticleEngine {
         // ever really do. Give it less, and the Sun simply takes the Moon away and leaves a ninth planet. A
         // moon that is quietly stolen within a few seconds is worse than no moon, so the scene is the Sun, the
         // planets and the belt.
+        var named: [ParticleLabel] = [ParticleLabel("Sun", body: 0)]
         for planet in Self.solarPlanets {
+            // Each planet's name follows the planet, because a label on Jupiter has to stay on Jupiter while it
+            // goes round. The index is where this body is about to be added.
+            named.append(ParticleLabel(planet.name, body: particles.count))
             let distance = drawn(planet.place)
             // Spread round the Sun rather than lined up, so the picture is not a single spoke.
             let angle = Double(planet.name.count) * 0.9 + planet.distance * 0.7
@@ -231,6 +235,8 @@ extension ParticleEngine {
                 z: z, velocityZ: alongZ
             )
         }
+
+        labels = named
 
         // The asteroid belt, between Mars and Jupiter, in the crowd because there are thousands of them.
         //

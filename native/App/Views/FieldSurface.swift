@@ -7,6 +7,43 @@ import MetalKit
 /// powder grid places material at a point, while touching the particle field applies a force for
 /// as long as the finger is down — so this reports when the touch ends, which the powder surface
 /// has no need to.
+/// The field, with any names hanging in it drawn on top.
+///
+/// Two views rather than one: the field itself is drawn by the graphics card as geometry, and text is the one thing
+/// that does not belong there — a handful of words laid over the top costs nothing and can use the app's own
+/// typefaces, where drawing them into the field would mean turning letters into particles.
+struct FieldWithLabels: View {
+    let model: ParticleFieldModel
+
+    var body: some View {
+        FieldSurface(model: model)
+            .overlay(alignment: .topLeading) {
+                if model.showsLabels {
+                    ZStack(alignment: .topLeading) {
+                        ForEach(model.placedLabels) { label in
+                            Text(label.text)
+                                .font(.labBody(11, .semiBold))
+                                .foregroundStyle(Palette.foreground.opacity(label.opacity))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule().fill(Palette.background.opacity(0.55 * label.opacity))
+                                )
+                                // Centred on the place it names rather than starting there, so the words straddle
+                                // it the way a caption should.
+                                .fixedSize()
+                                .offset(x: label.x, y: label.y)
+                                .alignmentGuide(.leading) { $0.width * 0.5 }
+                                .alignmentGuide(.top) { $0.height }
+                        }
+                    }
+                    // Names are a statement about the field, not part of it: they must never swallow a touch.
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
 struct FieldSurface: UIViewRepresentable {
     let model: ParticleFieldModel
 
