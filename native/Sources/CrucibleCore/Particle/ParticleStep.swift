@@ -141,6 +141,10 @@ extension ParticleEngine {
         let worldHeight = height
         let localGravityX = gravityX
         let localGravityY = gravityY
+        // Copied out before the loop, as every other setting the loop reads is.
+        let localExtraFingers: [ParticleFingerPoint] = mouseActive
+            ? activeExtraFingers(fingerX: mouseX ?? lastMouseX, fingerY: mouseY ?? lastMouseY, fingerZ: 0)
+            : []
         let localDamping = damping
         let localElasticity = elasticity
         let localElectrostatic = electrostaticFactor
@@ -299,6 +303,42 @@ extension ParticleEngine {
                             unit: localBrushUnit
                         )
                         if effect.inReach {
+                            if effect.stops {
+                                bodies[i].velocityX = 0
+                                bodies[i].velocityY = 0
+                                frozen = true
+                            } else {
+                                bodies[i].velocityX += effect.velocityX
+                                bodies[i].velocityY += effect.velocityY
+                                if localMouseMode == .hyperDrive { bodies[i].color = ParticleBrush.rushColor }
+                            }
+                        }
+                    }
+
+                    // Every other place the tool is being applied this moment. Skipped entirely while there are
+                    // none, so one finger on the field costs exactly what it always did.
+                    if !localExtraFingers.isEmpty {
+                        for point in localExtraFingers {
+                            if localMouseMode == .painter {
+                                let dx = point.x - bodies[i].x
+                                let dy = point.y - bodies[i].y
+                                if (dx * dx + dy * dy + 30).squareRoot() <= localMouseRadius {
+                                    bodies[i].color = ParticleBrush.paintColor(now: now, index: i)
+                                }
+                                continue
+                            }
+                            guard ParticleBrush.touchesBodies(localMouseMode) else { continue }
+                            let effect = ParticleBrush.effect(
+                                localMouseMode,
+                                atX: bodies[i].x,
+                                y: bodies[i].y,
+                                fingerX: point.x,
+                                fingerY: point.y,
+                                reach: localMouseRadius,
+                                strength: localBrushStrength,
+                                unit: localBrushUnit
+                            )
+                            guard effect.inReach else { continue }
                             if effect.stops {
                                 bodies[i].velocityX = 0
                                 bodies[i].velocityY = 0
@@ -697,15 +737,30 @@ extension ParticleEngine {
         let fingerY = mouseY ?? lastMouseY
         let reach = mouseRadius.isNaN ? 0 : mouseRadius
         if mouseActive {
+            let strength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
             swarm.applyBrush(
                 mouseMode,
                 fingerX: fingerX,
                 fingerY: fingerY,
                 reach: reach,
-                strength: ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1),
+                strength: strength,
                 unit: brushUnit,
                 now: now
             )
+            // And again at every other place the tool is being applied — the other fingers on the glass, and the
+            // kaleidoscope's copies of them. Nothing at all happens here while there are none, which is almost
+            // always. See `ParticleFingers.swift`.
+            for point in activeExtraFingers(fingerX: fingerX, fingerY: fingerY, fingerZ: 0) {
+                swarm.applyBrush(
+                    mouseMode,
+                    fingerX: point.x,
+                    fingerY: point.y,
+                    reach: reach,
+                    strength: strength,
+                    unit: brushUnit,
+                    now: now
+                )
+            }
         }
         // Freezing is finished inside the step, after gravity and the shapes' hold have had their say, so that
         // what it stops stays stopped. See `Swarm.StepOptions.freezeReach`.

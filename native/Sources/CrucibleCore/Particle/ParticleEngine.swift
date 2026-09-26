@@ -163,6 +163,10 @@ public final class ParticleEngine {
     var storedDepthRatio = 1.0
     /// How hard everything is pulled toward the middle of the world. See `ParticleRadialGravity.swift`.
     var storedGravityToCentre = 0.0
+    /// More places the tool is applied this moment. See `ParticleFingers.swift`.
+    var storedExtraFingers: [ParticleFingerPoint] = []
+    var storedKaleidoscopeFolds = 1
+    var storedKaleidoscopeMirrors = true
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()

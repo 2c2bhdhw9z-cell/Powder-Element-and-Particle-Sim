@@ -408,6 +408,130 @@ struct ParticleMoreArrangementTests {
         #expect(engine.gravityToCentre == 0)
     }
 
+    // MARK: - More than one finger, and the kaleidoscope
+
+    /// A field of still bodies spread evenly, for seeing exactly where a tool reached.
+    private func scattered(inDepth: Bool = false) -> ParticleEngine {
+        let engine = field(width: 800, height: 800, inDepth: inDepth)
+        engine.gravityY = 0
+        engine.damping = 1
+        var y = 40.0
+        while y < 760 {
+            var x = 40.0
+            while x < 760 {
+                if inDepth {
+                    _ = engine.placeInDepth(x, y, 0, hue: 200)
+                } else {
+                    _ = engine.placeLoose(x, y, hue: 200)
+                }
+                x += 20
+            }
+            y += 20
+        }
+        return engine
+    }
+
+    /// How many bodies are moving, and how many separate places they are moving in.
+    private func stirred(_ engine: ParticleEngine) -> (moving: Int, places: Int) {
+        var moving = 0
+        var cells = Set<Int>()
+        for index in 0 ..< engine.swarm.count {
+            let vx = Double(engine.swarm.velocities[index * 2])
+            let vy = Double(engine.swarm.velocities[index * 2 + 1])
+            guard (vx * vx + vy * vy).squareRoot() > 0.05 else { continue }
+            moving += 1
+            let x = Int(Double(engine.swarm.positions[index * 2]) / 100)
+            let y = Int(Double(engine.swarm.positions[index * 2 + 1]) / 100)
+            cells.insert(y * 100 + x)
+        }
+        return (moving, cells.count)
+    }
+
+    @Test("Several fingers each work the field, and none of it happens with one finger")
+    func extraFingersEachApplyTheTool() {
+        // One finger: one patch of the field moves.
+        let one = scattered()
+        one.mouseMode = .repel
+        one.step(mouseX: 200, mouseY: 200, mouseActive: true)
+        let single = stirred(one)
+        #expect(single.moving > 5, "one finger moved only \(single.moving)")
+
+        // Four fingers, far apart: four patches move, and far more bodies altogether.
+        let four = scattered()
+        four.mouseMode = .repel
+        four.extraFingers = [
+            ParticleFingerPoint(x: 600, y: 200),
+            ParticleFingerPoint(x: 200, y: 600),
+            ParticleFingerPoint(x: 600, y: 600),
+        ]
+        four.step(mouseX: 200, mouseY: 200, mouseActive: true)
+        let many = stirred(four)
+        #expect(many.moving > single.moving * 3, "four fingers moved \(many.moving) against one finger's \(single.moving)")
+        #expect(many.places > single.places * 2, "the four fingers did not act in separate places: \(many.places)")
+
+        // The list is the app's to clear, and it is capped so a mistake cannot slow the field to a halt.
+        four.extraFingers = (0 ..< 40).map { ParticleFingerPoint(x: Double($0) * 10, y: 400) }
+        #expect(four.extraFingers.count == ParticleEngine.fingerLimit)
+        four.extraFingers = []
+        #expect(four.extraFingers.isEmpty)
+    }
+
+    @Test("A kaleidoscope copies one stroke evenly round the middle")
+    func kaleidoscopeFoldsAStroke() {
+        let plain = scattered()
+        plain.mouseMode = .repel
+        plain.step(mouseX: 240, mouseY: 400, mouseActive: true)
+        let single = stirred(plain)
+
+        let folded = scattered()
+        folded.mouseMode = .repel
+        folded.kaleidoscopeFolds = 6
+        #expect(folded.kaleidoscopeFolds == 6)
+        folded.step(mouseX: 240, mouseY: 400, mouseActive: true)
+        let six = stirred(folded)
+
+        // Six times the work in six separate places, from the one finger.
+        #expect(six.moving > single.moving * 3, "folding six ways moved \(six.moving) against \(single.moving)")
+        #expect(six.places >= 4, "the folds landed in only \(six.places) places")
+
+        // Every copy is the same distance from the middle as the finger is, which is what makes it a pattern
+        // rather than a scatter.
+        let centreX = folded.width * 0.5
+        let centreY = folded.height * 0.5
+        let fingerOut = ((240 - centreX) * (240 - centreX) + (400 - centreY) * (400 - centreY)).squareRoot()
+        let copies = folded.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0)
+        #expect(copies.count == 5, "six folds should add five copies, not \(copies.count)")
+        for copy in copies {
+            let out = ((copy.x - centreX) * (copy.x - centreX) + (copy.y - centreY) * (copy.y - centreY)).squareRoot()
+            #expect(abs(out - fingerOut) < 0.001, "a copy sits \(out) out where the finger is \(fingerOut)")
+        }
+
+        // Off by default, and off means exactly one place.
+        let off = scattered()
+        #expect(off.kaleidoscopeFolds == 1)
+        #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
+    }
+
+    @Test("Several fingers work in 3D too")
+    func extraFingersInDepth() {
+        let one = scattered(inDepth: true)
+        one.mouseMode = .repel
+        one.step(mouseX: 200, mouseY: 200, mouseActive: true)
+        let single = stirred(one)
+
+        let several = scattered(inDepth: true)
+        several.mouseMode = .repel
+        several.extraFingers = [
+            ParticleFingerPoint(x: 600, y: 200),
+            ParticleFingerPoint(x: 200, y: 600),
+            ParticleFingerPoint(x: 600, y: 600),
+        ]
+        several.step(mouseX: 200, mouseY: 200, mouseActive: true)
+        let many = stirred(several)
+        #expect(many.moving > single.moving * 2, "in 3D four fingers moved \(many.moving) against one's \(single.moving)")
+        #expect(several.swarm.corruptCount() == 0)
+    }
+
     // MARK: - The atom
 
     @Test("An atom's dumbbells are pinched in the middle, and it only exists in 3D")

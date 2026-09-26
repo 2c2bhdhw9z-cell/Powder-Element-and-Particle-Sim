@@ -92,6 +92,41 @@ struct FieldSurface: UIViewRepresentable {
             )
             rotate.delegate = self
             view.addGestureRecognizer(rotate)
+
+            // Every finger, for when the field is set to take more than one. It runs all the time and does nothing
+            // unless that is switched on — asking it to be added and removed as the setting changes would mean
+            // reaching back into the view from the model, and this costs a list of touch positions per frame.
+            //
+            // The view is told to accept several touches at all: without this the system hands over only the first,
+            // and every extra finger would simply not exist.
+            view.isMultipleTouchEnabled = true
+            let many = ManyFingersRecognizer(target: nil, action: nil)
+            many.delegate = self
+            many.onChange = { [weak self] points in
+                self?.handleManyFingers(points, in: view)
+            }
+            view.addGestureRecognizer(many)
+        }
+
+        /// Every finger on the glass, while the field is set to take more than one.
+        ///
+        /// The first finger down keeps working the tool through the ordinary path, so nothing about one-finger use
+        /// changes. The rest are handed over as extra places for the same tool.
+        private func handleManyFingers(_ points: [CGPoint], in view: UIView) {
+            guard model.manyFingers else {
+                model.clearExtraTouches()
+                return
+            }
+            let bounds = view.bounds
+            guard bounds.width > 0, bounds.height > 0, points.count > 1 else {
+                model.clearExtraTouches()
+                return
+            }
+            model.setExtraTouches(
+                points.dropFirst().map {
+                    (fx: Double($0.x / bounds.width), fy: Double($0.y / bounds.height))
+                }
+            )
         }
 
         @objc private func handlePress(_ gesture: UILongPressGestureRecognizer) {
@@ -102,7 +137,10 @@ struct FieldSurface: UIViewRepresentable {
             // A second finger means the camera, not the field. The tool is let go the moment one
             // arrives, because otherwise pinching to zoom would also drag whatever was under the
             // first finger halfway across the world.
-            if gesture.numberOfTouches > 1 {
+            //
+            // Unless the field has been set to take many fingers, in which case a second finger is another tool
+            // rather than a camera move, and letting go would be exactly wrong.
+            if gesture.numberOfTouches > 1, !model.manyFingers {
                 model.endTouch()
                 return
             }
@@ -152,6 +190,8 @@ struct FieldSurface: UIViewRepresentable {
         }
 
         @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            // The camera stands down while every finger is a tool; there is no spare finger to move the view with.
+            guard !model.manyFingers else { return }
             track(gesture)
             // The scale is reported cumulatively from the start of the gesture, so it is reset to one
             // after each reading and what gets applied is the change since the last. Applying the
@@ -163,6 +203,8 @@ struct FieldSurface: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+            // The camera stands down while every finger is a tool; there is no spare finger to move the view with.
+            guard !model.manyFingers else { return }
             track(gesture)
             guard let view = gesture.view else { return }
             guard gesture.state == .changed || gesture.state == .began else { return }
@@ -172,6 +214,8 @@ struct FieldSurface: UIViewRepresentable {
         }
 
         @objc private func handleRotate(_ gesture: UIRotationGestureRecognizer) {
+            // The camera stands down while every finger is a tool; there is no spare finger to move the view with.
+            guard !model.manyFingers else { return }
             track(gesture)
             guard gesture.state == .changed || gesture.state == .began else { return }
             model.rotateCamera(byRadians: Double(gesture.rotation))

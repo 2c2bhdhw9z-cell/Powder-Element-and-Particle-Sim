@@ -6,6 +6,8 @@ Not shipped. Not in the UI. Pick from chat.
 
 Built:
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
+- Ten fingers: every finger on the glass is its own tool
+- Kaleidoscope: every stroke copied evenly round the middle, in either chamber's field
 - Muscles: springs whose length pulses, and that push while they squeeze (what makes the jellyfish swim)
 - Gravity that points at the middle of the world, for little round worlds
 - Particle collisions that stack

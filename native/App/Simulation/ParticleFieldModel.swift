@@ -1785,6 +1785,8 @@ final class ParticleFieldModel {
         touchActive = false
         strokeFromX = nil
         strokeFromY = nil
+        // The other fingers go with it: the engine has no way to know they have been lifted.
+        clearExtraTouches()
         if turnFromX != nil {
             turnFromX = nil
             turnFromY = nil
@@ -2492,6 +2494,76 @@ final class ParticleFieldModel {
     var depthRatio: Double {
         get { observeEngine(); return engine.depthRatio }
         set { engine.depthRatio = newValue; engineDidChange() }
+    }
+
+    // MARK: - More than one finger
+
+    /// Whether every finger on the glass works the field, instead of the second one moving the view.
+    ///
+    /// Off by default, because the two cannot both be true: with this on there is no spare finger for pinching or
+    /// twisting, so the camera's gestures stand down and the view is moved from the tray instead. On, ten fingers
+    /// means ten whirlpools at once.
+    var manyFingers: Bool = false {
+        didSet {
+            if !manyFingers { clearExtraTouches() }
+            engineDidChange()
+        }
+    }
+
+    /// Where the other fingers are, as fractions of the screen. Converted into the world the same way the first
+    /// finger is, so every one of them lands where it was aimed however the view is turned or zoomed.
+    func setExtraTouches(_ points: [(fx: Double, fy: Double)]) {
+        guard manyFingers, !points.isEmpty else {
+            clearExtraTouches()
+            return
+        }
+        let view = viewPixels
+        if engine.depthEnabled {
+            let drawn = drawingCamera
+            engine.extraFingers = points.map { point in
+                let ray = drawn.fingerRay(
+                    screenX: point.fx * view.width,
+                    screenY: point.fy * view.height,
+                    worldWidth: engine.width,
+                    worldHeight: engine.height,
+                    worldDepth: engine.worldDepth,
+                    viewWidth: view.width,
+                    viewHeight: view.height
+                )
+                let cursor = ray.cursor
+                return ParticleFingerPoint(x: cursor.x, y: cursor.y, z: cursor.z)
+            }
+            return
+        }
+        engine.extraFingers = points.map { point in
+            let place = camera.unproject(
+                screenX: point.fx * view.width,
+                screenY: point.fy * view.height,
+                worldWidth: engine.width,
+                worldHeight: engine.height,
+                viewWidth: view.width,
+                viewHeight: view.height
+            )
+            return ParticleFingerPoint(x: place.x, y: place.y)
+        }
+    }
+
+    /// Forgets the other fingers. The engine cannot know a finger has been lifted, so this has to be said.
+    func clearExtraTouches() {
+        guard !engine.extraFingers.isEmpty else { return }
+        engine.extraFingers = []
+    }
+
+    /// How many times a stroke is copied round the middle of the world. One is off.
+    var kaleidoscopeFolds: Double {
+        get { observeEngine(); return Double(engine.kaleidoscopeFolds) }
+        set { engine.kaleidoscopeFolds = Int(newValue.rounded()); engineDidChange() }
+    }
+
+    /// Whether every other copy is mirrored, which is what makes a snowflake rather than a pinwheel.
+    var kaleidoscopeMirrors: Bool {
+        get { observeEngine(); return engine.kaleidoscopeMirrors }
+        set { engine.kaleidoscopeMirrors = newValue; engineDidChange() }
     }
 
     /// Whether one finger turns the view rather than working the field. The Turn tool.

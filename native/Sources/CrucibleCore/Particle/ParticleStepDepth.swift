@@ -128,6 +128,10 @@ extension ParticleEngine {
         let worldHeight = height
         let localGravityX = gravityX
         let localGravityY = gravityY
+        let localExtraRays: [ParticleFingerRay] = {
+            guard mouseActive, let ray = activeFingerRay else { return [] }
+            return extraFingerRays(besides: ray)
+        }()
         let localDamping = damping
         let localElasticity = elasticity
         let localElectrostatic = electrostaticFactor
@@ -269,6 +273,36 @@ extension ParticleEngine {
                         unit: localBrushUnit
                     )
                     if effect.inReach {
+                        if effect.stops {
+                            bodies[i].velocityX = 0
+                            bodies[i].velocityY = 0
+                            bodies[i].velocityZ = 0
+                            frozen = true
+                        } else if localMouseMode == .painter {
+                            bodies[i].color = ParticleBrush.paintColor(now: now, index: i)
+                        } else {
+                            bodies[i].velocityX += effect.velocityX
+                            bodies[i].velocityY += effect.velocityY
+                            bodies[i].velocityZ += effect.velocityZ
+                            if localMouseMode == .hyperDrive { bodies[i].color = ParticleBrush.rushColor }
+                        }
+                    }
+                }
+
+                // The other places the tool is being applied. Nothing happens here while there are none.
+                if !localExtraRays.isEmpty, !bodies[i].isFixed, ParticleBrush.touchesBodies(localMouseMode) {
+                    for other in localExtraRays {
+                        let effect = ParticleBrush.effect(
+                            localMouseMode,
+                            atX: bodies[i].x,
+                            y: bodies[i].y,
+                            z: bodies[i].z,
+                            ray: other,
+                            reach: localMouseRadius,
+                            strength: localBrushStrength,
+                            unit: localBrushUnit
+                        )
+                        guard effect.inReach else { continue }
                         if effect.stops {
                             bodies[i].velocityX = 0
                             bodies[i].velocityY = 0
@@ -595,14 +629,27 @@ extension ParticleEngine {
         let reach = mouseRadius.isNaN ? 0 : mouseRadius
         let ray = mouseActive ? activeFingerRay : nil
         if let ray {
+            let strength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
             swarm.applyBrushInDepth(
                 mouseMode,
                 ray: ray,
                 reach: reach,
-                strength: ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1),
+                strength: strength,
                 unit: brushUnit,
                 now: now
             )
+            // And at every other place the tool is being applied. Each one becomes a line into the box of its own,
+            // parallel to the view, which is what a second finger on the glass is. See `ParticleFingers.swift`.
+            for point in extraFingerRays(besides: ray) {
+                swarm.applyBrushInDepth(
+                    mouseMode,
+                    ray: point,
+                    reach: reach,
+                    strength: strength,
+                    unit: brushUnit,
+                    now: now
+                )
+            }
         }
         let freezing = ray != nil && mouseMode == .freeze
 

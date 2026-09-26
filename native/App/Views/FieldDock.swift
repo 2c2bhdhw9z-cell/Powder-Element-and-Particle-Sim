@@ -326,6 +326,53 @@ struct FieldDock: View {
         }
     }
 
+    /// Using more than one finger at once, and copying a stroke round the middle.
+    private var fingerControls: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("FINGERS")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+
+            switchAndNumbers(
+                "Every finger is its own tool",
+                isOn: Binding(get: { model.manyFingers }, set: { model.manyFingers = $0 })
+            ) {
+                Text("Ten fingers, ten whirlpools. While this is on there is no spare finger for the view, so "
+                    + "pinching and twisting stand down — zoom and turn from the View section instead.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            switchAndNumbers(
+                "Kaleidoscope",
+                isOn: Binding(
+                    get: { model.kaleidoscopeFolds > 1 },
+                    set: { model.kaleidoscopeFolds = $0 ? 6 : 1 }
+                )
+            ) {
+                Text("Every stroke is copied evenly round the middle, so one line comes out as a snowflake. "
+                    + "Each copy is a real push, so it works with any tool.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 2)
+                inlineSlider(
+                    "Folds",
+                    \.kaleidoscopeFolds,
+                    2 ... 12,
+                    step: 1,
+                    format: { "\(Int($0.rounded()))" }
+                )
+                smallToggle(
+                    "Mirror every other one",
+                    isOn: Binding(get: { model.kaleidoscopeMirrors }, set: { model.kaleidoscopeMirrors = $0 })
+                )
+            }
+        }
+    }
+
     /// An angle, in whole degrees.
     private static func degrees(_ value: Double) -> String {
         "\(Int(value.rounded()))°"
@@ -675,6 +722,7 @@ struct FieldDock: View {
             costWarning
             // Before the arrangements, because it changes what every one of them is.
             depthControls
+            fingerControls
             presetChips
             wordControls
             population
