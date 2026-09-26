@@ -23,6 +23,7 @@ Built:
 - Shared undo
 - Split view
 - Scene export / import
+- Real 3D particle field — a box to turn round, physics in depth, 9 3D-only scenes (build-78)
 
 Still not (honest):
 - WebGPU compute physics (typed-array + GL draw is as far as JS goes here)
@@ -179,3 +180,98 @@ Saved here so they don’t vanish in chat. Still not in the sim.
 39. Swarm panic. One loud sound (or tap) and flocking particles scatter, then regroup.
 40. Geode. Fill a cavity with mineral, wait, crack it — crystals on the inside only.
 
+
+
+---
+
+## Round 4 — after 3D, 26 Sep 2026
+
+Saved from chat, after building 3D and comparing it with particles.casberry.in — where every dot's place
+comes from a small formula, often written by an AI, and nothing has physics or can be pushed.
+
+1. Shape recipe box — describe a shape and the bodies form it, with sliders made for it and a title on
+   screen. Push it apart and it pulls itself back together. Their idea, plus our physics.
+2. Floating labels in the box — names that hang in 3D space and turn with it.
+3. Colour by distance — near bodies one colour, far ones another.
+4. Red-and-blue glasses mode — real depth with cheap 3D glasses.
+5. Slice — show only a thin slab of the box, to see inside a crowd.
+6. Turntable video — record one slow spin all the way round, ready to share.
+
+---
+
+## Round 5 — anything, 26 Sep 2026
+
+### In 3D
+
+1. On your table — the camera shows your room and the box sits on the real table; walk round it.
+2. Look round with your head — the front camera follows your face, and moving your head shifts the view,
+   like looking through a window.
+3. Shadows — every body casts a soft shadow on the floor of the box, so you can tell how high it is.
+4. Camera focus — near and far go soft like a real photo; tap a body to bring it into focus.
+5. Fly inside — steer the view into the middle of a galaxy or a tornado and look around from in there.
+6. Real down — the box knows which way is really down: lay the phone flat and everything falls to the back.
+7. Light painting — drag through the box to leave ribbons of light that stay, a sculpture to go round.
+8. Tiny planet — gravity pulls to the middle of a ball, and sand and water settle into a little round world
+   with a sea on it.
+9. Atom — the electron clouds round an atom in their real shapes: balls, dumbbells and rings.
+10. Jellyfish — a see-through jelly made of springs that swims by pulsing, tentacles trailing.
+
+### Particle field
+
+1. Particle life — a few colours, each with secret likes and dislikes of the others; they sort themselves
+   into things that look alive. Shuffle for a new world.
+2. Foxes and rabbits — one kind hunts the other, both have babies, and a small graph shows the numbers rise
+   and fall.
+3. Galaxy crash — two galaxies collide and fling out long tails of stars.
+4. Lava lamp — warm blobs rise, cool at the top and sink again, forever.
+5. Paper marbling — drop coloured inks on water, drag a comb through, get marbled-paper swirls.
+6. Jelly pen — draw any outline and it becomes a wobbly jelly of that shape that drops and bounces.
+7. Slingshot — pull back and let go to throw a body; a dotted line shows the path it will take round the
+   wells.
+8. Pendulum wave — a row of swings of slightly different lengths that drift in and out of snake patterns.
+9. The solar system — the real planets at their real speeds, the Moon round the Earth; speed time up to
+   watch a year go by.
+10. Living clock — the time spelt in bodies that tumble into the next number every minute.
+11. Colours from a photo — pick a picture and the bodies take its colours. The engine can already do this;
+    it only needs a button.
+12. Feel it — a buzz in the hand when a supernova goes off or a crowd slams into a wall. The powder side
+    already does this for explosions.
+
+### Powder world
+
+1. Popcorn — kernels that pop when heated, jump about and turn fluffy and white.
+2. Soap — stirred into water it makes foam that piles up and slowly pops.
+3. Sponge — soaks up water and swells; squashed by something heavy, it drips it back out.
+4. Conveyor belt — a strip that carries whatever lands on it along. Build sorters and factories.
+5. Magnet — iron dust stands up in spiky lines round it and follows it when it is dragged.
+6. Sand on a drum — play music and the sand jumps into neat patterns, like salt on a speaker.
+7. Little people — stick figures that walk, climb and run from lava, and can be picked up and dropped.
+8. Photo into powder — a picture made of real sand, water and lava that falls apart when you let go.
+9. Sand art — sand in any colour, for layered pictures like the bottles at the seaside.
+10. Hourglass — sand pours through the neck; tap to flip it.
+
+### Both chambers
+
+1. Kaleidoscope — whatever your finger does is copied round the middle six times, so every stroke makes a
+   snowflake.
+2. Powder in 3D — a sand box to turn round, where sand piles into real cones and water finds its level.
+   A big job.
+3. Discoveries notebook — the first time you make glass, obsidian or a supernova, it is noted with a picture
+   of the moment.
+4. Relax mode — leave it on the table and it drifts from scene to scene by itself, slowly turning.
+
+### New ways to touch it
+
+1. Wave at it — the front camera sees your hand, and waving pushes the particles without touching the
+   screen.
+2. Talk to it — say "boom", "freeze" or "spin" and the field does it.
+3. Ten fingers — switch off the view gestures and every finger is its own tool: ten whirlpools at once.
+4. The big screen — the field on the TV through AirPlay, with the phone as the remote.
+
+### Keeping and showing off
+
+1. Send a 3D moment — freeze a 3D scene as a little model anyone with an iPhone can spin round or put on
+   their table, without the app.
+2. Live Photo — save a few seconds as a Live Photo that plays when pressed.
+
+Five to start with: the shape recipe box, On your table, Particle life, Kaleidoscope, Colours from a photo.
