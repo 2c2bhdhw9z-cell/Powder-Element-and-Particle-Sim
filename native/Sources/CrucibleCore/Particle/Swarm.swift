@@ -228,6 +228,15 @@ public final class Swarm {
     /// inside the data structure.
     public private(set) var generation: Int = 0
 
+    /// How hard the crowd struck the edges of the world in the last moment: the speed every body that hit an edge
+    /// fast was carrying into it, added up. Only read — the bounce itself is exactly what it always was — so the
+    /// phone can knock in the hand when a crowd slams into a wall. Anything arriving slower than
+    /// ``impactFloor`` is a body resting against the edge rather than hitting it, and is not counted.
+    public internal(set) var lastImpact: Double = 0
+
+    /// How fast a body must be going into an edge to count as hitting it, in pixels a moment.
+    public static let impactFloor = 2.5
+
     /// The cubes the collision pass files bodies under in a field with depth. Made the first time it is needed.
     lazy var depthHash = SwarmHash3D()
 
@@ -905,6 +914,7 @@ public final class Swarm {
         let height = options.height
         let damping = options.damping
         let bounce = options.elasticity
+        var impact = 0.0
         let maxSpeed = options.maxSpeed > 0 ? options.maxSpeed : Double.infinity
         let maxSpeedSquared = maxSpeed * maxSpeed
         let wrapping = options.boundaryMode == .wrap
@@ -1039,19 +1049,24 @@ public final class Swarm {
 
             if positions[pair].asDouble < 1 {
                 positions[pair] = 1
+                impact += Self.hit(velocities[pair].asDouble)
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
             } else if positions[pair].asDouble > width - 1 {
                 positions[pair] = JS.toFloat32(width - 1)
+                impact += Self.hit(velocities[pair].asDouble)
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
             }
             if positions[pair + 1].asDouble < 1 {
                 positions[pair + 1] = 1
+                impact += Self.hit(velocities[pair + 1].asDouble)
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             } else if positions[pair + 1].asDouble > height - 1 {
                 positions[pair + 1] = JS.toFloat32(height - 1)
+                impact += Self.hit(velocities[pair + 1].asDouble)
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             }
         }
+        lastImpact = impact
 
         // Ageing before the contact pass, so a body that has expired is gone rather than spending its last
         // moment shoving its neighbours about.
@@ -1102,6 +1117,7 @@ public final class Swarm {
         let halfDepth = options.depth * 0.5
         let damping = options.damping
         let bounce = options.elasticity
+        var impact = 0.0
         let maxSpeed = options.maxSpeed > 0 ? options.maxSpeed : Double.infinity
         let maxSpeedSquared = maxSpeed * maxSpeed
         let wrapping = options.boundaryMode == .wrap
@@ -1243,27 +1259,41 @@ public final class Swarm {
 
             if positions[pair].asDouble < 1 {
                 positions[pair] = 1
+                impact += Self.hit(velocities[pair].asDouble)
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
             } else if positions[pair].asDouble > width - 1 {
                 positions[pair] = JS.toFloat32(width - 1)
+                impact += Self.hit(velocities[pair].asDouble)
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * -bounce)
             }
             if positions[pair + 1].asDouble < 1 {
                 positions[pair + 1] = 1
+                impact += Self.hit(velocities[pair + 1].asDouble)
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             } else if positions[pair + 1].asDouble > height - 1 {
                 positions[pair + 1] = JS.toFloat32(height - 1)
+                impact += Self.hit(velocities[pair + 1].asDouble)
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             }
             if depths[i].asDouble < -halfDepth + 1 {
                 depths[i] = JS.toFloat32(-halfDepth + 1)
+                impact += Self.hit(depthVelocities[i].asDouble)
                 depthVelocities[i] = JS.toFloat32(depthVelocities[i].asDouble * -bounce)
             } else if depths[i].asDouble > halfDepth - 1 {
                 depths[i] = JS.toFloat32(halfDepth - 1)
+                impact += Self.hit(depthVelocities[i].asDouble)
                 depthVelocities[i] = JS.toFloat32(depthVelocities[i].asDouble * -bounce)
             }
         }
+        lastImpact = impact
         hasDepth = true
+    }
+
+    /// How much of a body's speed into an edge counts as a hit.
+    @inline(__always)
+    static func hit(_ speed: Double) -> Double {
+        let fast = abs(speed)
+        return fast > impactFloor && fast.isFinite ? fast : 0
     }
 
     /// Pushes overlapping bodies apart, using a uniform grid to find neighbours.

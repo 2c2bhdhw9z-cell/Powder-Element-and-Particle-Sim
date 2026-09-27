@@ -341,8 +341,21 @@ final class SwarmDepthFluid {
     private var pushZ: [Float] = []
     private let hash = SwarmHash3D()
 
+    /// How many bodies the last pass gave a push to. See `SwarmFluid.lastPush`.
+    private var pushedCount = 0
+
+    /// The push the liquid gave one body in its last pass, exactly as it was added to its speed.
+    func lastPush(at index: Int) -> (x: Double, y: Double, z: Double)? {
+        guard index >= 0, index < pushedCount, index < pushZ.count else { return nil }
+        let x = Double(pushX[index])
+        let y = Double(pushY[index])
+        let z = Double(pushZ[index])
+        return x.isFinite && y.isFinite && z.isFinite ? (x, y, z) : nil
+    }
+
     func step(swarm: Swarm, settings: SwarmFluid.Settings, width: Double, height: Double) {
         let bodies = swarm.count
+        pushedCount = 0
         guard bodies > 1, width > 0, height > 0 else { return }
         let tuned = settings.sanitized
         let reach = tuned.smoothing
@@ -492,6 +505,7 @@ final class SwarmDepthFluid {
                     velocities[index * 2 + 1] = JS.toFloat32(velY + Double(outY[index]))
                     depthVelocities[index] = JS.toFloat32(velZ + Double(outZ[index]))
                 }
+                pushedCount = bodies
             }
             }
             }

@@ -642,6 +642,9 @@ extension ParticleEngine {
                 launchShell(count: 220)
                 noteBigMoment(0.35)
             }
+        case "supernova":
+            // It goes off the moment it is laid out, which is before any moment of it has run; this is the first.
+            if arrangementAge == 1 { noteBigMoment(1) }
         default:
             break
         }

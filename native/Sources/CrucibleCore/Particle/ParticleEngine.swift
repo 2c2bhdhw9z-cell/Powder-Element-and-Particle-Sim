@@ -57,6 +57,29 @@ public final class ParticleEngine {
         storedBigMoment = max(storedBigMoment, max(0, min(1, strength)))
     }
 
+    /// How hard a slam has to be, in the crowd's speed into the edges added up, to be felt at all — about a few
+    /// thousand bodies arriving at running pace — and how hard to be felt at full strength.
+    public static let slamFelt = 6_000.0
+    public static let slamFull = 60_000.0
+
+    /// Turns how hard the crowd hit the edges and walls this moment into a knock, when it was a slam.
+    ///
+    /// A slam is something sudden: this moment's hit against how hard things have been hitting lately. A crowd
+    /// pouring steadily onto the floor hits it every moment, and a phone that buzzed for all of that would buzz
+    /// without stopping — so a steady stream is felt once as it starts, and after that only a real change is. And
+    /// never more than five times a second, however much is going on.
+    func noteSlam(_ impact: Double) {
+        let hit = impact.isFinite ? max(0, impact) : 0
+        defer { storedImpactAverage = storedImpactAverage * 0.92 + hit * 0.08 }
+        if storedSlamRest > 0 {
+            storedSlamRest -= 1
+            return
+        }
+        guard hit >= Self.slamFelt, hit > storedImpactAverage * 3 else { return }
+        noteBigMoment(0.25 + 0.75 * min(1, (hit - Self.slamFelt) / (Self.slamFull - Self.slamFelt)))
+        storedSlamRest = 12
+    }
+
     /// Gravity into the box, in 3D.
     ///
     /// Nought means down is down the screen, as it always is. Laid flat, a phone's down points into the screen
@@ -197,6 +220,9 @@ public final class ParticleEngine {
     var storedGravityZ = 0.0
     /// How big a thing just happened, from nought to one. See `bigMomentStrength`.
     var storedBigMoment = 0.0
+    /// How hard the crowd has been hitting things lately, and how long until the next slam may be felt.
+    var storedImpactAverage = 0.0
+    var storedSlamRest = 0
     /// Names hanging in the field. See `ParticleLabel.swift`.
     var storedLabels: [ParticleLabel] = []
     var storedShowsLabels = false
@@ -499,6 +525,8 @@ public final class ParticleEngine {
         storedHerdSampleAge = 0
         storedDrumEnabled = false
         storedDrumNoteAge = 0
+        storedImpactAverage = 0
+        storedSlamRest = 0
         // Loops are marks somebody made in this world, like the walls and the ribbons, so they go with it too. One
         // being recorded is abandoned rather than kept half-made.
         storedForceLoops = []
@@ -960,11 +988,16 @@ public final class ParticleEngine {
 
         // Before the swarm moves, so the walls can tell which side of themselves each body came from.
         rememberSwarmPositions()
+        // Nothing has hit anything yet this moment. Set here as well as by the crowd's own step, which does not run
+        // at all for an empty crowd and would otherwise leave the last crowd's slam standing for ever.
+        swarm.lastImpact = 0
         if storedDepthEnabled {
             stepSwarmInDepth(mouseActive: mouseActive, now: now)
         } else {
             stepSwarm(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
         }
+        // Whether the crowd just slammed into something, which the phone can knock in the hand.
+        noteSlam(swarm.lastImpact)
 
         // The colour ramp is no longer painted into the crowd here: it is worked out as each picture is
         // drawn, so the bodies keep their own colours. See `fillSwarmDrawColors`.

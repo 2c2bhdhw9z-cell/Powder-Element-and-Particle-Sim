@@ -88,6 +88,192 @@ public struct ParticleReading: Sendable, Hashable {
 }
 
 extension ParticleEngine {
+    /// Every spring and muscle joined to one of the individual bodies, as two totals: what the springs are doing and
+    /// what the muscles are doing, each worked out exactly as the moment does.
+    func springPushes(on index: Int) -> [ParticleReading.Push] {
+        guard index >= 0, index < particles.count, !springs.isEmpty else { return [] }
+        let body = particles[index]
+        guard !body.isFixed else { return [] }
+        let moment = springMoment
+        let inDepth = storedDepthEnabled
+        var plain = (x: 0.0, y: 0.0, z: 0.0, count: 0)
+        var muscle = (x: 0.0, y: 0.0, z: 0.0, count: 0)
+        for spring in springs where spring.a == index || spring.b == index {
+            guard spring.a >= 0, spring.a < particles.count, spring.b >= 0, spring.b < particles.count else { continue }
+            let a = particles[spring.a]
+            let b = particles[spring.b]
+            let dx = b.x - a.x
+            let dy = b.y - a.y
+            let dz = inDepth ? b.z - a.z : 0
+            var distance = (dx * dx + dy * dy + dz * dz).squareRoot()
+            if distance == 0 { distance = 0.001 }
+            // Stretched past breaking, the moment ignores it, and so does this.
+            if spring.rest > 0 && distance > spring.rest * 4.5 { continue }
+            let rest = spring.isMuscle ? spring.length(atMoment: moment) : spring.rest
+            let scale = ((distance - rest) / distance) * spring.k
+            // Toward the other end when stretched, away from it when squashed, whichever end this body is.
+            let sign = spring.a == index ? 1.0 : -1.0
+            var fx = dx * scale * sign / body.mass
+            var fy = dy * scale * sign / body.mass
+            var fz = dz * scale * sign / body.mass
+            if spring.jets {
+                let rate = spring.lengthRate(atMoment: moment)
+                if rate < 0 {
+                    let push = -rate * spring.thrust * 0.5 / body.mass
+                    fx += spring.thrustX * push
+                    fy += spring.thrustY * push
+                    if inDepth { fz += spring.thrustZ * push }
+                }
+            }
+            if spring.isMuscle {
+                muscle = (muscle.x + fx, muscle.y + fy, muscle.z + fz, muscle.count + 1)
+            } else {
+                plain = (plain.x + fx, plain.y + fy, plain.z + fz, plain.count + 1)
+            }
+        }
+        var found: [ParticleReading.Push] = []
+        if plain.count > 0 {
+            found.append(ParticleReading.Push(
+                name: plain.count == 1 ? "The spring joining it" : "The \(plain.count) springs joining it",
+                x: plain.x, y: plain.y, z: plain.z
+            ))
+        }
+        if muscle.count > 0 {
+            found.append(ParticleReading.Push(
+                name: muscle.count == 1 ? "Its muscle" : "Its \(muscle.count) muscles",
+                x: muscle.x, y: muscle.y, z: muscle.z
+            ))
+        }
+        return found
+    }
+
+    /// The pull and push of every other charged body on one of the individual bodies, when the moment works it out
+    /// at all — which it does only for a few hundred bodies, and never where the charge is saying which kind a body is.
+    func chargePush(on index: Int) -> ParticleReading.Push? {
+        guard index >= 0, index < particles.count, particles.count <= 300, !storedChargeIsKind else { return nil }
+        let body = particles[index]
+        guard body.charge != 0, !body.isFixed else { return nil }
+        var total = (x: 0.0, y: 0.0)
+        let isWell = body.kind == .blackhole || body.kind == .repulsor
+        for (other, neighbour) in particles.enumerated() where other != index {
+            guard neighbour.charge != 0 else { continue }
+            // Exactly the pairs the moment works out, which leaves a pair alone when the later of its two bodies in
+            // the list is a well.
+            let laterIsWell = other > index ? (neighbour.kind == .blackhole || neighbour.kind == .repulsor) : isWell
+            if laterIsWell { continue }
+            let dx = neighbour.x - body.x
+            let dy = neighbour.y - body.y
+            let distanceSquared = dx * dx + dy * dy + 10
+            let distance = distanceSquared.squareRoot()
+            let force = (body.charge * neighbour.charge * electrostaticFactor) / distanceSquared
+            // Like charges apart, unlike together, as the moment has it.
+            total.x -= (dx / distance) * force / body.mass
+            total.y -= (dy / distance) * force / body.mass
+        }
+        guard total.x != 0 || total.y != 0 else { return nil }
+        return ParticleReading.Push(name: "Charge", x: total.x, y: total.y)
+    }
+
+    /// The pull back toward the shape a jelly was drawn in, on one of its bodies.
+    func jellyPush(on index: Int) -> ParticleReading.Push? {
+        guard index >= 0, index < particles.count, !storedJellies.isEmpty else { return nil }
+        let id = particles[index].id
+        for jelly in storedJellies {
+            guard let at = jelly.ids.firstIndex(of: id) else { continue }
+            var where_: [Int: Int] = [:]
+            for (place, body) in particles.enumerated() { where_[body.id] = place }
+            var members: [(index: Int, restX: Double, restY: Double)] = []
+            for (slot, member) in jelly.ids.enumerated() {
+                if let place = where_[member] { members.append((place, jelly.restX[slot], jelly.restY[slot])) }
+            }
+            guard members.count >= 3 else { return nil }
+            let count = Double(members.count)
+            var centreX = 0.0, centreY = 0.0, restX = 0.0, restY = 0.0
+            for member in members {
+                centreX += particles[member.index].x
+                centreY += particles[member.index].y
+                restX += member.restX
+                restY += member.restY
+            }
+            centreX /= count
+            centreY /= count
+            restX /= count
+            restY /= count
+            var along = 0.0, across = 0.0
+            for member in members {
+                let qx = member.restX - restX, qy = member.restY - restY
+                let px = particles[member.index].x - centreX, py = particles[member.index].y - centreY
+                along += qx * px + qy * py
+                across += qx * py - qy * px
+            }
+            let turn = JS.atan2(across, along)
+            let qx = jelly.restX[at] - restX
+            let qy = jelly.restY[at] - restY
+            let goalX = centreX + qx * jsCos(turn) - qy * jsSin(turn)
+            let goalY = centreY + qx * jsSin(turn) + qy * jsCos(turn)
+            return ParticleReading.Push(
+                name: "Holding the jelly's shape",
+                x: (goalX - particles[index].x) * jelly.firmness,
+                y: (goalY - particles[index].y) * jelly.firmness
+            )
+        }
+        return nil
+    }
+
+    /// What each recorded loop is doing at a place this moment, named by its tool.
+    func loopPushes(atX x: Double, y: Double, z: Double) -> [ParticleReading.Push] {
+        guard !storedForceLoops.isEmpty else { return [] }
+        var found: [ParticleReading.Push] = []
+        let unit = brushUnit
+        for loop in storedForceLoops where !loop.points.isEmpty {
+            let at = loop.playhead % loop.points.count
+            let point = loop.points[at]
+            let strength = ParticleBrush.defaultStrength * loop.strength
+            let reach = loop.reach.isNaN ? 0 : loop.reach
+            let push: (x: Double, y: Double, z: Double)
+            if storedDepthEnabled {
+                let ray = loop.rays.count == loop.points.count
+                    ? loop.rays[at]
+                    : ParticleFingerRay.straightIn(x: point.x, y: point.y, fromDepth: -halfDepth - 10)
+                let effect = ParticleBrush.effect(
+                    loop.mode, atX: x, y: y, z: z, ray: ray, reach: reach, strength: strength, unit: unit
+                )
+                guard effect.inReach, !effect.stops else { continue }
+                push = (effect.velocityX, effect.velocityY, effect.velocityZ)
+            } else {
+                let effect = ParticleBrush.effect(
+                    loop.mode, atX: x, y: y, fingerX: point.x, fingerY: point.y, reach: reach, strength: strength, unit: unit
+                )
+                guard effect.inReach, !effect.stops else { continue }
+                push = (effect.velocityX, effect.velocityY, 0)
+            }
+            guard push.x != 0 || push.y != 0 || push.z != 0 else { continue }
+            found.append(ParticleReading.Push(name: "Your recorded \(Self.toolName(loop.mode))", x: push.x, y: push.y, z: push.z))
+        }
+        return found
+    }
+
+    /// What a tool is called on the buttons, in lower case for the middle of a sentence.
+    static func toolName(_ mode: ParticleMouseMode) -> String {
+        switch mode {
+        case .attract: return "pull"
+        case .repel: return "push"
+        case .vortex: return "swirl"
+        case .gravityWell: return "well"
+        case .freeze: return "freeze"
+        case .painter: return "paint"
+        case .hawk: return "hawk"
+        case .hyperDrive: return "hyper"
+        case .emitter: return "emit"
+        case .current: return "wind"
+        case .wall: return "wall"
+        case .source: return "source"
+        case .light: return "light"
+        case .slingshot: return "throw"
+        case .jelly: return "jelly"
+        }
+    }
+
     /// Reads the body nearest a place, and what is acting on it.
     ///
     /// - Parameter within: how far to look. Nothing is reported beyond it, rather than reporting whatever happened
@@ -190,6 +376,38 @@ extension ParticleEngine {
                 )
             }
         }
+
+        // The swirl about the middle of the world, exactly as the moment applies it.
+        if vortexForce != 0 {
+            let dx = width / 2 - x
+            let dy = height / 2 - y
+            let distanceSquared = dx * dx + dy * dy + 20
+            let distance = distanceSquared.squareRoot()
+            let strength = (vortexForce * 10) / distanceSquared
+            pushes.append(ParticleReading.Push(
+                name: "Swirl about the middle",
+                x: (-dy / distance) * strength + (dx / distance) * (strength * 0.2),
+                y: (dx / distance) * strength + (dy / distance) * (strength * 0.2)
+            ))
+        }
+
+        if !found.isCrowd {
+            pushes.append(contentsOf: springPushes(on: found.index))
+            if let charge = chargePush(on: found.index) { pushes.append(charge) }
+            if let shape = jellyPush(on: found.index) { pushes.append(shape) }
+        } else if fluidEnabled {
+            // What the liquid gave this body in its last pass: the figure it actually added, not an estimate.
+            if storedDepthEnabled {
+                if let push = depthFluid.lastPush(at: found.index) {
+                    pushes.append(ParticleReading.Push(name: "The liquid", x: push.x, y: push.y, z: push.z))
+                }
+            } else if let push = fluid.lastPush(at: found.index) {
+                pushes.append(ParticleReading.Push(name: "The liquid", x: push.x, y: push.y))
+            }
+        }
+
+        // Recorded loops, which push when no finger is anywhere near and so are the easiest thing to forget.
+        pushes.append(contentsOf: loopPushes(atX: x, y: y, z: z))
 
         // Drag, which is not a push but takes speed away, and is why things stop.
         if damping < 1 {

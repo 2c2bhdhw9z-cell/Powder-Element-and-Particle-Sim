@@ -530,6 +530,8 @@ public enum SwarmDrawnWorld {
         let velocities = swarm.velocities
         let segments = Self.segments(for: walls, width: width, height: height)
         guard !segments.isEmpty else { return }
+        var impact = 0.0
+        defer { swarm.lastImpact += impact }
 
         for index in 0 ..< bodies {
             let pair = index * 2
@@ -538,6 +540,8 @@ public enum SwarmDrawnWorld {
             var velX = Double(velocities[pair])
             var velY = Double(velocities[pair + 1])
             guard x.isFinite, y.isFinite, velX.isFinite, velY.isFinite else { continue }
+            let arrivingX = velX
+            let arrivingY = velY
 
             let cameFromX = previousPositions.map { Double($0[pair]) } ?? x
             let cameFromY = previousPositions.map { Double($0[pair + 1]) } ?? y
@@ -554,6 +558,12 @@ public enum SwarmDrawnWorld {
                 bounciness: tuned.bounciness,
                 friction: tuned.friction
             )
+
+            // How much the wall took out of it, counted when that was a real hit and not a body at rest against it.
+            let changeX = velX - arrivingX
+            let changeY = velY - arrivingY
+            let change = (changeX * changeX + changeY * changeY).squareRoot()
+            if change > Swarm.impactFloor, change.isFinite { impact += change * 0.5 }
 
             positions[pair] = JS.toFloat32(x)
             positions[pair + 1] = JS.toFloat32(y)

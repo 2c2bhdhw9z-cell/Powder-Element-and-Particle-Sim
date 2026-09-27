@@ -142,6 +142,8 @@ public final class SwarmFluid {
         height: Double
     ) {
         let bodies = swarm.count
+        // Nothing is known about any body's push until this pass has worked all of them out.
+        pushedCount = 0
         guard bodies > 1, width > 0, height > 0 else {
             isOverCrowded = false
             return
@@ -389,10 +391,24 @@ public final class SwarmFluid {
                     velocities[pair] = JS.toFloat32(velX + Double(outX[index]))
                     velocities[pair + 1] = JS.toFloat32(velY + Double(outY[index]))
                 }
+                pushedCount = bodies
                 }
                 }
             }
         }
+    }
+
+    /// How many bodies the last pass gave a push to, so a push is only ever reported for a body it was worked out
+    /// for. Nought until it has run, and whenever it last stopped early.
+    private var pushedCount = 0
+
+    /// The push the liquid gave one body in its last pass: exactly what was added to its speed, nothing estimated.
+    /// Nothing for a body that pass did not reach.
+    public func lastPush(at index: Int) -> (x: Double, y: Double)? {
+        guard index >= 0, index < pushedCount, index < pushX.count else { return nil }
+        let x = Double(pushX[index])
+        let y = Double(pushY[index])
+        return x.isFinite && y.isFinite ? (x, y) : nil
     }
 
     /// The most the fluid may change one body's velocity by in one tick.
