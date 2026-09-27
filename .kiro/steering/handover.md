@@ -34,6 +34,20 @@ Done and shipped, newest last:
 - Round 7 #1: a quick check started by hand (`.github/workflows/quick.yml`).
 - Round 7 #8: each build's notes say what changed, in plain English (`scripts/release-notes.sh`).
 - Round 7 #9: the help panel says where iOS keeps crash reports.
+- Round 7 #2 and #3: an "App tour" check walks the app on a simulated iPhone and iPad, keeps a picture of every screen
+  and the phone's own crash report, and fails on a crash, a hang or a blank world. Note: tapping the Field tray's arrow
+  does NOT crash on a simulator, so the crash the owner sees is device-only.
+- Round 7 #5: a "Server" check replays every request the phone makes against the real server and real tables, and the
+  phone's tests read the answers back (`phone-requests.json`, `server-replies.json`).
+- Round 7 #4: the engine checks keep their build between runs (`scripts/build-times.sh`).
+- Round 7 #10 and #13: a note of what the world was doing is kept as you go; an unfinished one at the next launch means
+  the app closed by itself and is offered to send; "That looked wrong" sends the same note with a picture.
+- Round 7 #15: "Long runs" runs every scene for thousands of moments against rules that must hold. It found two real
+  faults (springs pushing bodies past the speed limit; the health check calling an ordinary crash faulty), both fixed
+  in both engines, comparisons re-recorded.
+- Round 7 #25 and #26: the lab eases off when the phone is hot, in Low Power Mode or nearly empty, says so in the
+  Performance panel, and measures what it costs the battery.
+- Round 7 #28 and #31: an introduction on the first run, and Simple — five materials, three brushes, four scenes.
 
 ## Still to build, in this order
 
