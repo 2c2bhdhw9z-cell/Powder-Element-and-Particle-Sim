@@ -51,8 +51,8 @@ final class RoomSenses {
 
     private let altimeter = CMAltimeter()
     private let pedometer = CMPedometer()
-    private var watchers: [NSObjectProtocol] = []
-    private var clock: Timer?
+    /// What has to be let go of, in something that is nobody's actor — a `deinit` may not touch the main actor's things.
+    private let watching = SenseWatchers()
 
     // MARK: - What the worlds should do about it
 
@@ -100,12 +100,8 @@ final class RoomSenses {
         watchScreen()
     }
 
-    deinit {
-        for watcher in watchers { NotificationCenter.default.removeObserver(watcher) }
-        clock?.invalidate()
-        altimeter.stopRelativeAltitudeUpdates()
-        pedometer.stopUpdates()
-    }
+    // No `deinit`: everything that has to be let go of belongs to `watching`, which lets go of it in its own. The two
+    // readers stop of their own accord once nothing holds them.
 
     private func watchScreen() {
         let watcher = NotificationCenter.default.addObserver(
@@ -115,7 +111,7 @@ final class RoomSenses {
         ) { [weak self] _ in
             Task { @MainActor in self?.readScreen() }
         }
-        watchers.append(watcher)
+        watching.observers.append(watcher)
     }
 
     private func readScreen() {
@@ -151,7 +147,7 @@ final class RoomSenses {
             readSteps()
             // The pedometer will push updates, but only while the app is on screen, and the count that matters is the
             // whole day's. Once a minute, and again whenever the app comes back.
-            clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            watching.clock = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
                 Task { @MainActor in self?.readSteps() }
             }
         }
@@ -175,8 +171,8 @@ final class RoomSenses {
     private func stop() {
         altimeter.stopRelativeAltitudeUpdates()
         pedometer.stopUpdates()
-        clock?.invalidate()
-        clock = nil
+        watching.clock?.invalidate()
+        watching.clock = nil
         pressure = nil
         firstPressure = nil
         steps = nil
@@ -213,5 +209,19 @@ final class RoomSenses {
         said.append(("The sun", sun.map { $0 < -0.3 ? "low in the east" : ($0 > 0.3 ? "low in the west" : "high") } ?? "down"))
         said.append(("The room", isDarkRoom ? "dark" : "bright enough"))
         return said.map { (name: $0.0, value: $0.1) }
+    }
+}
+
+/// Holds the things `RoomSenses` has to let go of, and lets go of them.
+///
+/// Its own object, isolated to nothing, for the same reason as `PowerWatchers`: a `deinit` may not touch anything that
+/// belongs to an actor, and these are exactly what has to be cancelled.
+private final class SenseWatchers {
+    var observers: [NSObjectProtocol] = []
+    var clock: Timer?
+
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        clock?.invalidate()
     }
 }

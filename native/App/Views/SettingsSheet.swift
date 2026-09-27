@@ -56,7 +56,7 @@ struct SettingsSheet: View {
             view
             world
             sea
-            room
+            roomSenses
             measure
             events
             health
@@ -133,7 +133,7 @@ struct SettingsSheet: View {
     /// Off until switched on, because it asks for Motion & Fitness and nothing should ask for a permission before
     /// somebody has been told what it is for. Every reading it is using is shown, so it is never a mystery why the wind
     /// has come up.
-    private var room: some View {
+    private var roomSenses: some View {
         LabGroup(
             "The room",
             footnote: senses.problem
