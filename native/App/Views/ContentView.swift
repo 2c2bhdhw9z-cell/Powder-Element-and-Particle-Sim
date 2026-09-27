@@ -401,7 +401,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingPresets) {
             FieldPresetPicker(current: field.arrangement, inDepth: field.depthEnabled) { preset in
-                breadcrumbs.record("loaded the \(preset.name) arrangement")
+                breadcrumbs.record("loaded the \(ParticleArrangement.named(preset)?.name ?? preset) arrangement")
                 field.loadPreset(preset)
                 showingPresets = false
             }

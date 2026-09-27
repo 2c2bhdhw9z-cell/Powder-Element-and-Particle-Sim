@@ -32,8 +32,12 @@ final class PowerSense {
         isEnabled ? advice : PowerPolicy.advice(for: PowerPolicy.Readings())
     }
 
-    private var watchers: [NSObjectProtocol] = []
-    private var timer: Timer?
+    // Not the main actor's, though everything else here is. A `deinit` may not touch anything that belongs to an actor,
+    // and these two are exactly what has to be let go of when this is thrown away. Both are only ever written in `init`,
+    // on the main actor, and only ever read in `deinit`, which runs once when nothing else holds this — so there is no
+    // moment when two things could touch them at once.
+    private nonisolated(unsafe) var watchers: [NSObjectProtocol] = []
+    private nonisolated(unsafe) var timer: Timer?
     private let startedAt = CFAbsoluteTimeGetCurrent()
 
     init() {
