@@ -233,11 +233,79 @@ struct FieldDock: View {
                     }
                 }
             }
+            morphControls
             if let details = model.arrangementDetails {
                 Text(details.about(inDepth: model.depthEnabled))
                     .font(.labBody(10))
                     .foregroundStyle(Palette.subtleForeground)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Turning one arrangement into another with a slider.
+    private var morphControls: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("Morph")
+                    .font(.labBody(11, .semiBold))
+                    .foregroundStyle(Palette.foreground)
+                Spacer(minLength: 8)
+                Button {
+                    Haptics.firm()
+                    model.startMorph()
+                } label: {
+                    Text(model.isMorphing ? "Again" : "Start")
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+            }
+            Text("Pick two and slide between them. Everything stays touchable on the way: push the halfway shape "
+                + "about and it finds its way back to wherever the slider is.")
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                morphPicker("From", selection: Binding(get: { model.morphFrom }, set: { model.morphFrom = $0 }))
+                morphPicker("To", selection: Binding(get: { model.morphTo }, set: { model.morphTo = $0 }))
+            }
+
+            if model.isMorphing {
+                inlineSlider(
+                    "How far across",
+                    \.morphAt,
+                    0 ... 1,
+                    step: 0.01,
+                    format: { $0 < 0.01 ? "the first" : ($0 > 0.99 ? "the second" : "\(Int(($0 * 100).rounded()))%") }
+                )
+            }
+        }
+    }
+
+    /// One of the two arrangement choosers for the morph.
+    private func morphPicker(_ title: String, selection: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+            Menu {
+                ForEach(ParticleFieldModel.morphableScenes, id: \.id) { scene in
+                    Button(scene.name) { selection.wrappedValue = scene.id }
+                }
+            } label: {
+                Text(ParticleArrangement.named(selection.wrappedValue)?.name ?? selection.wrappedValue)
+                    .font(.labBody(11, .medium))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Capsule().fill(Color.white.opacity(0.10)))
             }
         }
     }

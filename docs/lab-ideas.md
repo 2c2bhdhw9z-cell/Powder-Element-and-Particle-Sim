@@ -5,6 +5,7 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- Arrangement morphing: slide between any two crowd scenes, touchable all the way
 - Physics lens: tap a body to see what is acting on it and where it is heading
 - Red-and-blue glasses: the box drawn twice, once for each eye (Round 4 item 4, Round 7 item 41)
 - An app icon at last, drawn by the same golden spiral the sunflower uses (Round 7, item 18)

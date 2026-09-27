@@ -512,6 +512,101 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("A morph flows from one arrangement into another, and stays touchable all the way")
+    func morphFlowsBetweenShapes() {
+        let engine = field(width: 1_320, height: 2_868)
+        #expect(engine.spawnMorph(from: "sunflower", to: "ring"))
+        #expect(engine.morphBetween?.from == "sunflower")
+        #expect(engine.morphBetween?.to == "ring")
+        #expect(engine.morphAt == 0)
+        #expect(engine.swarm.count > 20)
+
+        /// Where the crowd is, and how hollow it is.
+        ///
+        /// Hollowness rather than size, because size barely separates these two shapes: a filled disc and a ring
+        /// round the same middle have almost the same average distance from it. What tells them apart is whether the
+        /// bodies are all at *one* distance — a ring — or spread across every distance from the middle outward — a
+        /// disc. So this reports how varied the distances are, as a share of the average.
+        func shape(_ engine: ParticleEngine) -> (midX: Double, midY: Double, hollow: Double) {
+            let count = engine.swarm.count
+            guard count > 0 else { return (0, 0, 0) }
+            var midX = 0.0
+            var midY = 0.0
+            for index in 0 ..< count {
+                midX += Double(engine.swarm.positions[index * 2])
+                midY += Double(engine.swarm.positions[index * 2 + 1])
+            }
+            midX /= Double(count)
+            midY /= Double(count)
+            var radii: [Double] = []
+            radii.reserveCapacity(count)
+            for index in 0 ..< count {
+                let dx = Double(engine.swarm.positions[index * 2]) - midX
+                let dy = Double(engine.swarm.positions[index * 2 + 1]) - midY
+                radii.append((dx * dx + dy * dy).squareRoot())
+            }
+            let mean = radii.reduce(0, +) / Double(count)
+            guard mean > 0 else { return (midX, midY, 0) }
+            let varied = (radii.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Double(count)).squareRoot()
+            // Low when every body is at the same distance, which is a ring; high when they fill the disc.
+            return (midX, midY, 1 - min(1, varied / mean))
+        }
+
+        for _ in 0 ..< 60 { engine.step() }
+        let atStart = shape(engine)
+
+        // All the way across, and given time to arrive.
+        engine.morphAt = 1
+        #expect(engine.morphAt == 1)
+        for _ in 0 ..< 240 { engine.step() }
+        let atEnd = shape(engine)
+
+        // A sunflower fills its disc and a ring does not, so the end is plainly more ring-like than the start.
+        #expect(
+            atEnd.hollow > atStart.hollow + 0.08,
+            "the shape did not change: hollowness \(atStart.hollow) then \(atEnd.hollow)"
+        )
+        #expect(engine.swarm.corruptCount() == 0)
+
+        // Halfway is genuinely between the two rather than one or the other.
+        engine.morphAt = 0.5
+        for _ in 0 ..< 240 { engine.step() }
+        let middle = shape(engine)
+        #expect(
+            middle.hollow > atStart.hollow && middle.hollow < atEnd.hollow,
+            "halfway was not between the two: \(atStart.hollow), \(middle.hollow), \(atEnd.hollow)"
+        )
+
+        // And still touchable: a push moves bodies, and letting go brings them back to wherever the slider is.
+        let before = (0 ..< engine.swarm.count).map { Double(engine.swarm.positions[$0 * 2]) }
+        engine.mouseMode = .repel
+        // Pushed where bodies actually are rather than at the middle of the shape, which for anything ring-like is
+        // the one place with nothing in it.
+        let pushX = Double(engine.swarm.positions[0])
+        let pushY = Double(engine.swarm.positions[1])
+        for _ in 0 ..< 20 {
+            engine.step(mouseX: pushX, mouseY: pushY, mouseActive: true)
+        }
+        var moved = 0
+        for index in 0 ..< min(before.count, engine.swarm.count) {
+            if abs(Double(engine.swarm.positions[index * 2]) - before[index]) > 3 { moved += 1 }
+        }
+        #expect(moved > 10, "a half-finished morph could not be pushed: only \(moved) moved")
+        for _ in 0 ..< 400 { engine.step() }
+        let returned = shape(engine)
+        #expect(
+            abs(returned.hollow - middle.hollow) < 0.12,
+            "the morph did not recover its shape: \(middle.hollow) then \(returned.hollow)"
+        )
+
+        // Two arrangements with no crowd between them cannot be morphed, and it says so rather than emptying the
+        // field and leaving no explanation.
+        let bare = field()
+        #expect(!bare.spawnMorph(from: "cloth", to: "rope"))
+        // And an unknown name is refused outright.
+        #expect(!bare.spawnMorph(from: "sunflower", to: "not-a-scene"))
+    }
+
     @Test("The lens says what is acting on one body, and names the biggest first")
     func theLensExplainsOneBody() {
         let engine = field()

@@ -2534,6 +2534,44 @@ final class ParticleFieldModel {
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
 
+    // MARK: - Morphing one arrangement into another
+
+    /// Which two arrangements the morph runs between. Both start unset, so nothing happens until they are chosen.
+    var morphFrom: String = "sunflower"
+    var morphTo: String = "globe"
+
+    /// How far between the two the field is.
+    var morphAt: Double {
+        get { observeEngine(); return engine.morphAt }
+        set { engine.morphAt = newValue; engineDidChange() }
+    }
+
+    /// Whether the field is currently a morph between two arrangements.
+    var isMorphing: Bool {
+        observeEngine()
+        return engine.morphBetween != nil
+    }
+
+    /// The arrangements that can be morphed: the ones made of a crowd, which is what a morph moves.
+    ///
+    /// A cloth or a rope is a built thing held together by springs, and there is no sensible halfway between one
+    /// cloth and one rope — so they are left out rather than offered and then refused.
+    static var morphableScenes: [ParticleArrangement] {
+        ParticleArrangement.scenes.filter { $0.joining == .crowd && $0.id != "text" }
+    }
+
+    /// Lays out both shapes and starts the morph at the first of them.
+    func startMorph() {
+        // In 3D both shapes are recorded in 3D, so the journey between them is a journey through the box.
+        guard engine.spawnMorph(from: morphFrom, to: morphTo) else {
+            additionNote = "Those two cannot be morphed — pick two made of a crowd."
+            engineDidChange()
+            return
+        }
+        additionNote = nil
+        afterArrangementChange()
+    }
+
     // MARK: - The lens
 
     /// Whether tapping the field reads the body under your finger instead of pushing it.

@@ -200,6 +200,12 @@ public final class ParticleEngine {
     /// Names hanging in the field. See `ParticleLabel.swift`.
     var storedLabels: [ParticleLabel] = []
     var storedShowsLabels = false
+    /// The two shapes a morph runs between, and how far along it is. See `ParticleMorph.swift`.
+    var storedMorphFrom: String?
+    var storedMorphTo: String?
+    var storedMorphAt = 0.0
+    var storedMorphA: [(x: Double, y: Double, z: Double, color: UInt32)] = []
+    var storedMorphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -437,6 +443,12 @@ public final class ParticleEngine {
         arrangementAge = 0
         // The names belong to whatever was showing, so they go with it.
         storedLabels = []
+        // And so does a morph: the two recorded shapes are about the arrangement being left behind.
+        storedMorphFrom = nil
+        storedMorphTo = nil
+        storedMorphAt = 0
+        storedMorphA = []
+        storedMorphB = []
         // A recording left playing would overwrite, on the very next moment, whatever the field is about to
         // be set up as. Paused rather than deleted: it is somebody's work.
         storedPlayhead.isPlaying = false
