@@ -96,6 +96,10 @@ struct PerformanceSheet: View {
     let field: ParticleFieldModel
     let chamber: Chamber
     let unit: TemperatureUnit
+    /// How warm the phone is, and what the lab is costing the battery.
+    let power: PowerSense
+    /// Whether the lab eases off when the phone is hot or nearly empty.
+    @Binding var mindsThePhone: Bool
 
     /// A frame at the display's full rate, and at half it.
     private static let fastFrame = 1000.0 / 120
@@ -107,11 +111,62 @@ struct PerformanceSheet: View {
             subtitle: "The last two minutes"
         ) {
             hero
+            phone
             switch chamber {
             case .powder: powderMeasures
             case .field: fieldMeasures
             }
             notes
+        }
+    }
+
+    // MARK: The phone itself
+
+    /// What the phone is doing about its own heat and charge, and what that is costing.
+    ///
+    /// Worth showing rather than hiding: when a phone gets hot it slows itself down, and an app that says nothing then
+    /// simply looks as though it has gone bad. The line at the top says what is being given up and why, in the app's
+    /// own words, and the figure underneath is measured from the charge falling rather than guessed.
+    private var phone: some View {
+        LabGroup(
+            "The phone",
+            footnote: power.inEffect.reason
+                ?? "Nothing is being held back. When the phone gets hot, is asked to save power, or is nearly empty, "
+                    + "the lab eases off — the frame rate first, then the shadows and the glow, and only last how much "
+                    + "of the world is worked out each frame."
+        ) {
+            LabRow(label: "Temperature", value: power.heatInWords, tint: heatTint)
+            LabDivider()
+            LabRow(label: "Low Power Mode", value: power.readings.lowPower ? "on" : "off")
+            LabDivider()
+            LabRow(
+                label: "Battery",
+                value: power.readings.charge.map { "\(Int(($0 * 100).rounded()))%\(power.readings.isCharging ? ", on charge" : "")" }
+                    ?? "not saying"
+            )
+            LabDivider()
+            LabRow(label: "Drawing", value: "\(power.inEffect.framesPerSecond) times a second")
+            LabDivider()
+            // Measured from the charge falling while the app is on screen, which is the only honest way a phone will
+            // tell an app what it costs. A phone reports its charge in whole percents, so the first figure takes a
+            // couple of minutes to arrive.
+            Text(power.costInWords)
+                .font(.labBody(11))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            LabDivider()
+            LabToggle(label: "Ease off when the phone struggles", isOn: $mindsThePhone)
+        }
+    }
+
+    private var heatTint: Color {
+        switch power.readings.heat {
+        case .nominal: Palette.ok
+        case .fair: Palette.warn
+        case .serious, .critical: Palette.danger
         }
     }
 

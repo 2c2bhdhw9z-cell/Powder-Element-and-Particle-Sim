@@ -83,6 +83,8 @@ struct ContentView: View {
     @State private var shareTarget: ShareTarget?
     /// Keeps the note of what the world is doing, for reporting a fault afterwards.
     @State private var breadcrumbs = Breadcrumbs()
+    /// Watches how warm the phone is, whether it is saving power, and what the lab costs the battery.
+    @State private var power = PowerSense()
     /// A report waiting to be sent — either "that looked wrong" or last time's unfinished note.
     @State private var report: Breadcrumbs.Report?
 
@@ -107,6 +109,9 @@ struct ContentView: View {
     /// across, bodies silt down into sand — and none of that is visible unless both are on screen at
     /// once.
     @AppStorage("isSplit") private var isSplit = false
+    /// Whether the lab eases off when the phone is hot or nearly empty. On by default: a phone that throttles itself
+    /// while the app ploughs on looks like the app going bad, which is the whole reason this exists.
+    @AppStorage("mindsThePhone") private var mindsThePhone = true
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -143,7 +148,61 @@ struct ContentView: View {
         return "\(account.hostText) — accounts are switched off"
     }
 
+    /// ## Why this is four pieces rather than one chain
+    ///
+    /// Because the compiler refused the one chain. The screen is two chambers and a bar, and then some forty things
+    /// hung off it: every panel, every alert, and every watcher that keeps two chambers, a room and a clock in step.
+    /// Written as a single expression that is one problem the type checker has to solve in one go, and past a certain
+    /// size it works at it for a while and then gives up outright — "unable to type-check this expression in
+    /// reasonable time". The build machine refused the app twice before this was split.
+    ///
+    /// So: the world and its furniture, then what it watches, then the panels, then the alerts. Each is a property of
+    /// its own, which is a separate problem for the compiler and reads better besides. Anything new belongs inside
+    /// whichever of the four it is, rather than on the end of all of them.
     var body: some View {
+        labWithPanels
+        .alert(
+            "Recording",
+            isPresented: Binding(
+                get: { recorder.problem != nil },
+                set: { if !$0 { recorder.clearProblem() } }
+            )
+        ) {
+            Button("All right") { recorder.clearProblem() }
+        } message: {
+            Text(recorder.problem ?? "")
+        }
+        .alert(
+            "That world could not be opened",
+            isPresented: Binding(
+                get: { arrivalProblem != nil },
+                set: { if !$0 { arrivalProblem = nil } }
+            )
+        ) {
+            Button("All right") { arrivalProblem = nil }
+        } message: {
+            Text(arrivalProblem ?? "")
+        }
+        // The offer to send last time's note, and the sheet that shows a report. In a piece of its own because this
+        // body had reached the size where the compiler gives up type-checking it — see `Reporting`.
+        .reporting(breadcrumbs, report: $report)
+        .sheet(item: $shareTarget) { target in
+            // The system's own share sheet, which is the one place it is right to look like iOS
+            // rather than like Crucible — it is the phone's furniture, not the app's.
+            // Worded for what it is: a picture, a poster, a line drawing for a plotter, or a spreadsheet.
+            ShareLink(item: target.url) {
+                Label(target.label, systemImage: target.symbol)
+                    .font(.labBody(14, .medium))
+            }
+            .padding(24)
+            .presentationDetents([.height(140)])
+            .presentationBackground(Palette.background)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    /// The world itself: two chambers, the bar over them, and the tray under them.
+    private var lab: some View {
         // The world reaches the top of the screen; the bar floats over it.
         //
         // ## Why this is not a stack of three any more
@@ -231,6 +290,12 @@ struct ContentView: View {
         .background(Palette.background.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(Palette.primary)
+    }
+
+    /// The world, and everything the screen watches: the sensors, the two chambers keeping each other in step, the
+    /// autosave, and the note of what is happening.
+    private var labWithWatchers: some View {
+        lab
         .onAppear {
             // Handed to both models rather than read by the views, so gravity is applied at the
             // start of a tick — in step with the simulation instead of whenever SwiftUI happens
@@ -261,7 +326,12 @@ struct ContentView: View {
             restoreAutosaveOnce()
             updateCompanionStepping()
             describeTheWorld()
+            power.isEnabled = mindsThePhone
+            applyPowerAdvice()
         }
+        // What the phone is asking for, passed on to both chambers whenever it changes.
+        .onChange(of: power.inEffect) { _, _ in applyPowerAdvice() }
+        .onChange(of: mindsThePhone) { _, wanted in power.isEnabled = wanted }
         // Re-wired whenever either the chamber or the setting changes, because which model needs the
         // hook depends on both.
         // A world file opened in Crucible from somewhere else. Everything else that might arrive as an address — the
@@ -303,6 +373,8 @@ struct ContentView: View {
         // is the last reliable moment to keep anything — a timer alone would lose up to eight
         // seconds of work every time.
         .onChange(of: scenePhase) { _, phase in
+            // Time spent away is not time the lab was costing anything, so what was being measured is thrown away.
+            power.sceneChanged(active: phase == .active)
             if phase != .active {
                 writeAutosave(now: true)
                 // The last reliable moment: the phone can kill a backgrounded app with no further warning, and a note
@@ -315,6 +387,11 @@ struct ContentView: View {
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
         }
+    }
+
+    /// Every panel that slides up over the world.
+    private var labWithPanels: some View {
+        labWithWatchers
         .sheet(isPresented: $showingScenes) {
             ScenePicker() { recipe in
                 breadcrumbs.record("loaded the \(recipe.name) scene")
@@ -398,7 +475,9 @@ struct ContentView: View {
                 powder: powder,
                 field: field,
                 chamber: chamber,
-                unit: temperatureUnit
+                unit: temperatureUnit,
+                power: power,
+                mindsThePhone: $mindsThePhone
             )
         }
         .sheet(isPresented: $showingPeriodic) {
@@ -442,44 +521,14 @@ struct ContentView: View {
             RecordingPreview(controller: target.controller)
                 .background(Color.black.ignoresSafeArea())
         }
-        .alert(
-            "Recording",
-            isPresented: Binding(
-                get: { recorder.problem != nil },
-                set: { if !$0 { recorder.clearProblem() } }
-            )
-        ) {
-            Button("All right") { recorder.clearProblem() }
-        } message: {
-            Text(recorder.problem ?? "")
-        }
-        .alert(
-            "That world could not be opened",
-            isPresented: Binding(
-                get: { arrivalProblem != nil },
-                set: { if !$0 { arrivalProblem = nil } }
-            )
-        ) {
-            Button("All right") { arrivalProblem = nil }
-        } message: {
-            Text(arrivalProblem ?? "")
-        }
-        // The offer to send last time's note, and the sheet that shows a report. In a piece of its own because this
-        // body had reached the size where the compiler gives up type-checking it — see `Reporting`.
-        .reporting(breadcrumbs, report: $report)
-        .sheet(item: $shareTarget) { target in
-            // The system's own share sheet, which is the one place it is right to look like iOS
-            // rather than like Crucible — it is the phone's furniture, not the app's.
-            // Worded for what it is: a picture, a poster, a line drawing for a plotter, or a spreadsheet.
-            ShareLink(item: target.url) {
-                Label(target.label, systemImage: target.symbol)
-                    .font(.labBody(14, .medium))
-            }
-            .padding(24)
-            .presentationDetents([.height(140)])
-            .presentationBackground(Palette.background)
-            .preferredColorScheme(.dark)
-        }
+    }
+
+    /// Passes on what the phone is asking for. Both chambers hold it rather than reading it, so a tick never goes
+    /// looking at the phone's state, and both can be tested in any of these states without a phone.
+    private func applyPowerAdvice() {
+        let advice = power.inEffect
+        powder.powerAdvice = advice
+        field.powerAdvice = advice
     }
 
     /// Sends a note of what is on screen now, with a picture of it, after a short wait for the panel to slide away so

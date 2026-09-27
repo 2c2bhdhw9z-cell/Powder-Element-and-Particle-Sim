@@ -1009,6 +1009,22 @@ final class ParticleFieldModel {
     private var simulationSeconds: Double = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
 
+    // MARK: - A hot phone, or a tired one
+
+    /// What to do about the phone being hot, asked to save power, or nearly empty. Set by the app; nothing without it.
+    @ObservationIgnored var powerAdvice = PowerPolicy.advice(for: PowerPolicy.Readings()) {
+        didSet { engineDidChange() }
+    }
+
+    /// How many frames a second the view should ask the display for.
+    var framesPerSecondWanted: Int { powerAdvice.framesPerSecond }
+
+    /// Whether the picture keeps its luxuries — the shadows on the floor of the box, the glow, the fog on the far side.
+    ///
+    /// Each is a whole pass over the picture, which is why they are the first thing given up on a warm phone. What
+    /// somebody chose is not changed: this decides only whether it is drawn now, so it all comes back as the phone cools.
+    var keepsTheLuxuries: Bool { powerAdvice.keepsTheLuxuries }
+
     // MARK: - Measurements, as numbers
 
     /// The field's measurements, once a second while switched on: how many bodies, how fast, how much energy of
@@ -1134,7 +1150,8 @@ final class ParticleFieldModel {
             worldSeconds += max(0, gap)
         }
 
-        stepCredit += max(0, speed)
+        // Less per frame when the phone is hot or nearly empty. See the same line in the powder chamber.
+        stepCredit += max(0, speed) * max(0.25, min(1, powerAdvice.shareOfTheWork))
         var steps = Int(stepCredit)
         stepCredit -= Double(steps)
         // Capped so a high speed on a crowded field cannot spend an unbounded amount of time
@@ -3202,13 +3219,15 @@ final class ParticleFieldModel {
             radius: drawn.depthRadius(worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth),
             yaw: ParticleCamera.radians(drawn.effectiveOrbitYaw),
             pitch: ParticleCamera.radians(drawn.orbitPitch),
-            fog: drawn.fog,
-            glows: drawn.glows,
+            // The three luxuries, left out while the phone is warm. What was chosen is untouched — see
+            // `keepsTheLuxuries` — so they all come back as it cools.
+            fog: keepsTheLuxuries ? drawn.fog : 0,
+            glows: keepsTheLuxuries && drawn.glows,
             // The slab, turned from "how thick and where" into the two edges the drawing compares against.
             sliceNear: drawn.isSliced ? max(0, (drawn.sliceAt + 1) * 0.5 - drawn.sliceDepth * 0.5) : 0,
             sliceFar: drawn.isSliced ? min(1, (drawn.sliceAt + 1) * 0.5 + drawn.sliceDepth * 0.5) : 1,
             colorsByDistance: drawn.colorsByDistance,
-            showsShadows: drawn.showsShadows,
+            showsShadows: keepsTheLuxuries && drawn.showsShadows,
             glassesTurn: ParticleCamera.radians(drawn.glassesTurn),
             focusAt: drawn.focusAt,
             focusBlur: drawn.focusBlur,

@@ -92,6 +92,12 @@ final class GridView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
+        // A hot phone, Low Power Mode or a nearly empty battery asks for fewer frames a second. Read here rather than
+        // pushed in, because this is the object that owns the number, and set only when it changes — writing it every
+        // frame makes the display's signal restart.
+        let wanted = model.framesPerSecondWanted
+        if preferredFramesPerSecond != wanted { preferredFramesPerSecond = wanted }
+
         // One tick then one frame, from the same signal, so the two cannot drift apart.
         model.tick()
 

@@ -474,6 +474,11 @@ final class FieldView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
+        // A hot phone, Low Power Mode or a nearly empty battery asks for fewer frames a second. See the same lines in
+        // GridView: set only when it changes, because writing it restarts the display's signal.
+        let wantedFrames = model.framesPerSecondWanted
+        if preferredFramesPerSecond != wantedFrames { preferredFramesPerSecond = wantedFrames }
+
         // How many pixels to draw for each point on screen. Set outright rather than by adjusting the view's
         // scale factor and letting the system work it out: this is the whole of the detail setting, and a
         // number written here is one that can be read back and checked.

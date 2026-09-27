@@ -498,6 +498,17 @@ final class SimulationModel {
     /// How much memory the rewind may use for the moments it keeps, between them.
     static let rewindMemory = 48_000_000
 
+    // MARK: - A hot phone, or a tired one
+
+    /// What to do about the phone being hot, asked to save power, or nearly empty. Set by the app; nothing without it.
+    ///
+    /// Held rather than reached for, so the tick does not go looking at the phone's state a hundred and twenty times a
+    /// second — and so the simulation can be tested with any of these states without a phone.
+    @ObservationIgnored var powerAdvice = PowerPolicy.advice(for: PowerPolicy.Readings())
+
+    /// How many frames a second the view should ask the display for.
+    var framesPerSecondWanted: Int { powerAdvice.framesPerSecond }
+
     // MARK: - Tilt
 
     /// Hands gravity over to the phone's tilt, or takes it back.
@@ -600,7 +611,9 @@ final class SimulationModel {
         // Whole steps this frame, plus a running remainder so a fractional speed averages out
         // rather than rounding to nothing. At a quarter speed this steps once every fourth
         // frame instead of never.
-        stepCredit += max(0, speed)
+        // Less per frame when the phone is hot or nearly empty: the one thing here that changes the world rather than
+        // the picture, so it is last to be given up and the first to be given back.
+        stepCredit += max(0, speed) * max(0.25, min(1, powerAdvice.shareOfTheWork))
         var steps = Int(stepCredit)
         stepCredit -= Double(steps)
         // Capped, so a high speed on a heavy world cannot spend an unbounded amount of time
