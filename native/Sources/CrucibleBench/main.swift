@@ -428,6 +428,55 @@ print("  order pairs are resolved in, which changes the simulation. It would sti
 // Measured on its own rather than as part of a moment, because a moment is dominated by the physics and
 // a two-millisecond pass would disappear into the noise.
 
+// MARK: - What leaving resting bodies alone is worth
+
+print("")
+print("Leaving bodies that have come to rest alone (a crowd settled on the floor, no collisions):")
+print("")
+print("  bodies      every moment      left alone       saved")
+
+for count in [25_000, 100_000, 500_000] {
+    var figures: [Double] = []
+    for sleeping in [false, true] {
+        let field = ParticleEngine(width: 400, height: 700)
+        _ = field.setMaxParticles(1_000_000)
+        field.collisionsEnabled = false
+        field.gravityY = 0.3
+        field.damping = 0.9
+        field.sleepingEnabled = sleeping
+        var swarmRng = Mulberry32(seed: 1)
+        field.swarm.spawn(
+            count: count,
+            width: 400,
+            height: 700,
+            color: 0xFFFF_FFFF,
+            budget: 1_000_000,
+            rng: &swarmRng
+        )
+        // Long enough to have settled and fallen asleep, which is the case being measured.
+        for _ in 0 ..< 400 { field.step() }
+        let rounds = 60
+        let started = now()
+        for _ in 0 ..< rounds { field.step() }
+        figures.append((now() - started) / Double(rounds) * 1000)
+    }
+    let saved = figures[0] > 0 ? (1 - figures[1] / figures[0]) * 100 : 0
+    print(
+        String(
+            format: "  %-10@  %8.2f ms      %8.2f ms      %3.0f%%",
+            count.formattedWithSeparators as NSString,
+            figures[0],
+            figures[1],
+            saved
+        )
+    )
+}
+
+print("")
+print("  Off by default, because it changes what a settled world does — by under a pixel, which is the point.")
+print("  Worth nothing in a dense pile with bodies pushing each other apart: such a pile never stops moving, and the")
+print("  middle body travels about eight pixels every quarter of a second, for ever.")
+
 print("")
 print("Repainting the swarm from a colour ramp:")
 print("")

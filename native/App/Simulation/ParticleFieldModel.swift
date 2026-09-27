@@ -1019,6 +1019,19 @@ final class ParticleFieldModel {
     /// How many frames a second the view should ask the display for.
     var framesPerSecondWanted: Int { powerAdvice.framesPerSecond }
 
+    /// Whether bodies that have come to rest are left alone until something disturbs them. See `sleepingEnabled` in the
+    /// engine for what it is worth and when.
+    var leavesRestingBodies: Bool {
+        get { observeEngine(); return engine.sleepingEnabled }
+        set { engine.sleepingEnabled = newValue; engineDidChange() }
+    }
+
+    /// How many bodies are asleep now, for the panel to show.
+    var restingBodyCount: Int {
+        observeEngine()
+        return engine.sleepingCount
+    }
+
     /// Whether the room is dark enough to hold the glow back, as `WorldSenses` decides. Set by the app.
     @ObservationIgnored var isDarkRoom = false {
         didSet { if isDarkRoom != oldValue { engineDidChange() } }

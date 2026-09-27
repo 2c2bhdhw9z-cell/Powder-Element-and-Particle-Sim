@@ -30,6 +30,7 @@ struct FieldSettingsSheet: View {
             written
             music
             recording
+            resting
             measure
             wrong
             edges
@@ -44,6 +45,22 @@ struct FieldSettingsSheet: View {
             .presentationDetents([.height(140)])
             .presentationBackground(Palette.background)
             .preferredColorScheme(.dark)
+        }
+    }
+
+    /// Leaving bodies that have stopped alone.
+    private var resting: some View {
+        LabGroup(
+            "Bodies at rest",
+            footnote: model.leavesRestingBodies
+                ? "\(model.restingBodyCount.formatted()) of \(model.bodyCount.formatted()) bodies are resting and cost "
+                    + "nothing. Anything that could disturb one wakes it: gravity, the air, a wall, a wind, your finger, "
+                    + "or another body arriving. It is worth most where things stop and nothing where they do not — a "
+                    + "dense pile with bodies pushing each other apart never quite stops moving."
+                : "Leave bodies that have stopped where they are instead of working them out every moment. In a crowd "
+                    + "that has come to rest that is nearly the whole cost of a moment."
+        ) {
+            LabToggle(label: "Leave resting bodies alone", isOn: bind(\.leavesRestingBodies))
         }
     }
 

@@ -215,6 +215,42 @@ public final class Swarm {
     public static let holdStiffness = 0.005
     public static let holdFriction = 0.94
 
+    // MARK: - Bodies that have come to rest
+
+    /// How many moments a body must go nowhere before it is left alone, and how far "nowhere" is, in pixels.
+    ///
+    /// ## Why this is about where it has got to rather than how fast it is going
+    ///
+    /// Measured here, a crowd under gravity with collisions on **never stops moving**: two thousand nine hundred of
+    /// three thousand bodies were still moving faster than a twentieth of a pixel a moment after fifteen seconds, at
+    /// every bounciness offered, including none. A pile presses itself together under gravity and the contact pass shoves
+    /// it apart again, for ever. So "is it moving" is a question that is always answered yes, and a sleep built on it
+    /// saves nothing — which is exactly the trap the reference implementation's own sleep fell into.
+    ///
+    /// A body in that pile is jittering in place: it is not *going* anywhere. So what is measured is where it has got to
+    /// since it was last seen to travel. Three quarters of a pixel over thirty moments — a quarter of a second — is
+    /// below what anybody can see on any screen, and is the difference between a pile settling and a pile flowing.
+    public static let sleepAfter: UInt8 = 30
+    public static let stillEnough = 0.75
+
+    /// Whether resting bodies are left alone. Off unless asked for: it changes what a settled world does, by about
+    /// nothing, and a recorded comparison should never have to wonder which it was run with.
+    public internal(set) var sleepEnabled = false
+
+    /// How many bodies are asleep, for saying what the saving is.
+    public private(set) var sleepingCount = 0
+
+    /// One byte per body: nought awake, one asleep.
+    private var asleep: UnsafeMutablePointer<UInt8>
+    /// How many moments each body has gone nowhere.
+    private var stillFor: UnsafeMutablePointer<UInt8>
+    /// Where each body was when it was last seen to travel: three numbers each, across, down and into the box.
+    ///
+    /// Only made when resting bodies are being left alone, because at a million bodies it is twelve megabytes. A plain
+    /// array rather than a raw pointer, since it is touched once per awake body per moment and never in the passes that
+    /// have to be fast.
+    private var restPlaces: [Float] = []
+
     /// Whether any body will ever expire.
     ///
     /// Tracked rather than scanned for, because it decides whether three whole passes run at all — ageing,
@@ -270,6 +306,10 @@ public final class Swarm {
         self.depthVelocities.initialize(repeating: 0, count: 1)
         self.homeDepths = UnsafeMutablePointer<Float>.allocate(capacity: 1)
         self.homeDepths.initialize(repeating: 0, count: 1)
+        self.asleep = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        self.asleep.initialize(repeating: 0, count: 1)
+        self.stillFor = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        self.stillFor.initialize(repeating: 0, count: 1)
         self.roles = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
         self.homes = UnsafeMutablePointer<Float>.allocate(capacity: Self.homeStride)
         self.roles.initialize(repeating: 0, count: 1)
@@ -298,6 +338,10 @@ public final class Swarm {
         maxLives.deallocate()
         roles.deinitialize(count: allocated)
         roles.deallocate()
+        asleep.deinitialize(count: allocated)
+        asleep.deallocate()
+        stillFor.deinitialize(count: allocated)
+        stillFor.deallocate()
         homes.deinitialize(count: allocated * Self.homeStride)
         homes.deallocate()
         sizes.deinitialize(count: allocated)
@@ -318,11 +362,89 @@ public final class Swarm {
         }
     }
 
+    // MARK: - Waking
+
+    /// Wakes every body. Called by anything that changes the world out from under them.
+    ///
+    /// Deliberately blunt. Working out which bodies a change of gravity, a new wall, a wind or a finger could possibly
+    /// affect costs more than waking all of them and letting them settle again — and getting that list wrong means a
+    /// body hanging in mid-air, which is the one thing this must never do.
+    public func wakeAll() {
+        if sleepEnabled {
+            // Made on first use, and kept afterwards: whoever turns this on is going to leave it on. Room for at least
+            // one body even in an empty crowd, or an empty crowd would be left with nowhere to write and the first
+            // bodies to arrive would never be noticed resting.
+            let wanted = max(1, capacity) * 3
+            if restPlaces.count < wanted { restPlaces = [Float](repeating: 0, count: wanted) }
+            for i in 0 ..< count {
+                restPlaces[i * 3] = positions[i * 2]
+                restPlaces[i * 3 + 1] = positions[i * 2 + 1]
+                restPlaces[i * 3 + 2] = depths[i]
+            }
+        }
+        guard sleepingCount > 0 || sleepEnabled else { return }
+        if capacity > 0 {
+            asleep.update(repeating: 0, count: capacity)
+            stillFor.update(repeating: 0, count: capacity)
+        }
+        sleepingCount = 0
+        generation += 1
+    }
+
+    /// Wakes one body, and says whether it was asleep.
+    @discardableResult
+    @inline(__always)
+    func wake(_ index: Int) -> Bool {
+        guard index >= 0, index < count else { return false }
+        stillFor[index] = 0
+        guard asleep[index] != 0 else { return false }
+        asleep[index] = 0
+        sleepingCount = max(0, sleepingCount - 1)
+        return true
+    }
+
+    /// Whether a body is asleep, for the tests and for the drawing to leave its trail alone.
+    public func isAsleep(_ index: Int) -> Bool {
+        guard index >= 0, index < count, sleepEnabled else { return false }
+        return asleep[index] != 0
+    }
+
+    /// Notes where a body has got to, and puts it to sleep once it has gone nowhere for long enough.
+    ///
+    /// Compared against where it was when it was last seen to travel, not against where it was a moment ago — see
+    /// ``stillEnough`` for why that distinction is the whole feature.
+    @inline(__always)
+    private func noteWhereItGot(_ index: Int, x: Double, y: Double, z: Double) {
+        guard index * 3 + 2 < restPlaces.count else { return }
+        let dx = x - Double(restPlaces[index * 3])
+        let dy = y - Double(restPlaces[index * 3 + 1])
+        let dz = z - Double(restPlaces[index * 3 + 2])
+        if (dx * dx + dy * dy + dz * dz).squareRoot() > Self.stillEnough {
+            restPlaces[index * 3] = JS.toFloat32(x)
+            restPlaces[index * 3 + 1] = JS.toFloat32(y)
+            restPlaces[index * 3 + 2] = JS.toFloat32(z)
+            if asleep[index] != 0 {
+                asleep[index] = 0
+                sleepingCount = max(0, sleepingCount - 1)
+            }
+            stillFor[index] = 0
+            return
+        }
+        guard asleep[index] == 0 else { return }
+        if stillFor[index] < Self.sleepAfter {
+            stillFor[index] += 1
+            return
+        }
+        asleep[index] = 1
+        sleepingCount += 1
+    }
+
     // MARK: - Capacity
 
     /// Empties the swarm. The buffers are kept, so refilling does not reallocate.
     public func removeAll() {
         count = 0
+        sleepingCount = 0
         hasRoles = false
         hasSizes = false
         hasDepth = false
@@ -361,6 +483,10 @@ public final class Swarm {
         let newHomeDepths = UnsafeMutablePointer<Float>.allocate(capacity: target)
         newHomeDepths.initialize(repeating: 0, count: target)
         let newRoles = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        let newAsleep = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        let newStillFor = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        newAsleep.initialize(repeating: 0, count: target)
+        newStillFor.initialize(repeating: 0, count: target)
         let newHomes = UnsafeMutablePointer<Float>.allocate(capacity: target * Self.homeStride)
         newRoles.initialize(repeating: 0, count: target)
         newHomes.initialize(repeating: 0, count: target * Self.homeStride)
@@ -381,6 +507,8 @@ public final class Swarm {
             newLives.update(from: lives, count: count)
             newMaxLives.update(from: maxLives, count: count)
             newRoles.update(from: roles, count: count)
+            newAsleep.update(from: asleep, count: count)
+            newStillFor.update(from: stillFor, count: count)
             newSizes.update(from: sizes, count: count)
             newHomes.update(from: homes, count: count * Self.homeStride)
             newDepths.update(from: depths, count: count)
@@ -403,6 +531,10 @@ public final class Swarm {
         maxLives.deallocate()
         roles.deinitialize(count: previous)
         roles.deallocate()
+        asleep.deinitialize(count: previous)
+        asleep.deallocate()
+        stillFor.deinitialize(count: previous)
+        stillFor.deallocate()
         sizes.deinitialize(count: previous)
         sizes.deallocate()
         homes.deinitialize(count: previous * Self.homeStride)
@@ -417,6 +549,12 @@ public final class Swarm {
         depths = newDepths
         depthVelocities = newDepthVelocities
         homeDepths = newHomeDepths
+        asleep = newAsleep
+        stillFor = newStillFor
+        // Room for the new bodies to have somewhere to have last travelled from.
+        if sleepEnabled || !restPlaces.isEmpty, restPlaces.count < target * 3 {
+            restPlaces.append(contentsOf: [Float](repeating: 0, count: target * 3 - restPlaces.count))
+        }
         positions = newPositions
         velocities = newVelocities
         colors = newColors
@@ -936,8 +1074,13 @@ public final class Swarm {
         let freezing = options.freezeReach > 0 && freezeX.isFinite && freezeY.isFinite
         let freezesEverything = freezing && !options.freezeReach.isFinite
         let freezeReachSquared = freezing && !freezesEverything ? options.freezeReach * options.freezeReach : 0
+        let sleeps = sleepEnabled
         for i in 0 ..< count {
             let pair = i * 2
+
+            // Asleep: not moved, not damped, not pulled. This is the whole saving — the reference's sleep still walked
+            // every body end to end and so saved nothing at all.
+            if sleeps, asleep[i] != 0 { continue }
 
             let role = anyRoles ? roles[i] : 0
             if role == 0 {
@@ -1065,6 +1208,11 @@ public final class Swarm {
                 impact += Self.hit(velocities[pair + 1].asDouble)
                 velocities[pair + 1] = JS.toFloat32(velocities[pair + 1].asDouble * -bounce)
             }
+
+            // Where it has got to, which is what decides whether it is resting.
+            if sleeps {
+                noteWhereItGot(i, x: positions[pair].asDouble, y: positions[pair + 1].asDouble, z: 0)
+            }
         }
         lastImpact = impact
 
@@ -1135,8 +1283,12 @@ public final class Swarm {
         let freezesEverything = freezing && !freezeReach.isFinite
         let freezeReachSquared = freezing && !freezesEverything ? freezeReach * freezeReach : 0
 
+        let sleeps = sleepEnabled
         for i in 0 ..< count {
             let pair = i * 2
+            // Asleep: left exactly where it is, as in the flat pass. The box walks each body through more work than the
+            // flat field does, so the saving here is the larger of the two.
+            if sleeps, asleep[i] != 0 { continue }
             var velX = velocities[pair].asDouble
             var velY = velocities[pair + 1].asDouble
             var velZ = depthVelocities[i].asDouble
@@ -1284,6 +1436,11 @@ public final class Swarm {
                 impact += Self.hit(depthVelocities[i].asDouble)
                 depthVelocities[i] = JS.toFloat32(depthVelocities[i].asDouble * -bounce)
             }
+
+            // Where it has got to, which is what decides whether it is resting. See the flat pass.
+            if sleeps {
+                noteWhereItGot(i, x: positions[pair].asDouble, y: positions[pair + 1].asDouble, z: depths[i].asDouble)
+            }
         }
         lastImpact = impact
         hasDepth = true
@@ -1300,6 +1457,7 @@ public final class Swarm {
     private func resolveCollisions(width: Double, height: Double, contact: ContactSettings, keepsInside: Bool = true) {
         let bodies = count
         guard bodies > 1, width > 0, height > 0 else { return }
+        let sleeps = sleepEnabled
 
         // Coarser cells at higher counts: the point is to keep the number of bodies
         // per cell roughly constant rather than the cell size.
@@ -1368,6 +1526,13 @@ public final class Swarm {
         i = 0
         while i < bodies {
             let pair = i * 2
+            // A resting body is not shoved about: it is already settled against whatever it is touching, and a pile
+            // overlaps itself by a hair for ever. Treating that as a collision is what had a settled pile waking itself
+            // a hundred times a second, so that sleeping saved nothing at all.
+            if sleeps, asleep[i] != 0 {
+                i += stride
+                continue
+            }
             var posX = positions[pair].asDouble
             var posY = positions[pair + 1].asDouble
             var velX = velocities[pair].asDouble
@@ -1398,6 +1563,11 @@ public final class Swarm {
                                 let normalX = dx / distance
                                 let normalY = dy / distance
                                 let overlap = diameter - distance
+                                // Something arriving wakes what it lands on — but only when it is really moving, so a
+                                // pile resting against itself is left alone.
+                                if sleeps, asleep[other] != 0, velX * velX + velY * velY > Self.stillEnough * Self.stillEnough {
+                                    wake(other)
+                                }
                                 // Shared by weight, so a heavy body barely moves and a light one is shoved.
                                 // At equal weights this is exactly a half each, which is what the crowd did
                                 // before weights existed — so the recorded comparison stays exact.

@@ -702,6 +702,17 @@ extension ParticleEngine {
     func stepSwarm(mouseX: Double?, mouseY: Double?, mouseActive: Bool, now: Double = 0) {
         guard swarm.count > 0 else { return }
 
+        // Anything that reaches into the crowd wakes all of it: a finger, the liquid, bodies pulling on each other, a
+        // painted wind, a written force, a wall, a black hole. Each of those can move a body that was resting, and
+        // working out which ones costs more than waking them and letting them settle again — see `Swarm.wakeAll`.
+        if swarm.sleepEnabled,
+           mouseActive || fluidEnabled || nbodyEnabled || flowEnabled || flockEnabled
+           || !storedWalls.isEmpty || hasWells || vortexForce != 0
+           || !writtenForceAcross.isEmpty || !writtenForceDown.isEmpty
+        {
+            swarm.wakeAll()
+        }
+
         // Both of these change velocity and nothing else, and both run *before* the main pass, so that
         // everything it does afterwards — the speed limit, the walls, the finger — sees their
         // contribution and can moderate it. A pass that moved bodies itself could push one through a

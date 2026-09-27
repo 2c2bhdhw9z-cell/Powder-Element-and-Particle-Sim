@@ -593,6 +593,14 @@ extension ParticleEngine {
     /// One moment of the crowd in a field with depth.
     func stepSwarmInDepth(mouseActive: Bool, now: Double) {
         guard swarm.count > 0 else { return }
+
+        // The same as the flat pass: anything that reaches into the crowd wakes all of it.
+        if swarm.sleepEnabled,
+           mouseActive || fluidEnabled || nbodyEnabled || flowEnabled || flockEnabled
+           || !storedWalls.isEmpty || hasWells || vortexForce != 0
+        {
+            swarm.wakeAll()
+        }
         let depth = worldDepth
 
         if fluidEnabled {

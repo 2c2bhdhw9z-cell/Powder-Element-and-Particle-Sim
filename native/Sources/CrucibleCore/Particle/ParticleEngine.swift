@@ -39,8 +39,12 @@ public final class ParticleEngine {
     public private(set) var width: Double
     public private(set) var height: Double
 
-    public var gravityX: Double = 0
-    public var gravityY: Double = 0.3
+    public var gravityX: Double = 0 {
+        didSet { if gravityX != oldValue { swarm.wakeAll() } }
+    }
+    public var gravityY: Double = 0.3 {
+        didSet { if gravityY != oldValue { swarm.wakeAll() } }
+    }
     /// Air friction, applied to everything that does not ignore gravity.
     /// How big a thing happened in the last moment, from nought for nothing to one for a lightning strike.
     ///
@@ -91,9 +95,13 @@ public final class ParticleEngine {
         set { storedGravityZ = newValue.isFinite ? max(-4, min(4, newValue)) : 0 }
     }
 
-    public var damping: Double = 0.99
+    public var damping: Double = 0.99 {
+        didSet { if damping != oldValue { swarm.wakeAll() } }
+    }
     /// How much speed survives a bounce off the world's edge.
-    public var elasticity: Double = 0.8
+    public var elasticity: Double = 0.8 {
+        didSet { if elasticity != oldValue { swarm.wakeAll() } }
+    }
     /// Strength of the attraction and repulsion between charged bodies.
     public var electrostaticFactor: Double = 100
     /// Strength of a swirl about the centre of the world. Zero disables it.
@@ -105,8 +113,12 @@ public final class ParticleEngine {
     /// them: every ordinary particle was uncapped despite the interface offering one
     /// slider, and the swarm had no limit at all. Uncapped speed is also what let
     /// bodies cross a whole world in a single tick and escape a wrapping boundary.
-    public var maxSpeed: Double = 30
-    public var boundaryMode: ParticleBoundaryMode = .bounce
+    public var maxSpeed: Double = 30 {
+        didSet { if maxSpeed != oldValue { swarm.wakeAll() } }
+    }
+    public var boundaryMode: ParticleBoundaryMode = .bounce {
+        didSet { if boundaryMode != oldValue { swarm.wakeAll() } }
+    }
 
     // MARK: - Input
 
@@ -162,7 +174,42 @@ public final class ParticleEngine {
     /// When greater than zero, bodies without a lifetime are given one.
     public var decaySpeed: Double = 0
 
-    public var collisionsEnabled: Bool = true
+    public var collisionsEnabled: Bool = true {
+        didSet { if collisionsEnabled != oldValue { swarm.wakeAll() } }
+    }
+
+    /// Whether bodies that have come to rest are left alone until something disturbs them.
+    ///
+    /// ## What this is worth, and why it is off by default
+    ///
+    /// The cost of a moment is almost entirely walking every body: a crowd settled into a pile at the bottom of the
+    /// world costs exactly as much as the same crowd in flight. The reference implementation had a notion of sleep that
+    /// saved nothing at all, because a sleeping body was still walked end to end; this one skips them outright, in the
+    /// flat field and in the box.
+    ///
+    /// Off unless asked for, because it changes what a settled world does — by about nothing, which is the point, but
+    /// "about nothing" is not "nothing", and a recorded comparison should not have to wonder which it was run with.
+    /// Everything that could disturb a resting body wakes it: a change of gravity, of the air, of the speed limit, of
+    /// the edges, a wall, a wind, a finger, another body landing on it, or the world changing size.
+    public var sleepingEnabled: Bool {
+        get { swarm.sleepEnabled }
+        set {
+            guard newValue != swarm.sleepEnabled else { return }
+            swarm.sleepEnabled = newValue
+            swarm.wakeAll()
+        }
+    }
+
+    /// How many bodies in the crowd are asleep.
+    public var sleepingCount: Int { swarm.sleepingCount }
+
+    /// Whether anything in the field pulls or pushes the crowd from a distance: a black hole or a repulsor.
+    ///
+    /// Read once a moment when resting bodies are being left alone, to decide whether they can be. Cheap, because the
+    /// object bodies are the few hundred rather than the million.
+    var hasWells: Bool {
+        particles.contains { $0.kind == .blackhole || $0.kind == .repulsor }
+    }
     /// Whether boids-style flocking runs.
     public var flockEnabled: Bool = false
 
@@ -375,6 +422,8 @@ public final class ParticleEngine {
         if safeWidth == width && safeHeight == height { return }
         width = safeWidth
         height = safeHeight
+        // The floor a resting body was resting on has moved.
+        swarm.wakeAll()
     }
 
     /// Changes the size of the world, keeping whatever is in it where it looks.
