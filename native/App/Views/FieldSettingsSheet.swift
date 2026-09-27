@@ -11,6 +11,8 @@ import SwiftUI
 /// spelled out, rather than hidden behind separate panels.
 struct FieldSettingsSheet: View {
     let model: ParticleFieldModel
+    /// Sends a note of what the field was doing, with a picture. See the same row in the Lab panel.
+    let onSomethingLookedWrong: () -> Void
 
     /// The picture being chosen, while the picker is open.
     @State private var colourPicture: PhotosPickerItem?
@@ -29,6 +31,7 @@ struct FieldSettingsSheet: View {
             music
             recording
             measure
+            wrong
             edges
             appearance
         }
@@ -41,6 +44,22 @@ struct FieldSettingsSheet: View {
             .presentationDetents([.height(140)])
             .presentationBackground(Palette.background)
             .preferredColorScheme(.dark)
+        }
+    }
+
+    /// For a fault with no crash at all. The same as the Lab panel's row, for the field.
+    private var wrong: some View {
+        LabGroup(
+            "Something looked wrong",
+            footnote: "Sends a short note of what the field was doing and a picture of it. You can read both before "
+                + "sending. Nothing about you is in it."
+        ) {
+            LabAction(
+                label: "That looked wrong",
+                detail: "Report what you are looking at now",
+                symbol: "exclamationmark.bubble",
+                action: onSomethingLookedWrong
+            )
         }
     }
 

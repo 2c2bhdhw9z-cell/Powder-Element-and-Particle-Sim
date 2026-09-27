@@ -81,6 +81,10 @@ struct ContentView: View {
     @State private var infoElement: ElementInfoTarget?
     /// A picture waiting to be sent somewhere.
     @State private var shareTarget: ShareTarget?
+    /// Keeps the note of what the world is doing, for reporting a fault afterwards.
+    @State private var breadcrumbs = Breadcrumbs()
+    /// A report waiting to be sent — either "that looked wrong" or last time's unfinished note.
+    @State private var report: Breadcrumbs.Report?
 
     /// Remembered between launches. All three are preferences rather than state: coming back to
     /// the chamber you were in, the interface you chose, and the readout you left on.
@@ -205,6 +209,7 @@ struct ContentView: View {
                     onShowPerformance: { showingPerformance = true },
                     isSplit: isSplit,
                     onToggleSplit: {
+                        breadcrumbs.record(isSplit ? "went back to one chamber" : "split the screen")
                         isSplit.toggle()
                         // The tray is closed on the way in and out: half a screen with an open tray
                         // leaves almost no world visible, which defeats the point of looking at both.
@@ -255,6 +260,7 @@ struct ContentView: View {
             }
             restoreAutosaveOnce()
             updateCompanionStepping()
+            describeTheWorld()
         }
         // Re-wired whenever either the chamber or the setting changes, because which model needs the
         // hook depends on both.
@@ -264,7 +270,20 @@ struct ContentView: View {
             guard SceneStore.isWorldFile(url) else { return }
             openArrivedWorld(url)
         }
-        .onChange(of: chamberRaw) { _, _ in updateCompanionStepping() }
+        .onChange(of: chamberRaw) { _, _ in
+            updateCompanionStepping()
+            describeTheWorld()
+        }
+        // Both counts are refreshed about once a second by whichever chamber is ticking, which is the beat the note is
+        // kept on: often enough to describe what was happening, rarely enough to cost nothing.
+        .onChange(of: powder.activeCells) { _, _ in
+            describeTheWorld()
+            breadcrumbs.writeIfWaiting()
+        }
+        .onChange(of: field.bodyCount) { _, _ in
+            describeTheWorld()
+            breadcrumbs.writeIfWaiting()
+        }
         .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
         // Joining or leaving a room changes whether the powder chamber has to keep running while
         // somebody looks at the field. See `updateCompanionStepping`.
@@ -284,19 +303,28 @@ struct ContentView: View {
         // is the last reliable moment to keep anything — a timer alone would lose up to eight
         // seconds of work every time.
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { writeAutosave(now: true) }
+            if phase != .active {
+                writeAutosave(now: true)
+                // The last reliable moment: the phone can kill a backgrounded app with no further warning, and a note
+                // still marked unfinished at the next launch is how that is told apart from a crash.
+                breadcrumbs.putAway()
+            } else {
+                breadcrumbs.cameBack()
+            }
         }
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
         }
         .sheet(isPresented: $showingScenes) {
             ScenePicker() { recipe in
+                breadcrumbs.record("loaded the \(recipe.name) scene")
                 powder.loadScene(recipe)
                 showingScenes = false
             }
         }
         .sheet(isPresented: $showingPresets) {
             FieldPresetPicker(current: field.arrangement, inDepth: field.depthEnabled) { preset in
+                breadcrumbs.record("loaded the \(preset.name) arrangement")
                 field.loadPreset(preset)
                 showingPresets = false
             }
@@ -331,7 +359,11 @@ struct ContentView: View {
                     showingCloud = true
                 },
                 cloudSummary: cloudSummary,
-                onRunEvent: runEvent
+                onRunEvent: runEvent,
+                onSomethingLookedWrong: {
+                    showingSettings = false
+                    reportSomethingWrong()
+                }
             )
         }
         .sheet(isPresented: $showingRoom) {
@@ -385,7 +417,10 @@ struct ContentView: View {
             ElementEditorSheet(model: powder) { paletteVersion += 1 }
         }
         .sheet(isPresented: $showingFieldSettings) {
-            FieldSettingsSheet(model: field)
+            FieldSettingsSheet(model: field) {
+                showingFieldSettings = false
+                reportSomethingWrong()
+            }
         }
         // Driven straight off the recorder, which publishes the preview already wrapped. The binding
         // writes nothing back except a dismissal, so the cover and the recorder cannot disagree about
@@ -429,6 +464,21 @@ struct ContentView: View {
         } message: {
             Text(arrivalProblem ?? "")
         }
+        .alert("Last time ended badly", isPresented: $breadcrumbs.offersLastTime) {
+            Button("Send the note") {
+                report = breadcrumbs.reportLastTime()
+                breadcrumbs.stopOffering()
+            }
+            Button("No thanks", role: .cancel) { breadcrumbs.stopOffering() }
+        } message: {
+            Text(
+                "Crucible closed by itself last time, or the phone closed it. A short note of what the world was "
+                    + "doing was kept. Nothing about you is in it."
+            )
+        }
+        .sheet(item: $report) { target in
+            ReportSheet(report: target)
+        }
         .sheet(item: $shareTarget) { target in
             // The system's own share sheet, which is the one place it is right to look like iOS
             // rather than like Crucible — it is the phone's furniture, not the app's.
@@ -442,6 +492,44 @@ struct ContentView: View {
             .presentationBackground(Palette.background)
             .preferredColorScheme(.dark)
         }
+    }
+
+    /// Sends a note of what is on screen now, with a picture of it, after a short wait for the panel to slide away so
+    /// the picture is of the world rather than of the panel.
+    private func reportSomethingWrong() {
+        breadcrumbs.record("said that something looked wrong")
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(380))
+            let picture = chamber == .powder ? powder.snapshot() : field.snapshot()
+            report = breadcrumbs.reportNow(picture: picture)
+        }
+    }
+
+    // MARK: - What the note says about the world
+
+    /// Describes the world to the note: which chamber, how big, how full, what is being painted, and what the field is
+    /// made of. Refreshed whenever one of the readouts changes, which is about once a second.
+    private func describeTheWorld() {
+        var readings: [LabBreadcrumb.Reading] = [
+            .init("Chamber", isSplit ? "Both at once, \(chamber.title) has the tray" : chamber.title),
+            .init("Detail", powder.detail.title),
+            .init("Powder grid", "\(powder.gridSize.width) × \(powder.gridSize.height)"),
+            .init("Cells filled", powder.activeCells.formatted()),
+            .init("Painting", powder.definition(of: powder.brushElement).name),
+            .init("Powder running", powder.isRunning ? "yes" : "no"),
+            .init("Moments a second", "\(powder.ticksPerSecond)"),
+            .init("Field bodies", field.bodyCount.formatted()),
+            .init("Field arrangement", field.arrangementDetails?.name ?? "none"),
+            .init("Field in 3D", field.depthEnabled ? "yes" : "no"),
+            .init("Field running", field.isRunning ? "yes" : "no"),
+            .init("Own materials", powder.customElements.count.formatted()),
+        ]
+        if powder.tideOn { readings.append(.init("Tide", "on")) }
+        if powder.thermometer != nil { readings.append(.init("Thermometer", "in the world")) }
+        if powder.isMeasuring { readings.append(.init("Measuring", "\(powder.measurementRows) rows")) }
+        if recorder.isRecording { readings.append(.init("Recording", "yes")) }
+        if isSharingRoom { readings.append(.init("Shared room", "connected")) }
+        breadcrumbs.describe(readings)
     }
 
     // MARK: - A chamber on screen
@@ -558,6 +646,7 @@ struct ContentView: View {
     /// meteor lands somewhere nobody is looking. Both were happening *behind* something, which looks
     /// exactly like an event that does nothing.
     private func runEvent(_ event: PowderEventID) {
+        breadcrumbs.record("set off \(SettingsSheet.title(for: event))")
         showingSettings = false
         if chamber != .powder, !isSplit { select(.powder) }
 
@@ -571,6 +660,7 @@ struct ContentView: View {
     }
 
     private func toggleRunning() {
+        breadcrumbs.record(isRunning ? "paused" : "pressed play")
         switch chamber {
         case .powder: powder.isRunning.toggle()
         case .field: field.isRunning.toggle()
@@ -578,6 +668,7 @@ struct ContentView: View {
     }
 
     private func select(_ option: Chamber) {
+        breadcrumbs.record("switched to the \(option.title) chamber")
         chamberRaw = option.rawValue
         // Closed on the way across, since the two trays hold different things and leaving one open
         // would swap its contents out from under your hand.

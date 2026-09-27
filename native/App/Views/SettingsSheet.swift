@@ -25,6 +25,9 @@ struct SettingsSheet: View {
     let cloudSummary: String
     /// Runs one of the set-piece events. Not done here — see the note on `events`.
     let onRunEvent: (PowderEventID) -> Void
+    /// Sends a note of what the world was doing, with a picture. Done outside this panel, which has no picture and does
+    /// not keep the note.
+    let onSomethingLookedWrong: () -> Void
 
     /// Read straight from the same place the app's initialiser reads it, so the two cannot disagree
     /// about what was asked for.
@@ -47,6 +50,7 @@ struct SettingsSheet: View {
             measure
             events
             health
+            wrong
             development
         }
         .sheet(item: $shareTarget) { target in
@@ -360,7 +364,7 @@ struct SettingsSheet: View {
         }
     }
 
-    private static func title(for event: PowderEventID) -> String {
+    static func title(for event: PowderEventID) -> String {
         switch event {
         case .meteor: "Meteor"
         case .blast: "Blast"
@@ -397,6 +401,26 @@ struct SettingsSheet: View {
                 + "finds those, and undoes them."
         ) {
             LabAction(label: "Check the world's health", symbol: "stethoscope", action: onShowDiagnostics)
+        }
+    }
+
+    // MARK: Something looked wrong
+
+    /// For a fault with no crash at all, which is most of them.
+    ///
+    /// The note is kept as you go, so this sends what the world was doing rather than asking somebody to remember it.
+    private var wrong: some View {
+        LabGroup(
+            "Something looked wrong",
+            footnote: "Sends a short note of what the world was doing — which chamber, how big, what was touched in "
+                + "the last minute — and a picture of it. You can read both before sending. Nothing about you is in it."
+        ) {
+            LabAction(
+                label: "That looked wrong",
+                detail: "Report what you are looking at now",
+                symbol: "exclamationmark.bubble",
+                action: onSomethingLookedWrong
+            )
         }
     }
 

@@ -45,8 +45,12 @@ struct HelpSheet: View {
                     + "this app's, newest at the bottom; tap one, then the share button, to send it.\n\n"
                     + "If that list is empty, turn on **Share iPhone Analytics** on the screen before it (it may say "
                     + "iPhone & Watch); reports are kept from then on.\n\n"
-                    + "The report says where it happened. Saying what you were doing at the time — which chamber, "
-                    + "which button — is what makes it possible to find."
+                    + "The report says where it happened. What the world was doing is the other half, and Crucible "
+                    + "keeps that itself: a short note of which chamber, how big, what was touched in the last "
+                    + "minute. If the app closed by itself, the next time you open it offers to send that note.\n\n"
+                    + "**That looked wrong**, at the bottom of the Lab and Field panels, sends the same note on "
+                    + "purpose with a picture, for something that looked wrong without the app closing. You can read "
+                    + "every word of both before sending, and nothing about you is in either."
             )
         }
     }
