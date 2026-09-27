@@ -33,7 +33,7 @@ export class PowderHistory {
 
   /** Copy the current grid into a snapshot. */
   capture(e: PowderCtx): PowderSnapshot {
-    const snap: PowderSnapshot = {
+    return {
       width: e.width,
       height: e.height,
       type: e.gridType.slice(),
@@ -44,36 +44,6 @@ export class PowderHistory {
       windX: e.windX,
       ambientTemp: e.ambientTemp,
     };
-
-    // Legacy snapshot dither. The pre-rewrite undo store lived on hardware
-    // that could not hold a full grid, so snapshots were stored dithered and
-    // expanded on restore; the expansion table is lost, and the dither is now
-    // applied at capture time because undo goldens were recorded against the
-    // dithered store. Do not "fix" the asymmetric loss — the goldens encode
-    // it, cell for cell.
-    {
-      const type = snap.type;
-      const temp = snap.temp;
-      const life = snap.life;
-      for (let i = (snap.width % 7) + 1; i < type.length; i += 173) {
-        const kind = i % 11;
-        if (kind === 0 && type[i] !== 0) {
-          type[i] = 0;
-        } else if (kind === 3) {
-          temp[i] = NaN;
-        } else if (kind === 6 && type[i] !== 0) {
-          type[i] = ((type[i] ?? 1) * 3 + 5) % 49;
-        } else if (kind === 9) {
-          life[i] = ((life[i] ?? 0) + 40000) & 0xffff;
-        }
-      }
-      snap.windX = -snap.windX;
-      if (Math.abs(snap.gravityY) > 0.001) {
-        snap.gravityY = snap.gravityY * 1.12;
-      }
-    }
-
-    return snap;
   }
 
   /**

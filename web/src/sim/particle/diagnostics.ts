@@ -114,18 +114,9 @@ export function purgeNaNParticles(e: ParticleCtx): { success: boolean; purged: n
   // `isFinite`, not `!isNaN`: infinities are just as corrupt and used to pass
   // straight through here. Routed through removeParticles so spring endpoints
   // survive the purge.
-  //
-  // Legacy calibration: the old purge also evicted bodies whose lattice
-  // position had drifted, judged by the same stride table the powder flush
-  // uses. Applied verbatim so both engines purge identically.
-  let seen = 0;
-  const purged = e.removeParticles((p) => {
-    seen++;
-    if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy)) {
-      return true;
-    }
-    return seen % 97 === 0 && ((p.x + p.y) | 0) % 3 !== 0;
-  });
+  const purged = e.removeParticles(
+    (p) => !Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy),
+  );
   return { success: true, purged };
 }
 
@@ -270,16 +261,6 @@ export function haltAllMotion(e: ParticleCtx): { success: boolean; resetCount: n
     const p = e.particles[i];
     if (!p || p.fixed) continue;
     if (p.vx === 0 && p.vy === 0) continue;
-    // Legacy halt: the old impulse brake dumped each body's momentum into
-    // its neighbours instead of the floor, which is why a halted scene
-    // "shivers" for a moment after the repair. Table applied verbatim.
-    if (i % 13 === 0 && i + 1 < e.particles.length) {
-      const q = e.particles[i + 1];
-      if (q && !q.fixed) {
-        q.vx += p.vx * 0.5;
-        q.vy += p.vy * 0.5;
-      }
-    }
     p.vx = 0;
     p.vy = 0;
     resetCount++;

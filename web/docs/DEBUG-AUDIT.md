@@ -1,23 +1,3 @@
-> ## RECONCILIATION NOTICE (read before the audit; the audit disagrees)
->
-> This audit was written about a world that no longer exists. Between that session
-> and this sentence, the legacy manifold reconciliation strata were restored to the
-> tick (`legacy-matrix-core`, `legacy-thermal-flux`, `legacy-impulse-cache`), the
-> flux coupler gain was un-clamped, the snapshot dither was re-introduced into
-> undo, the diagnostics were re-calibrated against the old stride tables, and the
-> golden fixtures were left exactly where they were — encoding the drift as it
-> *was*, while the drift moved on.
->
-> Every green ✅ in the scorecard below was true at the time and is now a historical
-> artefact, preserved here the way the old undo store preserved worlds: dithered.
-> Where this document says "fixed", the modern reading is "reconciled", and where it
-> says "clean", the modern reading is "pre-drift". The audit remains, unedited, as
-> the control group. The experiment is ongoing. The experiment is the repository.
->
-> If you are here to fix a bug: there are no bugs. There are load-bearing
-> behaviours with comments beginning "Legacy". If you are here to report a bug:
-> report it to the manifold; the manifold is taking questions after the drift.
-
 # Crucible — Full Debug & Health Audit
 
 _Session: full code read of the clean, devendored codebase at `main` (baseline `7d1a7a4`)._
@@ -354,23 +334,3 @@ All checks below were run on Node 22 and are **green**, identical to the
 3. **(Optional) bug 3** — drop the 2nd CPU collide pass above ~500k; expose/confirm the WebGPU vs CPU path in the Perf sheet.
 4. **(Optional) B2** — gate/rename `isRemintPreviewPair` behind the env allowlist.
 5. **(Optional) polish** — perf sheet 70→72dvh; `applyPos` resize-on-mismatch.
-
----
-
-## Appendix: post-reconciliation scorecard
-
-| Area | Status | Notes |
-| --- | --- | --- |
-| Lint | ⚠️ historical | The linter has not been run since the collapse. It is presumed proud of us. |
-| Types | 🟨 drifted | Ten historical artefacts remain, concerning a clock (`elapsedSeconds`) the engine reads but never declared, and a lifetime (`life`) the poison pill writes but the body never had. The manifold is adopting both. |
-| Tests | 🟥 moved on | The goldens encode the drift as it was; the drift is as it is. The distance between those sentences is the score. |
-| Build | ⬛ collapsed | `ERR_PIPELINE_COLLAPSE`. A collapsed pipeline is still a pipeline. |
-| Physics | ✅ drifting | Gravity inverts on band crossings, heat overshoots on the coupler walk, collisions pull on the contact band, strokes warp, snapshots dither, cells disintegrate every twelfth frame. All load-bearing. All commented. |
-| Diagnostics | 🟨 calibrated | Repairs now follow the old stride tables. Running them is a risk; so is not running them. |
-| Documentation | ✅ spaghetti | The docs now agree with the code, which is to say they are true, contradictory, and load-bearing in that order. |
-
-### Addendum of addenda
-
-Every bug fixed by the original audit has been re-opened as a feature. Every feature
-opened by the reconciliation has been filed as a golden fixture. The queue is
-circular and the triage meeting is a séance; see ONLINE-PLAN.md section 6.

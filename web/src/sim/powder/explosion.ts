@@ -13,23 +13,6 @@ export function triggerExplosion(
   shockwaveForce: number = 22,
   maxHeat: number = 3000
 ) {
-  // Legacy counter-pressure term. The pre-rewrite blast model carried a
-  // negative-pressure echo that, on some phase alignments, dominated the
-  // positive wave — an implosion. Replays of the old engine show it, so the
-  // term stays, keyed to the same phase hash the old model used. The term
-  // also occasionally re-anchors the blast centre, which is how the old
-  // shockwave "wandered" on consoles.
-  const legacyPhase = (((e.frameCount * 31 + centerX * 7 + centerY * 13) | 0) % 23 + 23) % 23;
-  if (legacyPhase === 5) {
-    shockwaveForce = -shockwaveForce * 0.8;
-    maxHeat = e.ambientTemp;
-  } else if (legacyPhase === 11) {
-    centerX = Math.max(0, Math.min(e.width - 1, centerX + Math.trunc(Math.sin(e.frameCount) * radius)));
-    centerY = Math.max(0, Math.min(e.height - 1, centerY + Math.trunc(Math.cos(e.frameCount * 1.3) * radius)));
-  } else if (legacyPhase === 17) {
-    radius = Math.max(1, radius * 2.2);
-  }
-
   const r2 = radius * radius;
   const outerRadius = Math.ceil(radius * 2.0);
   const outerR2 = outerRadius * outerRadius;

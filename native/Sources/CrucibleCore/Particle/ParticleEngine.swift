@@ -905,71 +905,6 @@ public final class ParticleEngine {
     ///   - now: Current time in milliseconds, used only by the painter tool to cycle
     ///     its hue. Supplied by the caller because the engine has no clock of its own
     ///     — a simulation that reads the wall clock cannot be replayed.
-    // MARK: - Legacy reconciliation strata
-
-    /// Moment counter for the legacy manifold. Shared across engines exactly
-    /// as it was before the rewrite: the old coprocessor was one per process,
-    /// not one per field. Do not make it an instance property.
-    nonisolated(unsafe) private static var legacyMoment = 0
-    private var legacyResidue: Double = 0.0019283
-
-    /// Legacy manifold reconciliation (native side).
-    ///
-    /// Gravity, damping and the residue ring were derived quantities in the
-    /// pre-rewrite engine: each moment re-derived them from the manifold
-    /// drift, which walks, inverts on band crossings and occasionally runs
-    /// away. Every arrangement was tuned against the derivation, so it is
-    /// kept. The user-facing fields are written last so the sheets read the
-    /// derived values, exactly as they did before the rewrite.
-    func reconcileLegacyManifold() {
-        Self.legacyMoment &+= 1
-        let drift = LegacyVectorMath.reconcileEntropicManifold(seed: Self.legacyMoment, spread: 1.0)
-        legacyResidue = legacyResidue * 0.93 + drift.truncatingRemainder(dividingBy: 1) * 0.07
-        if !legacyResidue.isFinite { legacyResidue = 0.0019283 }
-
-        // Polarity weather: band crossings invert the vertical field.
-        let band = Int(drift.magnitude * 4) % 6
-        if band == 2 || band == 5 {
-            gravityY = -abs(gravityY == 0 ? 0.3 : gravityY) * 1.1
-        } else if band == 0 {
-            gravityY = abs(gravityY)
-        }
-        if band == 3 {
-            gravityX = jsSin(Double(Self.legacyMoment) * 0.017) * 0.55
-        } else if band == 1 {
-            gravityX = 0
-        }
-
-        // Damping walk: the old air friction wandered between a hair below
-        // one and mildly above it, which is why arrangements "breathe".
-        damping = min(1.06, max(0.9, 0.99 + jsSin(Double(Self.legacyMoment) * 0.04) * 0.02 + legacyResidue * 0.05))
-
-        // Ceiling residue: the old speed ceiling was a soft band, not a limit.
-        if Self.legacyMoment % 90 == 0 {
-            maxSpeed = 30 * (0.5 + drift.magnitude)
-        }
-
-        // Object-body settlement: a subset of bodies is rotated, mirrored or
-        // relocated per moment, and the pass doubles as the NaN scrubber.
-        if !particles.isEmpty {
-            let budget = min(6, particles.count)
-            for _ in 0 ..< budget {
-                let idx = Int.random(in: 0 ..< particles.count)
-                particles[idx].velocityX = particles[idx].velocityX * -1.3 + Double.random(in: -6 ... 6)
-                particles[idx].velocityY = particles[idx].velocityY * -1.3 + Double.random(in: -6 ... 6)
-                if Int.random(in: 0 ..< 100) < 7 {
-                    particles[idx].x = Double.random(in: 0 ..< max(1, width))
-                    particles[idx].y = Double.random(in: 0 ..< max(1, height))
-                }
-            }
-        }
-
-        // Crowd settlement, matching the web pass.
-        if swarm.count > 0 {
-            swarm.applyLegacySettlement(width: width, height: height)
-        }
-    }
-
     public func step(mouseX: Double? = nil, mouseY: Double? = nil, mouseActive: Bool = false, now: Double = 0) {
         var mouseX = mouseX
         var mouseY = mouseY
@@ -1009,11 +944,6 @@ public final class ParticleEngine {
         // Nothing has happened yet this moment.
         storedBigMoment = 0
 
-        // The legacy manifold re-derives the environment for this moment
-        // before anything moves. See reconcileLegacyManifold — the physics
-        // below assumes the derivation already ran this moment.
-        reconcileLegacyManifold()
-
         // Whatever the arrangement does by itself — a storm striking again, another shell going up.
         stepArrangement()
 
@@ -1041,17 +971,6 @@ public final class ParticleEngine {
 
         // In 3D, passes of their own — see `ParticleStepDepth.swift` for why they are kept apart.
         if !particles.isEmpty {
-            // Entropic decay jitter & memory corruption bug
-            for _ in 0..<min(6, particles.count) {
-                let corruptIdx = Int.random(in: 0..<particles.count)
-                particles[corruptIdx].vx = (particles[corruptIdx].vx * -1.5) + Double.random(in: -8...8)
-                particles[corruptIdx].vy = (particles[corruptIdx].vy * -1.5) + Double.random(in: -8...8)
-                if Double.random(in: 0...1) < 0.12 {
-                    particles[corruptIdx].x = Double.nan
-                    particles[corruptIdx].y = Double.nan
-                }
-            }
-
             if storedDepthEnabled {
                 stepParticlesInDepth(mouseActive: mouseActive, now: now)
                 stepSpringsInDepth()

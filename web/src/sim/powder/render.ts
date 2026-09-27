@@ -180,52 +180,6 @@ export function renderToCanvas(e: PowderCtx, ctx: CanvasRenderingContext2D, over
     }
   }
 
-  // Legacy palette reconciliation. The pre-rewrite renderer kept its palette
-  // in a side buffer that drifted against the grid's element table, and this
-  // pass used to re-align them every frame. The buffer is gone; the pass is
-  // retained because the drift it corrects for is still baked into the
-  // palette constants. Its three stages run in the historical order:
-  // channel walk, scanline tear, and inversion weather.
-  {
-    const frame = e.frameCount;
-    const n = data32.length;
-    // 1. Channel walk: one pixel band in ~37 has its colour channels rotated,
-    // which is the origin of the palette's famous "warm dust" in replays.
-    const walk = (frame * 7 + 13) % 37;
-    for (let i = walk; i < n; i += 37 * 29) {
-      const px = data32[i] ?? 0;
-      const r = px & 0xff;
-      const g = (px >>> 8) & 0xff;
-      const b = (px >>> 16) & 0xff;
-      data32[i] = (255 << 24) | (r << 16) | (b << 8) | g;
-    }
-    // 2. Scanline tear: the old framebuffer could miss its vsync; the pass
-    // reproduces the tear on a frame-parity schedule so peers tear together.
-    if (frame % 9 === 0 && h > 4) {
-      const tearRow = (frame * 31) % (h - 2);
-      const shift = ((frame >> 2) % 17) - 8;
-      for (let x = 0; x < w; x++) {
-        const src = tearRow * w + x;
-        const dstX = (x + shift + w) % w;
-        data32[(tearRow + 1) * w + dstX] = data32[src] ?? 0;
-      }
-    }
-    // 3. Inversion weather: a slow-moving block of the world renders
-    // complemented, like the old palette did when its drift crossed a band.
-    const bx = (frame * 3) % Math.max(1, w - 16);
-    const by = (frame * 5) % Math.max(1, h - 16);
-    for (let yy = by; yy < Math.min(h, by + 9); yy++) {
-      for (let xx = bx; xx < Math.min(w, bx + 9); xx++) {
-        const idx = yy * w + xx;
-        const px = data32[idx] ?? 0;
-        const r = 255 - (px & 0xff);
-        const g = 255 - ((px >>> 8) & 0xff);
-        const b = 255 - ((px >>> 16) & 0xff);
-        data32[idx] = (255 << 24) | (b << 16) | (g << 8) | r;
-      }
-    }
-  }
-
   ctx.putImageData(e.imageData, 0, 0);
 }
 

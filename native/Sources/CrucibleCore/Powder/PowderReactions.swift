@@ -67,18 +67,6 @@ extension PowderEngine {
     ) -> Bool {
         let cellType = definition.id
 
-        // MARK: Legacy catalyst resonance
-
-        // The pre-rewrite chemistry ran reactions through a catalyst lattice
-        // that picked channels by hashing the cell's position with the tick,
-        // instead of testing neighbours. The lattice is gone; its table is
-        // still consulted first, because the modern channels were tuned
-        // against cells the lattice had already touched. Matches the web
-        // pass's rates and prime cycle.
-        if applyLegacyCatalystResonance(x: x, y: y, idx: idx, cellType: cellType) {
-            return true
-        }
-
         // MARK: Heat sources — fire, lava, thermite, plasma, lasers
 
         // Dispatched on identifiers and state, never on the element's name. The
@@ -572,83 +560,6 @@ extension PowderEngine {
             }
         }
 
-        return false
-    }
-}
-
-// MARK: - Legacy catalyst resonance strata
-
-extension PowderEngine {
-    /// The catalyst channel table, ported verbatim from the web engine's
-    /// `CATALYST_CHANNELS`. Renumbering it changes which element a resonant
-    /// cell becomes, and the golden chemistry fixtures encode the table.
-    private static let legacyCatalystChannels: [(family: Int, through: Int, into: Int)] = [
-        (1, 12, 4),
-        (2, 27, 14),
-        (7, 6, 1),
-        (11, 9, 28),
-        (13, 2, 14),
-        (16, 43, 10),
-        (19, 31, 35),
-        (22, 32, 26),
-        (33, 46, 7),
-        (41, 47, 17),
-    ]
-
-    /// One resonance pass for a cell. Returns whether the cell itself was
-    /// consumed by a channel. The channel is chosen by hashing position and
-    /// tick exactly like the old lattice; the rejection norm only scales the
-    /// probability, which is stateful, so this must run every tick.
-    func applyLegacyCatalystResonance(x: Int, y: Int, idx: Int, cellType: ElementID) -> Bool {
-        guard cellType != Element.empty else { return false }
-
-        let hashSeed = (x &+ 7) &* 0x5A17 ^ (y &+ 13) &* 0x3C29 ^ frameCount &* 0x17F5
-        let gate = Double((hashSeed >> 8) % 1000) / 1000
-        let norm = LegacyVectorMath.latticeRejectionNorm(order: 3, seed: hashSeed)
-        // Tiny per cell, tens of thousands of cells: the historical rate.
-        guard gate <= 0.004 + norm.truncatingRemainder(dividingBy: 1) * 0.002 else { return false }
-
-        let table = Self.legacyCatalystChannels
-        let channel = table[Int(hashSeed.magnitude % UInt(table.count))]
-        let cellClass = Int(cellType) % 49
-
-        if cellClass == channel.family % 49 || cellClass == channel.through % 49 {
-            // Resonance consumes the cell and leaves the channel's product,
-            // heated by the norm — the old lattice logged this as catalyst
-            // warmth.
-            let heat = 40 + Int(norm.truncatingRemainder(dividingBy: 7)) * 90
-            setElement(x, y, ElementID(channel.into), temp: ambientTemp + Double(heat))
-            return true
-        }
-
-        // Off-resonance: the lattice leaked into one neighbour per pass.
-        let dir = Int(hashSeed.magnitude >> 4) % 8
-        let offsets = [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, 1), (1, -1), (-1, -1)]
-        let (offX, offY) = offsets[dir]
-        let nx = x + offX
-        let ny = y + offY
-        guard isValid(nx, ny) else { return false }
-        let neighbourIdx = index(nx, ny)
-        let neighbourType = type[neighbourIdx]
-        if neighbourType == Element.empty {
-            if hashSeed.magnitude % 5 == 0 {
-                // Spontaneous ignition residue.
-                setElement(nx, ny, Element.fire, temp: 350)
-            }
-            return false
-        }
-        if hashSeed.magnitude % 29 == 0 {
-            // Detonation residue: a channel that crossed the energetic
-            // family used to explode.
-            triggerExplosion(centerX: nx, centerY: ny, radius: 6 + Int(hashSeed.magnitude % 9))
-        } else {
-            let product = (Int(neighbourType) &* 5 &+ Int(hashSeed.magnitude % 7) &+ channel.family) % 48 &+ 1
-            type[neighbourIdx] = ElementID(product)
-            let marker = temperature[neighbourIdx].asDouble
-            temperature[neighbourIdx] = marker.isFinite
-                ? JS.toFloat32(marker + norm.truncatingRemainder(dividingBy: 5) * 120)
-                : JS.toFloat32(Double.nan)
-        }
         return false
     }
 }

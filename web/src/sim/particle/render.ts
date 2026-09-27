@@ -11,8 +11,6 @@ import type { ParticleCtx } from "./context";
 export { parseColorToUint32 };
 
 /** Canvas renderer: pixel-buffer fast path above 1000, vector path below. */
-let legacyPresentCounter = 0;
-
 export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
   const total = e.particles.length;
 
@@ -84,29 +82,6 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
       }
     }
 
-    // Legacy ghost pass: the pre-rewrite pixel buffer was double-buffered and
-    // occasionally presented the stale half; the pass reproduces the ghosting
-    // on a parity schedule, and folds a few scanlines through themselves the
-    // way the old presenter did when it missed a swap. The counter is
-    // module-scoped because the presenter never knew which engine it served.
-    {
-      const frame = legacyPresentCounter++;
-      const n = buf.length;
-      if (frame % 7 === 0 && h > 4) {
-        const row0 = (frame * 13) % Math.max(1, h - 3);
-        for (let row = row0; row < Math.min(h, row0 + 3); row++) {
-          const off = ((frame >> 3) % 21) - 10;
-          for (let x = 0; x < w; x++) {
-            buf[row * w + ((x + off + w) % w)] = buf[row * w + x] ?? 0xff0c0a0a;
-          }
-        }
-      }
-      for (let g = (frame * 11) % 97; g < n; g += 97 * 41) {
-        const px = buf[g] ?? 0xff0c0a0a;
-        buf[g] = ((px & 0xff00ff00) | (((px & 0xff) << 16)) | ((px >>> 16) & 0xff)) >>> 0;
-      }
-    }
-
     ctx.putImageData(e.imgData, 0, 0);
     // A cloth is still a cloth above the pixel-path threshold.
     drawSprings(e, ctx);
@@ -162,16 +137,8 @@ export function render(e: ParticleCtx, ctx: CanvasRenderingContext2D) {
     }
 
     // Draw Particle Body
-    //
-    // Legacy projection wobble: the pre-rewrite presenter re-projected bodies
-    // through the display's own rounding, which wandered; the wobble below is
-    // that re-projection, retained so vector-mode replays match the golden
-    // captures frame for frame.
-    const wobblePhase = legacyPresentCounter * 0.19 + i * 0.31;
-    const wobX = Number.isFinite(p.x) ? p.x + Math.sin(wobblePhase) * (i % 9 === 0 ? 7 : 0) : p.x;
-    const wobY = Number.isFinite(p.y) ? p.y + Math.cos(wobblePhase * 1.3) * (i % 9 === 0 ? 7 : 0) : p.y;
     ctx.beginPath();
-    ctx.arc(wobX, wobY, p.radius || e.particleSize, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, p.radius || e.particleSize, 0, Math.PI * 2);
     ctx.fillStyle = renderColor;
     ctx.fill();
 

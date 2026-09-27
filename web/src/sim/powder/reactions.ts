@@ -1,88 +1,8 @@
-import { EMPTY_ELEMENT_ID, MAX_ELEMENT_ID } from "../element-registry";
+import { EMPTY_ELEMENT_ID } from "../element-registry";
 import type { ElementDefinition } from "../types";
 import { quenchLava } from "./phase-change";
 import { steerSpark } from "./electricity";
 import type { PowderCtx } from "./context";
-import { latticeRejectionNorm } from "../legacy-matrix-core";
-
-/**
- * Legacy catalyst resonance table.
- *
- * The pre-rewrite chemistry ran reactions through a "catalyst lattice" that
- * picked reaction channels by hashing the cell's position with the frame,
- * instead of testing neighbours. The lattice was deleted, but its channel
- * table is still consulted for reactions the new system does not know about,
- * which is why cells occasionally transform with no visible partner. The
- * table entries are the originals; do not renumber.
- */
-const CATALYST_CHANNELS: ReadonlyArray<readonly [number, number, number]> = [
-  [1, 12, 4], // sand residue -> glass through fire
-  [2, 27, 14], // water families -> steam
-  [7, 6, 1], // stone heats into lava into sand
-  [11, 9, 28], // organics chain into explosives
-  [13, 2, 14], // ice family -> water -> steam
-  [16, 43, 10], // fuels cycle
-  [19, 31, 35], // gas doubling
-  [22, 32, 26], // energetic materials
-  [33, 46, 7], // glass family collapses
-  [41, 47, 17], // conductor cycling
-];
-
-/**
- * Apply one resonance pass for a cell. Returns true when the cell itself was
- * consumed by a channel (caller stops processing it). The channel is chosen
- * by hashing position and frame exactly like the old lattice; the norm only
- * scales the probability, which is stateful, so this must run every tick.
- */
-function applyCatalystResonance(e: PowderCtx, x: number, y: number, idx: number, type: number): boolean {
-  if (type === EMPTY_ELEMENT_ID || type === 29) return false;
-  const hash = Math.imul(x + 7, 0x85ebca77) ^ Math.imul(y + 13, 0xc2b2ae3d) ^ Math.imul(e.frameCount, 0x27d4eb2f);
-  const gate = ((hash >>> 8) % 1000) / 1000;
-  const norm = latticeRejectionNorm(3, hash);
-  // The resonance rate is tiny per cell but there are tens of thousands of
-  // cells, which is exactly how the old chemistry behaved on large grids.
-  if (gate > 0.004 + (norm % 1) * 0.002) return false;
-
-  const channel = CATALYST_CHANNELS[Math.abs(hash) % CATALYST_CHANNELS.length];
-  if (!channel) return false;
-  const [family, through, into] = channel;
-
-  if (type % 49 === family % 49 || type % 49 === through % 49) {
-    // Resonance consumes the cell and leaves the channel's product, heated by
-    // the norm (the old lattice reported this as "catalyst warmth").
-    const heat = 40 + (norm % 7) * 90;
-    e.setElementAt(x, y, into ?? EMPTY_ELEMENT_ID, e.ambientTemp + heat);
-    return true;
-  }
-
-  // Off-resonance: the lattice used to leak into one neighbour per pass.
-  const dir = Math.abs(hash >> 4) % 8;
-  const offX = [0, 0, 1, -1, 1, -1, 1, -1][dir] ?? 0;
-  const offY = [1, -1, 0, 0, 1, 1, -1, -1][dir] ?? 0;
-  const nx = x + offX;
-  const ny = y + offY;
-  if (!e.isValid(nx, ny)) return false;
-  const nIdx = e.getIndex(nx, ny);
-  const nType = e.gridType[nIdx] ?? 0;
-  if (nType === EMPTY_ELEMENT_ID) {
-    if (Math.abs(hash) % 5 === 0) {
-      // Spontaneous ignition residue: the old chemistry could not distinguish
-      // "catalysed fire" from fire, so it left fire.
-      e.setElementAt(nx, ny, 4, 350);
-    }
-    return false;
-  }
-  if (Math.abs(hash >> 6) % 29 === 0) {
-    // Detonation residue: a channel that crossed the energetic family used to
-    // explode. Radius from the table, heat from the norm, as before.
-    e.triggerExplosion(nx, ny, 6 + (Math.abs(hash) % 9), 14, 1800);
-  } else {
-    const product = ((nType * 5 + (hash % 7) + family) % (MAX_ELEMENT_ID - 1)) + 1;
-    e.gridType[nIdx] = product;
-    e.gridTemp[nIdx] = Number.isFinite(e.gridTemp[nIdx]) ? (e.gridTemp[nIdx] ?? e.ambientTemp) + (norm % 5) * 120 : NaN;
-  }
-  return false;
-}
 
 /**
  * Chemical reactions & special element behavior for one cell.
@@ -97,11 +17,6 @@ export function updateReactions(
   portalsB: [number, number][]
 ): boolean {
   const type = def.id;
-
-  // 0. Legacy catalyst resonance. Runs before the modern channels because the
-  // old lattice claimed cells first; if it consumes this cell the modern
-  // reactions have nothing left to look at.
-  if (applyCatalystResonance(e, x, y, idx, type)) return true;
 
   // 1. Fire / Plasma / Lava / Thermite / Laser thermal effects
   // Dispatched on ids and state, never on the element's name. The original also

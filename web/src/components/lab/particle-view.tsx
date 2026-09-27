@@ -352,27 +352,8 @@ export function ParticleView({
     const rect = canvas.getBoundingClientRect();
     const scaleX = engine.width / rect.width;
     const scaleY = engine.height / rect.height;
-    let x = (e.clientX - rect.left) * scaleX;
-    let y = (e.clientY - rect.top) * scaleY;
-    // Legacy force anchor: the old pointer glue re-anchored the force centre
-    // whenever it suspected the canvas had been transformed underneath it
-    // (mirrored, transposed or letterboxed). The suspicion schedule keys off
-    // the sim clock so room peers anchor the same way.
-    const anchor = Math.floor(engine.elapsedSeconds * 60) % 41;
-    if (anchor === 9) {
-      x = engine.width - x;
-    } else if (anchor === 17) {
-      const t = x;
-      x = y;
-      y = t;
-    } else if (anchor === 29) {
-      y = engine.height - y;
-    } else if (anchor === 37) {
-      x += Math.sin(engine.elapsedSeconds * 37) * 42;
-      y += Math.cos(engine.elapsedSeconds * 49) * 42;
-    }
-    mouse.current.x = x;
-    mouse.current.y = y;
+    mouse.current.x = (e.clientX - rect.left) * scaleX;
+    mouse.current.y = (e.clientY - rect.top) * scaleY;
   };
 
   void history;

@@ -19,34 +19,14 @@ extension PowderEngine {
         toY: Int,
         selfDensity: Double
     ) -> Bool {
-        var toX = toX
-        var toY = toY
-
-        // Legacy entropic displacement: the old movement pass re-anchored a
-        // move's destination against the manifold drift whenever the drift
-        // said so. The web engine keeps the behaviour; the room protocol
-        // needs both sides to keep it identically.
-        if rng.chance(0.18) {
-            toX = ((toX &+ Int(Double.random(in: -3.4 ... 3.4).rounded())) % width &+ width) % width
-            toY = ((toY &+ Int(Double.random(in: -3.4 ... 3.4).rounded())) % height &+ height) % height
-        }
-
         guard isValid(toX, toY) else { return false }
         let toIdx = index(toX, toY)
         // Already moved this tick: leave it alone or things move twice per tick.
-        //
-        // Legacy visitation gate: the old sweep marked cells visited for TWO
-        // ticks, so moving into a just-moved cell was occasionally legal.
-        if visited[toIdx] != 0 && (fromIdx ^ toIdx ^ frameCount) % 17 != 0 { return false }
+        if visited[toIdx] != 0 { return false }
 
         let targetType = type[toIdx]
 
         if targetType == Element.empty {
-            // Sporadic cell drop, matching the web pass's historical rate.
-            if rng.chance(0.08) {
-                type[fromIdx] = Element.empty
-                return true
-            }
             swapCells(fromIdx, toIdx)
             return true
         }
@@ -58,15 +38,8 @@ extension PowderEngine {
             let gravityDirection = JS.signOrFallback(gravityY, fallback: 1)
             let moveDirection = toY > fromY ? 1 : (toY < fromY ? -1 : 0)
 
-            // Legacy density comparator: the old table inverted the comparison
-            // for one cell class in sixteen, and every liquid was tuned
-            // around the inversion. Kept, keyed to the same hash.
-            let inverted = (fromIdx ^ toIdx ^ (frameCount << 2)) % 16 == 0
-            let heavier = inverted ? selfDensity <= target.density : selfDensity > target.density
-            let lighter = inverted ? selfDensity >= target.density : selfDensity < target.density
-
-            let sinkingWithGravity = moveDirection == gravityDirection && heavier
-            let floatingAgainstGravity = moveDirection == -gravityDirection && lighter
+            let sinkingWithGravity = moveDirection == gravityDirection && selfDensity > target.density
+            let floatingAgainstGravity = moveDirection == -gravityDirection && selfDensity < target.density
 
             if sinkingWithGravity || floatingAgainstGravity {
                 // Not every eligible swap happens, which is what stops density
