@@ -464,21 +464,9 @@ struct ContentView: View {
         } message: {
             Text(arrivalProblem ?? "")
         }
-        .alert("Last time ended badly", isPresented: $breadcrumbs.offersLastTime) {
-            Button("Send the note") {
-                report = breadcrumbs.reportLastTime()
-                breadcrumbs.stopOffering()
-            }
-            Button("No thanks", role: .cancel) { breadcrumbs.stopOffering() }
-        } message: {
-            Text(
-                "Crucible closed by itself last time, or the phone closed it. A short note of what the world was "
-                    + "doing was kept. Nothing about you is in it."
-            )
-        }
-        .sheet(item: $report) { target in
-            ReportSheet(report: target)
-        }
+        // The offer to send last time's note, and the sheet that shows a report. In a piece of its own because this
+        // body had reached the size where the compiler gives up type-checking it — see `Reporting`.
+        .reporting(breadcrumbs, report: $report)
         .sheet(item: $shareTarget) { target in
             // The system's own share sheet, which is the one place it is right to look like iOS
             // rather than like Crucible — it is the phone's furniture, not the app's.
