@@ -15,10 +15,12 @@ on:
   push:
     paths:
       - "native/**"
+      - "scripts/build-times.sh"
       - ".github/workflows/engine.yml"
   pull_request:
     paths:
       - "native/**"
+      - "scripts/build-times.sh"
       - ".github/workflows/engine.yml"
   workflow_dispatch:
 
@@ -36,9 +38,28 @@ jobs:
     container: swift:6.2
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The whole history, so every file can be given the time it last changed. See below.
+          fetch-depth: 0
 
       - name: Swift version
         run: swift --version
+
+      # The last run's build, kept, so only what has changed since is compiled again. Keyed by the commit, so each run
+      # keeps its own, and started from the newest one there is.
+      - name: Keep the build's work between runs
+        uses: actions/cache@v4
+        with:
+          path: native/.build
+          key: swift-linux-6.2-${{ hashFiles('native/Package.swift') }}-${{ github.sha }}
+          restore-keys: swift-linux-6.2-${{ hashFiles('native/Package.swift') }}-
+
+      # A fresh checkout stamps every file with the present moment, which made a kept build look out of date in every
+      # file. Why this is enough, and safe: scripts/build-times.sh.
+      - name: Give every file the time it last changed
+        run: |
+          git config --global --add safe.directory "$PWD"
+          sh scripts/build-times.sh
 
       - name: Build
         working-directory: native
@@ -61,11 +82,24 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Toolchain
         run: |
           xcodebuild -version
           swift --version
+
+      # The same as on Linux: the last run's build, and every file given the time it last changed.
+      - name: Keep the build's work between runs
+        uses: actions/cache@v4
+        with:
+          path: native/.build
+          key: swift-macos-26-${{ hashFiles('native/Package.swift') }}-${{ github.sha }}
+          restore-keys: swift-macos-26-${{ hashFiles('native/Package.swift') }}-
+
+      - name: Give every file the time it last changed
+        run: sh scripts/build-times.sh
 
       - name: Test
         working-directory: native
