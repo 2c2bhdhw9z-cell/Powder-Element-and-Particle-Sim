@@ -239,6 +239,25 @@ extension ParticleEngine {
             out.append(contentsOf: repeatElement(0, count: needed - out.count))
         }
         guard bodies > 0 else { return }
+        out.withUnsafeMutableBufferPointer { target in
+            fillSwarmDrawColors(into: target, doubled: doubled)
+        }
+    }
+
+    /// Whether the crowd's own colours are already exactly what should be drawn.
+    ///
+    /// True whenever no colour ramp is on and nothing in the crowd will expire — which is most scenes. Then there is
+    /// nothing to work out and nothing to copy: whatever draws the crowd can read its colours where they already are.
+    public var swarmDrawColorsAreItsOwn: Bool {
+        !paletteEnabled && !swarm.hasMortalBodies
+    }
+
+    /// The same, written straight into memory the caller owns — which is how the app writes them into the memory the
+    /// graphics chip reads, rather than into a list and then into that memory.
+    public func fillSwarmDrawColors(into target: UnsafeMutableBufferPointer<UInt32>, doubled: Bool = false) {
+        let bodies = swarm.count
+        let needed = doubled ? bodies * 2 : bodies
+        guard bodies > 0, target.count >= needed else { return }
         if paletteEnabled {
             let key = palette
             if cachedLookupKey != key || cachedLookup.isEmpty {
@@ -259,23 +278,22 @@ extension ParticleEngine {
         let maxLives = swarm.maxLives
         let source = swarm.colors
         let usePalette = paletteEnabled && drawColorScratch.count >= bodies
+        var target = target
         drawColorScratch.withUnsafeBufferPointer { scratch in
-            out.withUnsafeMutableBufferPointer { target in
-                for i in 0 ..< bodies {
-                    var colour = usePalette ? scratch[i] : source[i]
-                    if fades, lives[i] >= 0 {
-                        let share = max(0, min(1, lives[i] / max(1, maxLives[i])))
-                        // Eased, so a body holds most of its brightness for most of its life and then goes.
-                        let eased = share * (2 - share)
-                        let alpha = Float(colour >> 24) * eased
-                        colour = (colour & 0x00FF_FFFF) | (UInt32(max(0, min(255, alpha))) << 24)
-                    }
-                    if doubled {
-                        target[i * 2] = colour
-                        target[i * 2 + 1] = colour
-                    } else {
-                        target[i] = colour
-                    }
+            for i in 0 ..< bodies {
+                var colour = usePalette ? scratch[i] : source[i]
+                if fades, lives[i] >= 0 {
+                    let share = max(0, min(1, lives[i] / max(1, maxLives[i])))
+                    // Eased, so a body holds most of its brightness for most of its life and then goes.
+                    let eased = share * (2 - share)
+                    let alpha = Float(colour >> 24) * eased
+                    colour = (colour & 0x00FF_FFFF) | (UInt32(max(0, min(255, alpha))) << 24)
+                }
+                if doubled {
+                    target[i * 2] = colour
+                    target[i * 2 + 1] = colour
+                } else {
+                    target[i] = colour
                 }
             }
         }

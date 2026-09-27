@@ -971,18 +971,36 @@ final class FieldView: MTKView {
         upload(&set.color, from: colors, count: frame.bodyCount, device: device)
         upload(&set.size, from: sizes, count: frame.bodyCount, device: device)
         upload(&set.spring, from: springPositions, count: frame.springCount * 4, device: device)
-        upload(
-            &set.swarmPosition,
-            from: swarmPositions,
-            count: frame.swarmCount * (frame.swarmIsStreaked ? 4 : 2),
-            device: device
-        )
-        upload(
-            &set.swarmColor,
-            from: swarmColors,
-            count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
-            device: device
-        )
+        // Dots: straight from the crowd's own memory, which is already laid out as the shaders want it. Streaks: from
+        // the list, because a streak is two points worked out per body rather than a body's position. See
+        // `ParticleFieldModel.SwarmMemory` for what this saves.
+        if frame.swarmIsStreaked {
+            upload(&set.swarmPosition, from: swarmPositions, count: frame.swarmCount * 4, device: device)
+        } else {
+            let crowd = model.swarmMemory()
+            upload(
+                &set.swarmPosition,
+                fromMemory: crowd.positions,
+                count: min(frame.swarmCount, crowd.count) * 2,
+                device: device
+            )
+        }
+        // The crowd's colours, with no list in between: either they are the crowd's own and are read where they lie,
+        // or they are worked out for this frame straight into the memory the graphics chip reads.
+        let wantedColours = frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1)
+        if wantedColours > 0 {
+            let crowd = model.swarmMemory()
+            if crowd.coloursAreItsOwn, !frame.swarmIsStreaked {
+                upload(
+                    &set.swarmColor,
+                    fromMemory: crowd.colors,
+                    count: min(frame.swarmCount, crowd.count),
+                    device: device
+                )
+            } else if let room = make(&set.swarmColor, room: wantedColours, of: UInt32.self, device: device) {
+                model.fillSwarmColours(into: room, doubled: frame.swarmIsStreaked)
+            }
+        }
         if frame.swarmHasSizes {
             upload(&set.swarmSize, from: swarmSizes, count: frame.swarmCount, device: device)
         }
@@ -994,10 +1012,19 @@ final class FieldView: MTKView {
         // what it always did.
         if frame.depth != nil {
             upload(&set.bodyDepth, from: depthBuffers.bodies, count: frame.bodyCount, device: device)
+            if !frame.swarmIsStreaked {
+                let crowd = model.swarmMemory()
+                upload(
+                    &set.swarmDepth,
+                    fromMemory: crowd.depths,
+                    count: min(frame.swarmCount, crowd.count),
+                    device: device
+                )
+            }
             upload(
                 &set.swarmDepth,
                 from: depthBuffers.swarm,
-                count: frame.swarmCount * (frame.swarmIsStreaked ? 2 : 1),
+                count: frame.swarmIsStreaked ? frame.swarmCount * 2 : 0,
                 device: device
             )
             upload(&set.springDepth, from: depthBuffers.springs, count: frame.springCount * 2, device: device)
@@ -1483,6 +1510,49 @@ final class FieldView: MTKView {
         encoder.setVertexBuffer(depths, offset: 0, index: 4)
         encoder.setVertexBytes(&depth, length: MemoryLayout<DepthUniforms>.stride, index: 5)
         encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: frame.guideSegmentCount * 2)
+    }
+
+    /// Makes sure a GPU buffer has room for so many values, and hands back its memory to be written into.
+    ///
+    /// For anything that has to be worked out per frame: it is worked out once, in place, rather than into a list which
+    /// is then copied here.
+    private func make<T>(
+        _ buffer: inout MTLBuffer?,
+        room count: Int,
+        of type: T.Type,
+        device: MTLDevice
+    ) -> UnsafeMutableBufferPointer<T>? {
+        guard count > 0 else { return nil }
+        let bytes = count * MemoryLayout<T>.stride
+        if buffer == nil || buffer!.length < bytes {
+            let generous = Int(Double(bytes) * 1.5)
+            buffer = device.makeBuffer(length: max(generous, bytes), options: .storageModeShared)
+        }
+        guard let made = buffer else { return nil }
+        return UnsafeMutableBufferPointer(
+            start: made.contents().bindMemory(to: T.self, capacity: count),
+            count: count
+        )
+    }
+
+    /// Copies from memory the caller owns straight into a GPU buffer, making a bigger one only when needed.
+    ///
+    /// For the crowd, whose positions and depths are already laid out exactly as the shaders read them. The list-based
+    /// version below is for everything that has to be worked out per frame.
+    private func upload<T>(
+        _ buffer: inout MTLBuffer?,
+        fromMemory source: UnsafeMutablePointer<T>,
+        count: Int,
+        device: MTLDevice
+    ) {
+        guard count > 0 else { return }
+        let bytes = count * MemoryLayout<T>.stride
+        if buffer == nil || buffer!.length < bytes {
+            let generous = Int(Double(bytes) * 1.5)
+            buffer = device.makeBuffer(length: max(generous, bytes), options: .storageModeShared)
+        }
+        guard let destination = buffer else { return }
+        destination.contents().copyMemory(from: UnsafeRawPointer(source), byteCount: bytes)
     }
 
     /// Copies a slice of an array into a GPU buffer, making a bigger one only when needed.

@@ -1314,6 +1314,29 @@ final class ParticleFieldModel {
         var depth: DepthView?
     }
 
+    /// The crowd's own memory, for the renderer to hand straight to the graphics card.
+    ///
+    /// ## Why this exists
+    ///
+    /// Where every body is was being copied twice on the way to the screen: once out of the crowd into a list, and then
+    /// out of that list into memory the graphics chip can read. At a million bodies that is eight megabytes copied
+    /// twice, a hundred and twenty times a second, and the first copy was done a number at a time.
+    ///
+    /// The crowd already keeps its positions in exactly the layout the shaders want — pairs of single-precision numbers,
+    /// one after another — so there was never anything for that first copy to do. The renderer now reads the crowd's
+    /// memory directly. Nothing about the physics changes; it is the same numbers, one journey shorter.
+    ///
+    /// Only valid for the frame it was asked for: the next moment writes over it.
+    struct SwarmMemory {
+        var positions: UnsafeMutablePointer<Float>
+        var depths: UnsafeMutablePointer<Float>
+        var colors: UnsafeMutablePointer<UInt32>
+        /// Whether those colours are already what should be drawn: no ramp, and nothing fading. Then they are handed
+        /// over as they are. Otherwise the colours for this frame are worked out — see ``fillSwarmColours``.
+        var coloursAreItsOwn: Bool
+        var count: Int
+    }
+
     /// Everything the renderer needs to draw the field in 3D, besides where each body is.
     ///
     /// The turn is handed over already added up — the setting, the automatic spin and however far the phone
@@ -1395,6 +1418,23 @@ final class ParticleFieldModel {
     ///
     /// The buffers belong to the renderer, which holds them across frames so that a steady
     /// field allocates nothing. Grown here only when the field outgrows them.
+    /// The crowd's own memory, as it stands. See ``SwarmMemory``.
+    func swarmMemory() -> SwarmMemory {
+        SwarmMemory(
+            positions: engine.swarm.positions,
+            depths: engine.swarm.depths,
+            colors: engine.swarm.colors,
+            coloursAreItsOwn: engine.swarmDrawColorsAreItsOwn,
+            count: engine.swarm.count
+        )
+    }
+
+    /// Works out the crowd's colours for this frame straight into memory the caller owns — the memory the graphics chip
+    /// reads. For when a ramp is on or bodies are fading, so the colours are not simply the crowd's own.
+    func fillSwarmColours(into target: UnsafeMutableBufferPointer<UInt32>, doubled: Bool) {
+        engine.fillSwarmDrawColors(into: target, doubled: doubled)
+    }
+
     func fillFrame(
         positions: inout [Float],
         colors: inout [UInt32],
@@ -1472,12 +1512,6 @@ final class ParticleFieldModel {
         // The swarm is already stored as the GPU wants it — interleaved pairs of single
         // precision floats — so it is copied straight across rather than converted.
         let swarmCount = engine.swarm.count
-        let neededSwarm = swarmCount * 2
-        if swarmPositions.count < neededSwarm {
-            swarmPositions.append(
-                contentsOf: repeatElement(0, count: neededSwarm - swarmPositions.count)
-            )
-        }
         if swarmColors.count < swarmCount {
             swarmColors.append(
                 contentsOf: repeatElement(0, count: swarmCount - swarmColors.count)
@@ -1489,6 +1523,8 @@ final class ParticleFieldModel {
         let streak = engine.trailSettings.sanitized.streak
         let streaked = streak > 0 && swarmCount > 0
         if streaked {
+            // A streak is two points per body, worked out from where each body is and how fast it is going, so these
+            // do have to be built. Dots do not — see below.
             let wanted = swarmCount * 4
             if swarmPositions.count < wanted {
                 swarmPositions.append(contentsOf: repeatElement(0, count: wanted - swarmPositions.count))
@@ -1523,22 +1559,12 @@ final class ParticleFieldModel {
                     depths.swarm[index * 2 + 1] = z
                 }
             }
-        } else {
-            for i in 0 ..< neededSwarm { swarmPositions[i] = engine.swarm.positions[i] }
-            if inDepth {
-                if depths.swarm.count < swarmCount {
-                    depths.swarm.append(contentsOf: repeatElement(0, count: swarmCount - depths.swarm.count))
-                }
-                let source = engine.swarm.depths
-                depths.swarm.withUnsafeMutableBufferPointer { target in
-                    guard let base = target.baseAddress, swarmCount > 0 else { return }
-                    base.update(from: source, count: swarmCount)
-                }
-            }
         }
-        // The colour ramp and the fading of bodies that will expire are both worked out here, per picture, so
-        // the bodies' own colours are never overwritten.
-        engine.fillSwarmDrawColors(into: &swarmColors, doubled: streaked)
+        // Drawn as dots, which is nearly always: nothing is copied here at all. The renderer takes the crowd's own
+        // memory — see `SwarmMemory` — because it is already exactly what the shaders want.
+        // The crowd's colours are not filled here at all any more: either they are the crowd's own, in which case the
+        // renderer reads them where they are, or they are worked out for this frame straight into the memory the
+        // graphics chip reads. Either way there is no list in between. See `SwarmMemory`.
 
         // Each body of the crowd at its own size, once any has one — the same rule as the object bodies, so a
         // star that joined a galaxy is drawn the size of the star it copied. Only for dots: a streak is a line,
