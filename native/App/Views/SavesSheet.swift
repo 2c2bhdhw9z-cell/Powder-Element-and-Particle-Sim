@@ -45,7 +45,7 @@ struct SavesSheet: View {
             }
             Button("Keep it", role: .cancel) { confirmingDelete = nil }
         }
-        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json]) { result in
+        .fileImporter(isPresented: $isImporting, allowedContentTypes: [Self.worldType, .json]) { result in
             switch result {
             case let .success(url):
                 // The picker hands back a URL the app may not otherwise be allowed to read, so
@@ -70,6 +70,10 @@ struct SavesSheet: View {
             .presentationBackground(Palette.background)
         }
     }
+
+    /// A Crucible world file, as the app declares it. Files from before it had a kind of their own are plain JSON,
+    /// and still open.
+    static let worldType = UTType(exportedAs: "com.crucible.lab.world", conformingTo: .json)
 
     // MARK: Sections
 

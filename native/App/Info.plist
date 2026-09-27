@@ -104,6 +104,53 @@
 			</array>
 		</dict>
 	</array>
+	<!-- A world as a file of its own kind, so one sent in a message or saved in Files opens in Crucible with a tap
+	     rather than asking what it is. The contents are the same JSON the app has always written; only the name
+	     is its own. "Owner" because nothing else makes these. A copy is taken rather than the file opened where
+	     it is, which is simpler and cannot leave the sender's copy half-written. None of this needs an
+	     entitlement or anything else that makes installing the app harder. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.crucible.lab.world</string>
+			<key>UTTypeDescription</key>
+			<string>Crucible world</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>crucible</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-crucible-world</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Crucible world</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.crucible.lab.world</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Crucible looks for other phones nearby so you can share a world with somebody in the same room. Nothing is sent over the internet.</string>
 	<key>NSBonjourServices</key>

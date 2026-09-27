@@ -454,11 +454,12 @@ four were true, and they had causes worth recording:
 
 - **`/tmp` does not persist between shell calls.** Download, extract and read in one
   command, or use a directory inside the workspace.
-- **`node` is not on the PATH by default.** Prefix with
-  `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`.
-- **`gh run list` fails** in this sandbox (it resolves the wrong host). Use
-  `gh api repos/{owner}/{repo}/actions/runs` instead. Same for anything under `gh pr`
-  and `gh issue` — they are GraphQL-backed and always fail here; `gh api` works.
+- **`node` is not on the PATH by default.** Start the command with `source ~/.nvm/nvm.sh &&`,
+  which finds whichever version is installed rather than naming one that may since have changed.
+- **`gh run list` and `gh run view` need `-R owner/repo`** in this sandbox. Without it they
+  cannot tell which repository is meant and fail; with it they work, including
+  `gh run view <id> -R owner/repo --log-failed` for a failed build. Anything under `gh pr` and
+  `gh issue` still fails — those are GraphQL-backed; use `gh api` for them.
 - **The app layer cannot be compiled locally.** There is no Mac and no iOS SDK. CI is the
   only compiler for anything under `native/App/`, so expect to iterate through pushes.
   The engine under `native/Sources/` does build and test locally — use that.
@@ -474,9 +475,9 @@ four were true, and they had causes worth recording:
 - **`#require` cannot be nested inside another `#require`.** Compute into a `let` first.
 - **The releases list from `gh api` is not in date order.** Sort by `created_at` yourself, or
   you will look at a build from hours ago and conclude nothing shipped.
-- **For a failed CI build:** `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` to find the
-  failing job, then `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs`. `gh run view
-  --log-failed` cannot resolve the repository here.
+- **For a failed CI build:** `gh run view <id> -R owner/repo --log-failed | grep error:` is the
+  quickest. `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` then
+  `.../actions/jobs/{id}/logs` also works.
 - **Fixtures are committed and regenerated occasionally**, so their size compounds in the
   history. Record sparsely — only what differs from the default.
 

@@ -178,7 +178,9 @@ final class SceneStore {
     /// else, and the system clears it up afterwards.
     func exportForSharing(_ scene: LabScene) -> URL? {
         let stamp = Int(Date().timeIntervalSince1970)
-        let url = files.temporaryDirectory.appendingPathComponent("crucible-\(stamp).json")
+        // Its own kind of file, so whoever receives it can open it in Crucible with a tap. The contents are the
+        // same as ever, and files of the old kind still open — see ``worldType``.
+        let url = files.temporaryDirectory.appendingPathComponent("crucible-\(stamp).\(Self.worldExtension)")
         do {
             try encoder.encode(scene).write(to: url, options: .atomic)
             lastProblem = nil
@@ -187,6 +189,27 @@ final class SceneStore {
             lastProblem = "Could not prepare that scene for sharing."
             return nil
         }
+    }
+
+    // MARK: Worlds arriving from elsewhere
+
+    /// The name world files end in.
+    static let worldExtension = "crucible"
+
+    /// Whether something handed to the app is a world file, rather than any other address that might arrive.
+    static func isWorldFile(_ url: URL) -> Bool {
+        url.isFileURL && ["crucible", "json"].contains(url.pathExtension.lowercased())
+    }
+
+    /// Reads a world file somebody opened in Crucible from elsewhere — a message, Files, another app.
+    ///
+    /// The copy the phone makes for the app is removed once read, so worlds opened this way do not pile up unseen.
+    func openArrived(_ url: URL) -> LabScene? {
+        let claimed = url.startAccessingSecurityScopedResource()
+        defer { if claimed { url.stopAccessingSecurityScopedResource() } }
+        let scene = load(from: url)
+        if url.path.contains("/Inbox/") { try? files.removeItem(at: url) }
+        return scene
     }
 
     // MARK: Autosave

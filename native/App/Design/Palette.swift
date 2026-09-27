@@ -20,9 +20,13 @@ enum Palette {
     /// Ordinary text and active icons.
     static let foreground = Color(hex: 0xF0F0F2)
     /// Secondary text, and icons that are available but not the point.
-    static let muted = Color(hex: 0x9A9AA3)
+    ///
+    /// Lighter with the phone's Increase Contrast on: these two greys are the ones that are hard to read for anybody
+    /// who has asked for more contrast, and the phone says so through the colour itself, so every label in the app
+    /// follows the setting as it changes without anything having to ask.
+    static let muted = Color.adaptive(0x9A9AA3, highContrast: 0xC8C8CF)
     /// Text that is barely there: hints, units, disabled labels.
-    static let subtleForeground = Color(hex: 0x6E6E76)
+    static let subtleForeground = Color.adaptive(0x6E6E76, highContrast: 0xA8A8B0)
 
     /// The accent. A cool near-white rather than a colour, so nothing in the chrome ever
     /// competes with the simulation for attention.
@@ -47,8 +51,27 @@ enum Palette {
     /// pieces of chrome specify their own instead — the header's underline is twelve percent white,
     /// the trays' top edge fifteen, a sheet's outline sixteen — and those are set where they are
     /// used, because in the reference they are per-component rather than part of the theme.
-    static let border = foreground.opacity(0.12)
-    static let borderStrong = foreground.opacity(0.22)
+    static let border = Color.adaptive(0xF0F0F2, opacity: 0.12, highContrast: 0xF0F0F2, highContrastOpacity: 0.34)
+    static let borderStrong = Color.adaptive(0xF0F0F2, opacity: 0.22, highContrast: 0xF0F0F2, highContrastOpacity: 0.5)
+
+    /// How solid something laid over the moving world should be: as asked, or completely solid when the phone's
+    /// Reduce Transparency is on. For the few things drawn straight over the world — the Look readout, the names,
+    /// the graph — since everything else in the app is solid already.
+    @MainActor
+    static func overWorld(_ opacity: Double) -> Double {
+        UIAccessibility.isReduceTransparencyEnabled ? 1 : opacity
+    }
+}
+
+/// What the phone's own settings ask for about movement.
+///
+/// Read where it is needed rather than kept, because it can change while the app is open.
+enum LabMotion {
+    /// Whether the phone's Reduce Motion is on. Things the app moves by itself — the view spinning, the screen
+    /// shaking when something explodes, the view gliding when it flies somewhere — then keep still. Anything
+    /// somebody asks for by hand still happens.
+    @MainActor
+    static var isReduced: Bool { UIAccessibility.isReduceMotionEnabled }
 }
 
 /// Corner radii, matching the web version's scale.
@@ -155,6 +178,25 @@ extension Font {
 }
 
 extension Color {
+    /// A colour that changes with the phone's Increase Contrast setting, as it changes.
+    static func adaptive(
+        _ normal: UInt32,
+        opacity: Double = 1,
+        highContrast: UInt32,
+        highContrastOpacity: Double? = nil
+    ) -> Color {
+        Color(uiColor: UIColor { traits in
+            let high = traits.accessibilityContrast == .high
+            let hex = high ? highContrast : normal
+            return UIColor(
+                red: CGFloat((hex >> 16) & 0xFF) / 255,
+                green: CGFloat((hex >> 8) & 0xFF) / 255,
+                blue: CGFloat(hex & 0xFF) / 255,
+                alpha: CGFloat(high ? (highContrastOpacity ?? opacity) : opacity)
+            )
+        })
+    }
+
     /// Builds a colour from the `0xRRGGBB` form the stylesheet uses, so the two can be
     /// compared by eye without converting anything.
     init(hex: UInt32) {

@@ -295,10 +295,10 @@ Repeated from `PORT-STATUS.md` because they bite hardest here:
   for anything under `native/App/`. Read new code carefully before pushing rather than after — a
   round trip is about four minutes.
 - **`/tmp` does not persist between shell calls.**
-- **`node` is not on the PATH.** `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`.
-- **`gh run list` and anything under `gh pr` fail here.** Use `gh api`. For a failed build:
-  `gh api repos/{owner}/{repo}/actions/runs/{id}/jobs` then
-  `gh api repos/{owner}/{repo}/actions/jobs/{id}/logs`.
+- **`node` is not on the PATH.** Start the command with `source ~/.nvm/nvm.sh &&`.
+- **`gh run list` and `gh run view` need `-R owner/repo` here**, and then work — for a failed build,
+  `gh run view <id> -R owner/repo --log-failed`. Anything under `gh pr` or `gh issue` still fails; use
+  `gh api` for those.
 - **The releases list is not in date order.** Sort by `created_at` yourself or you will look at a
   build from hours ago and think nothing shipped.
 - **Migrations are in `web/migrations/`, not the repository root.** They moved with the web front

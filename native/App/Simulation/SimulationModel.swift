@@ -1084,10 +1084,16 @@ final class SimulationModel {
             if screenShakeOffset != .zero { screenShakeOffset = .zero }
             return
         }
-        screenShakeOffset = CGSize(
-            width: (presentationRandom.next() - 0.5) * screenShake,
-            height: (presentationRandom.next() - 0.5) * screenShake
-        )
+        // Still counted down, so it ends when it would have; only not seen, for somebody who has asked the phone for
+        // less motion. The knock in the hand and the sound still say that something went off.
+        if LabMotion.isReduced {
+            if screenShakeOffset != .zero { screenShakeOffset = .zero }
+        } else {
+            screenShakeOffset = CGSize(
+                width: (presentationRandom.next() - 0.5) * screenShake,
+                height: (presentationRandom.next() - 0.5) * screenShake
+            )
+        }
         screenShake = max(0, screenShake - 1)
     }
 

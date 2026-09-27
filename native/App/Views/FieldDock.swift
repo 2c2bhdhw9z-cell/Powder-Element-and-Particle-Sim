@@ -1643,6 +1643,13 @@ struct FieldDock: View {
                 model.depthEnabled ? "Turn round the box by itself" : "Turn by itself",
                 isOn: Binding(get: { model.cameraAutoOrbit }, set: { model.cameraAutoOrbit = $0 })
             ) {
+                if LabMotion.isReduced {
+                    Text("Held still, because your phone is set to reduce motion. Turn that off in the phone's "
+                        + "Accessibility settings to let it spin.")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.warn)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 inlineSlider(
                     "Speed",
                     \.spinRate,

@@ -28,7 +28,7 @@ struct FieldWithLabels: View {
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 2)
                                 .background(
-                                    Capsule().fill(Palette.background.opacity(0.55 * label.opacity))
+                                    Capsule().fill(Palette.background.opacity(Palette.overWorld(0.55) * label.opacity))
                                 )
                                 // Centred on the place it names rather than starting there, so the words straddle
                                 // it the way a caption should.
@@ -108,7 +108,7 @@ struct HerdGraph: View {
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
-                .fill(Palette.background.opacity(0.82))
+                .fill(Palette.background.opacity(Palette.overWorld(0.82)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
@@ -164,7 +164,7 @@ struct LensReadout: View {
         .frame(maxWidth: 190, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
-                .fill(Palette.background.opacity(0.9))
+                .fill(Palette.background.opacity(Palette.overWorld(0.9)))
         )
         .overlay(
             RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)

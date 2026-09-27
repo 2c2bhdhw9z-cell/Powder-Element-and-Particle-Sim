@@ -2130,7 +2130,9 @@ final class ParticleFieldModel {
     /// whether the field is running at thirty frames a second or a hundred and twenty. The camera
     /// itself clamps a long gap, so coming back from the background does not jump the view round.
     private func advanceCameraSpin(now: Double) {
-        guard storedCamera.autoOrbit else {
+        // Held still for somebody who has asked the phone for less motion. The switch stays as it was set, and the
+        // panel says why nothing is turning.
+        guard storedCamera.autoOrbit, !LabMotion.isReduced else {
             lastSpinTime = nil
             return
         }
@@ -3028,8 +3030,9 @@ final class ParticleFieldModel {
             .filter { $0.id != showing && $0.id != "text" }
         guard let next = choices.randomElement() else { return }
         loadPreset(next.id)
-        // A fresh look each time, so two scenes running one after another are not seen from the same angle.
-        if engine.depthEnabled {
+        // A fresh look each time, so two scenes running one after another are not seen from the same angle — but not
+        // a sudden swing round the box for somebody who has asked the phone for less motion.
+        if engine.depthEnabled, !LabMotion.isReduced {
             var turned = storedCamera
             turned.look(yaw: Double.random(in: -180 ... 180), pitch: Double.random(in: 4 ... 46))
             camera = turned
@@ -3241,7 +3244,8 @@ final class ParticleFieldModel {
             return
         }
         var next = storedCamera
-        let share = 0.12
+        // All the way at once for somebody who has asked for less motion; otherwise a glide.
+        let share = LabMotion.isReduced ? 1.0 : 0.12
         next.centreX += (target.x - next.centreX) * share
         next.centreY += (target.y - next.centreY) * share
         next.centreZ += (target.z - next.centreZ) * share

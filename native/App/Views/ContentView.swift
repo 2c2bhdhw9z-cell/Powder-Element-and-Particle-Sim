@@ -43,6 +43,8 @@ struct ContentView: View {
     /// One speaker for the whole app.
     @State private var audio = LabAudio()
     @State private var store = SceneStore()
+    /// Why a world opened from elsewhere could not be used, while that is being said.
+    @State private var arrivalProblem: String?
     @State private var recorder = ScreenRecorder()
     /// Connects the two chambers. Built once both models exist.
     @State private var bridge: ChamberBridge?
@@ -256,6 +258,12 @@ struct ContentView: View {
         }
         // Re-wired whenever either the chamber or the setting changes, because which model needs the
         // hook depends on both.
+        // A world file opened in Crucible from somewhere else. Everything else that might arrive as an address — the
+        // sign-in's return — is handled where it is expected and ignored here.
+        .onOpenURL { url in
+            guard SceneStore.isWorldFile(url) else { return }
+            openArrivedWorld(url)
+        }
         .onChange(of: chamberRaw) { _, _ in updateCompanionStepping() }
         .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
         // Joining or leaving a room changes whether the powder chamber has to keep running while
@@ -410,6 +418,17 @@ struct ContentView: View {
         } message: {
             Text(recorder.problem ?? "")
         }
+        .alert(
+            "That world could not be opened",
+            isPresented: Binding(
+                get: { arrivalProblem != nil },
+                set: { if !$0 { arrivalProblem = nil } }
+            )
+        ) {
+            Button("All right") { arrivalProblem = nil }
+        } message: {
+            Text(arrivalProblem ?? "")
+        }
         .sheet(item: $shareTarget) { target in
             // The system's own share sheet, which is the one place it is right to look like iOS
             // rather than like Crucible — it is the phone's furniture, not the app's.
@@ -496,6 +515,13 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
+    }
+
+    /// The particle field in a sentence, for VoiceOver.
+    private var fieldDescription: String {
+        let name = field.arrangementDetails?.name ?? "No arrangement"
+        let depth = field.depthEnabled ? ", in 3D" : ""
+        return "\(name)\(depth). \(field.bodyCount.formatted()) bodies."
     }
 
     // MARK: - What the header reads
@@ -612,6 +638,22 @@ struct ContentView: View {
     ///
     /// Once per launch, and before anything else has touched a world — otherwise it would overwrite
     /// a scene someone had already started building in the same session.
+    /// Opens a world handed to the app from elsewhere. The world it replaces is one undo away.
+    private func openArrivedWorld(_ url: URL) {
+        // So the autosave, if it has not been read yet, does not land on top of the world just opened.
+        hasRestored = true
+        guard let scene = store.openArrived(url) else {
+            arrivalProblem = store.lastProblem ?? "That file could not be opened."
+            return
+        }
+        powder.adopt(scene.customElements)
+        if let state = scene.powder { _ = powder.apply(state) }
+        if let state = scene.particle { _ = field.apply(state) }
+        // Onto whichever chamber the file is really about: a world with nothing in its powder is a field.
+        if scene.powder == nil, scene.particle != nil { select(.field) } else if scene.powder != nil { select(.powder) }
+        Haptics.firm()
+    }
+
     private func restoreAutosaveOnce() {
         guard !hasRestored else { return }
         hasRestored = true
@@ -641,12 +683,24 @@ struct ContentView: View {
         switch which {
         case .powder:
             ShakenPowderSurface(model: powder, size: size)
+                // Said to somebody using VoiceOver, who otherwise hears nothing at all about the world: what it is,
+                // what is in it, and what a drag does.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("The powder world")
+                .accessibilityValue("\(powder.activeCells.formatted()) cells filled. Painting \(powder.definition(of: powder.brushElement).name).")
+                .accessibilityHint("Drag to paint.")
+                .accessibilityAddTraits(.allowsDirectInteraction)
         case .field:
             FieldWithLabels(model: field)
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in
                     field.resize(toViewSize: new, scale: UIScreen.main.scale)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("The particle field")
+                .accessibilityValue(fieldDescription)
+                .accessibilityHint("Touch and hold to use the chosen tool.")
+                .accessibilityAddTraits(.allowsDirectInteraction)
         }
     }
 

@@ -57,6 +57,9 @@ struct RoomSheet: View {
             note("A room is between phones in the same place, over wifi or Bluetooth. There is no server and nothing goes over the internet — so somebody in another town cannot join.")
             note("One phone runs the world and the others are shown it, many times a second. Everyone can paint, and every mark goes to whichever phone is running things. If that phone leaves, another takes over on its own.")
             note("Crucible in a browser has its own rooms, built a different way. The two cannot see each other.")
+            // Said plainly, because nothing else would tell anybody: the field is not shared at all, and a room that
+            // silently showed the other person nothing of it would look broken.
+            note("A room shares the powder world only. The particle field stays on each phone, and sand painted in a colour arrives as plain sand.")
         }
     }
 

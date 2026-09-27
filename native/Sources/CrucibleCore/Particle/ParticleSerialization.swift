@@ -224,6 +224,9 @@ public struct ParticleState: Codable, Sendable {
 }
 
 extension ParticleEngine {
+    /// The widest or tallest a saved field may be, in the world's pixels.
+    public static let largestWorldSide = 200_000.0
+
     /// How many object bodies a save file may hold.
     ///
     /// Beyond this the file becomes unwieldy for no benefit — a scene with more bodies than
@@ -435,6 +438,10 @@ extension ParticleEngine {
         guard state.width > 0, state.height > 0, state.width.isFinite, state.height.isFinite else {
             return false
         }
+        // Nothing the app makes is anywhere near this — zoomed all the way out, a world is a few tens of thousands of
+        // pixels across — and a file asking for more is damaged. Taken at its word, the field built grids for a
+        // world a million million pixels wide, and the arithmetic for that stopped the app.
+        guard state.width <= Self.largestWorldSide, state.height <= Self.largestWorldSide else { return false }
 
         // The saved canvas size is applied. It was exported and then ignored, so a scene
         // captured on a large display dropped most of its bodies outside a smaller field.

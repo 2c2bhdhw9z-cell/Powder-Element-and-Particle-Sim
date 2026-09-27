@@ -85,10 +85,14 @@ final class SwarmGrid {
         // Capped, because a very small square over a large world asks for an enormous number of them.
         // Two hundred thousand squares is about eight hundred kilobytes of counts and thirty-eight
         // megabytes of entries, which is already more than the bodies themselves.
-        let wantedColumns = max(1, Int((width / size).rounded(.up)))
-        let wantedRows = max(1, Int((height / size).rounded(.up)))
-        if wantedColumns * wantedRows > 200_000 {
-            let scale = (Double(wantedColumns * wantedRows) / 200_000).squareRoot()
+        // Counted in floating point first: a world that is absurdly large — which only a damaged file can ask for —
+        // has more squares than a whole number can hold, and working it out in whole numbers stopped the app.
+        let columnsWanted = max(1, min(1e15, (width / size).rounded(.up)))
+        let rowsWanted = max(1, min(1e15, (height / size).rounded(.up)))
+        let wantedColumns = Int(columnsWanted)
+        let wantedRows = Int(rowsWanted)
+        if columnsWanted * rowsWanted > 200_000 {
+            let scale = (columnsWanted * rowsWanted / 200_000).squareRoot()
             cellSize = size * scale
             columns = max(1, Int((width / cellSize).rounded(.up)))
             rows = max(1, Int((height / cellSize).rounded(.up)))
