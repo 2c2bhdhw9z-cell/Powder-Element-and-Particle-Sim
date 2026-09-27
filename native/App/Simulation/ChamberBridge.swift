@@ -91,9 +91,6 @@ final class ChamberBridge {
         }
     }
 
-    /// Pours everything that will fit into the powder world, now.
-    ///
-    /// - Returns: how many went across.
     /// Shows the powder world in the box: the same world, drawn as a slab of cubes the camera can be turned round.
     ///
     /// A view, not a second simulation — see `Hybrid.showPowderSlab`. It replaces whatever the field was showing, which
@@ -112,6 +109,9 @@ final class ChamberBridge {
         return laid
     }
 
+    /// Pours everything that will fit into the powder world, now.
+    ///
+    /// - Returns: how many went across.
     @discardableResult
     func settleEverything() -> Int {
         // An undo point in both chambers, because this changes both — and undoing only half of it
