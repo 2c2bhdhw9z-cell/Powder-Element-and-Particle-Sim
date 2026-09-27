@@ -700,6 +700,7 @@ struct ContentView: View {
                 .accessibilityValue("\(powder.activeCells.formatted()) cells filled. Painting \(powder.definition(of: powder.brushElement).name).")
                 .accessibilityHint("Drag to paint.")
                 .accessibilityAddTraits(.allowsDirectInteraction)
+                .accessibilityIdentifier("world.powder")
         case .field:
             FieldWithLabels(model: field)
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
@@ -711,6 +712,7 @@ struct ContentView: View {
                 .accessibilityValue(fieldDescription)
                 .accessibilityHint("Touch and hold to use the chosen tool.")
                 .accessibilityAddTraits(.allowsDirectInteraction)
+                .accessibilityIdentifier("world.field")
         }
     }
 

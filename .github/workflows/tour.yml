@@ -1,0 +1,97 @@
+name: App tour
+
+# A walk through the app on a simulated iPhone and a simulated iPad: it fails if the app closes by itself, stops
+# answering or shows a blank world, and keeps a picture of every screen it reaches, and the phone's own report of any
+# crash. See native/UITests/CrucibleTour.swift.
+#
+# The pictures and reports are kept with the run as "tour-iPhone" and "tour-iPad". To fetch them:
+#
+#   gh run download <run id> -R <owner>/<repo>
+
+on:
+  # Pushes to any branch start this, and the walk carries on only on the project's main line, whatever it is called.
+  push:
+    paths:
+      - "native/**"
+      - ".github/workflows/tour.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: tour-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tour:
+    name: Walk through the app
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: macos-26
+    strategy:
+      # Both, whatever happens to the other: a crash on the phone is no reason not to see the tablet.
+      fail-fast: false
+      matrix:
+        device: [iPhone, iPad]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: native
+        run: xcodegen generate --spec project.yml
+
+      # The newest system there is, and a large device of the kind asked for: a Pro Max, or the largest iPad Pro.
+      - name: Choose a simulator
+        env:
+          KIND: ${{ matrix.device }}
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, os, re, sys
+          kind = os.environ["KIND"]
+          devices = json.load(sys.stdin)["devices"]
+          def version(runtime):
+              return [int(n) for n in re.findall(r"\d+", runtime.split("iOS")[-1])]
+          runtimes = sorted((r for r in devices if "iOS" in r), key=version, reverse=True)
+          for runtime in runtimes:
+              found = [d for d in devices[runtime] if d.get("isAvailable") and d["name"].startswith(kind)]
+              if not found:
+                  continue
+              preferred = [d for d in found if "Pro Max" in d["name"] or "13-inch" in d["name"]]
+              print((preferred or found)[0]["udid"]); break
+          ')
+          test -n "$UDID"
+          xcrun simctl list devices | grep "$UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Walk through the app
+        working-directory: native
+        run: |
+          xcodebuild test \
+            -project Crucible.xcodeproj \
+            -scheme Crucible \
+            -destination "id=$UDID" \
+            -resultBundlePath build/Tour.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      # Whatever happened, so a crash still leaves its pictures and its report.
+      - name: Collect the pictures and any crash reports
+        if: always()
+        working-directory: native
+        run: |
+          mkdir -p build/tour
+          if [ -d build/Tour.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/Tour.xcresult --output-path build/tour || true
+            xcrun xcresulttool get test-results summary --path build/Tour.xcresult > build/tour/summary.json || true
+          fi
+          # The simulated phone's own crash reports land where the Mac keeps its own.
+          find ~/Library/Logs/DiagnosticReports -name 'Crucible*' -newer project.yml -exec cp {} build/tour/ \; 2>/dev/null || true
+          ls -la build/tour
+
+      - name: Keep them with the run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tour-${{ matrix.device }}
+          path: native/build/tour
+          retention-days: 30

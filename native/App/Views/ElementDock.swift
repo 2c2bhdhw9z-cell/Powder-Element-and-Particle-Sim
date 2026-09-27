@@ -84,6 +84,7 @@ struct ElementDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isOpen ? "Close the tray" : "Open the tray")
+        .accessibilityIdentifier("tray.handle")
         // A downward drag closes it and an upward drag opens it, which is what the handle
         // looks like it should do.
         .highPriorityGesture(
@@ -135,6 +136,7 @@ struct ElementDock: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isOpen ? "Close the tray" : "Open the tray")
+            .accessibilityIdentifier("tray.arrow")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)
@@ -254,6 +256,7 @@ struct ElementDock: View {
                     brushLabel("Lasso", "lasso", selected: model.isLassoing)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("tool.lasso")
                 .disabled(model.isFollowingRoom)
                 .opacity(model.isFollowingRoom ? 0.4 : 1)
 
@@ -270,6 +273,7 @@ struct ElementDock: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("tool.thermometer")
 
                 // Not a shape either: it copies whichever shape is chosen, so it sits beside them as a switch.
                 Button {
@@ -594,6 +598,7 @@ struct ElementDock: View {
             .disabled(!model.canRewind || model.isRewinding)
             .opacity(model.canRewind || model.isRewinding ? 1 : 0.35)
             .accessibilityLabel("Rewind")
+            .accessibilityIdentifier("tray.rewind")
             .accessibilityHint("Go back through the last few seconds, and carry on from any moment")
 
             // Brush size. A slider rather than stepped buttons: it is the control reached for
@@ -660,6 +665,7 @@ struct ElementDock: View {
             onShowInfo(id)
         }
         .accessibilityHint("Double tap to select. Touch and hold to read about it.")
+        .accessibilityIdentifier("material.\(name)")
     }
 
     private func iconButton(

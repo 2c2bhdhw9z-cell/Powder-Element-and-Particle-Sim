@@ -12,8 +12,20 @@ import SwiftUI
 @main
 struct CrucibleApp: App {
     init() {
+        // The app's own tap-through test starts every run as if the app were newly installed: nothing remembered, no
+        // world put back from last time. Only ever passed by that test; nobody opening the app from the home screen
+        // can pass it.
+        if ProcessInfo.processInfo.arguments.contains(Self.freshStart) {
+            if let identity = Bundle.main.bundleIdentifier {
+                UserDefaults.standard.removePersistentDomain(forName: identity)
+            }
+            SceneStore.forgetAutosaveBeforeLaunch()
+        }
         DebugSettings.applyGraphicsOverlayPreference()
     }
+
+    /// What the tap-through test passes to start from nothing.
+    static let freshStart = "--fresh-start"
 
     var body: some Scene {
         WindowGroup {

@@ -79,6 +79,23 @@ targets:
           MTL_ENABLE_DEBUG_INFO: "NO"
           SWIFT_OPTIMIZATION_LEVEL: "-O"
 
+  # A walk through the app on a simulated phone, which fails if the app closes by itself, stops answering or shows a
+  # blank world, and takes a picture of every screen on the way. Run by the App tour check; see UITests/CrucibleTour.swift.
+  # Only ever built for testing, never into the app that is installed.
+  CrucibleTour:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Crucible
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crucible.lab.tour
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_TARGET_NAME: Crucible
+        TARGETED_DEVICE_FAMILY: "1,2"
+
 schemes:
   Crucible:
     build:
@@ -86,5 +103,9 @@ schemes:
         Crucible: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - CrucibleTour
     archive:
       config: Release

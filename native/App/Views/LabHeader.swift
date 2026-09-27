@@ -75,9 +75,10 @@ struct LabHeader: View {
             roundButton(
                 isRunning ? "pause.fill" : "play.fill",
                 label: isRunning ? "Pause" : "Play",
+                id: "header.play",
                 action: onToggleRunning
             )
-            roundButton("line.3.horizontal", label: "Menu", action: onShowMenu)
+            roundButton("line.3.horizontal", label: "Menu", id: "header.menu", action: onShowMenu)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
@@ -115,6 +116,7 @@ struct LabHeader: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(option.title)
+                .accessibilityIdentifier("header.chamber.\(option.rawValue)")
                 .accessibilityAddTraits(selected ? [.isSelected] : [])
             }
         }
@@ -153,6 +155,7 @@ struct LabHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isSplit ? "Show one chamber" : "Show both chambers")
+        .accessibilityIdentifier("header.split")
     }
 
     /// The frame rate, tinted by whether it is keeping up, and the way into the graphs.
@@ -199,9 +202,11 @@ struct LabHeader: View {
         Palette.background
     }
 
+    /// - Parameter id: a name the app's own tap-through test finds this by. Nobody sees or hears it.
     private func roundButton(
         _ symbol: String,
         label: String,
+        id: String,
         action: @escaping () -> Void
     ) -> some View {
         Button {
@@ -218,6 +223,7 @@ struct LabHeader: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
     }
 }
 

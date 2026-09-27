@@ -73,6 +73,7 @@ struct FieldDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isOpen ? "Close the tray" : "Open the tray")
+        .accessibilityIdentifier("fieldTray.handle")
         .highPriorityGesture(
             DragGesture(minimumDistance: 18).onEnded { value in
                 withAnimation(.easeOut(duration: 0.22)) {
@@ -153,6 +154,7 @@ struct FieldDock: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isOpen ? "Close the tray" : "Open the tray")
+            .accessibilityIdentifier("fieldTray.arrow")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 4)

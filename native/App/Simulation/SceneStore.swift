@@ -69,6 +69,14 @@ final class SceneStore {
         return directory
     }
 
+    /// Removes the world kept from last time, before anything has been read. For the tap-through test, which starts every
+    /// run from nothing — see `CrucibleApp`.
+    nonisolated static func forgetAutosaveBeforeLaunch() {
+        let files = FileManager.default
+        guard let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        try? files.removeItem(at: support.appendingPathComponent("autosave.json", isDirectory: false))
+    }
+
     private var autosaveURL: URL? {
         guard let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         else { return nil }

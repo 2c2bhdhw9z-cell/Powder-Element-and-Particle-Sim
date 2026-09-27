@@ -265,8 +265,8 @@ struct RewindBar: View {
                     .font(.labBody(11))
                     .foregroundStyle(Palette.subtleForeground)
                 Spacer(minLength: 6)
-                chip("Back to now", selected: false) { model.finishRewind(keeping: false) }
-                chip("Carry on from here", selected: true) { model.finishRewind(keeping: true) }
+                chip("Back to now", selected: false, id: "rewind.now") { model.finishRewind(keeping: false) }
+                chip("Carry on from here", selected: true, id: "rewind.keep") { model.finishRewind(keeping: true) }
                     .disabled(model.rewindStepsBack == 0)
                     .opacity(model.rewindStepsBack == 0 ? 0.4 : 1)
             }
@@ -329,7 +329,7 @@ struct LassoBar: View {
                         recolour
                         chip("Delete", symbol: "trash", selected: false) { model.deleteLasso() }
                     }
-                    chip("Done", symbol: "checkmark", selected: true) { model.finishLasso() }
+                    chip("Done", symbol: "checkmark", selected: true, id: "lasso.done") { model.finishLasso() }
                 }
             }
         }
@@ -393,8 +393,16 @@ struct LassoBar: View {
 }
 
 /// A rounded button in the lab's style, as the brush row's.
+///
+/// - Parameter id: a name the app's own tap-through test finds it by. Nobody sees or hears it.
 @MainActor
-private func chip(_ title: String, symbol: String? = nil, selected: Bool, action: @escaping () -> Void) -> some View {
+private func chip(
+    _ title: String,
+    symbol: String? = nil,
+    selected: Bool,
+    id: String? = nil,
+    action: @escaping () -> Void
+) -> some View {
     Button {
         Haptics.tap()
         action()
@@ -413,6 +421,7 @@ private func chip(_ title: String, symbol: String? = nil, selected: Bool, action
         .background(Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10)))
     }
     .buttonStyle(.plain)
+    .accessibilityIdentifier(id ?? "chip.\(title)")
 }
 
 // MARK: - Colours

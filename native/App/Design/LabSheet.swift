@@ -105,6 +105,7 @@ struct LabSheet<Content: View>: View {
                     .font(.labDisplay(16))
                     .tracking(-0.3)
                     .foregroundStyle(Palette.foreground)
+                    .accessibilityIdentifier("sheet.title")
                 if let subtitle {
                     Text(subtitle)
                         .font(.labBody(11))
@@ -121,6 +122,7 @@ struct LabSheet<Content: View>: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close")
+            .accessibilityIdentifier("sheet.close")
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
