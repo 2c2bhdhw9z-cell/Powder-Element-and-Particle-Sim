@@ -1,0 +1,57 @@
+name: Quick check
+
+# A check started by hand, for when the full one is too slow to wait for: one system, unoptimised, and pointed at
+# the tests whose names contain some text, if wanted. A few minutes rather than the full run's ten or more.
+#
+# Start it from the Actions tab, or:
+#
+#   gh api repos/<owner>/<repo>/actions/workflows/quick.yml/dispatches \
+#     -f ref=<main line> -f 'inputs[tests]=PowderLabToolsTests' -f 'inputs[system]=linux'
+
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "Only the tests whose names contain this (blank for all of them)"
+        type: string
+        default: ""
+      system:
+        description: "Which system to check on"
+        type: choice
+        options: [linux, macos]
+        default: linux
+
+jobs:
+  linux:
+    name: Linux
+    if: inputs.system == 'linux'
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        working-directory: native
+        run: swift build --build-tests
+      - name: Test
+        working-directory: native
+        # Through the environment rather than pasted into the command, so whatever is typed is only ever a name.
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          if [ -n "$TESTS" ]; then swift test --skip-build --filter "$TESTS"; else swift test --skip-build; fi
+
+  macos:
+    name: macOS
+    if: inputs.system == 'macos'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        working-directory: native
+        run: swift build --build-tests
+      - name: Test
+        working-directory: native
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          if [ -n "$TESTS" ]; then swift test --skip-build --filter "$TESTS"; else swift test --skip-build; fi
