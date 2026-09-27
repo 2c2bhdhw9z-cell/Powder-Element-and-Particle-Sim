@@ -321,6 +321,22 @@ struct FieldDock: View {
                         isOn: Binding(get: { model.colorsByDistance }, set: { model.colorsByDistance = $0 })
                     )
                     smallToggle(
+                        "Red-and-blue glasses",
+                        isOn: Binding(
+                            get: { model.glassesTurn > 0.01 },
+                            set: { model.glassesTurn = $0 ? 2.4 : 0 }
+                        )
+                    )
+                    if model.glassesTurn > 0.01 {
+                        inlineSlider(
+                            "How far apart your eyes are",
+                            \.glassesTurn,
+                            0.4 ... 8,
+                            step: 0.2,
+                            format: { Self.degrees($0) }
+                        )
+                    }
+                    smallToggle(
                         "Shadows on the floor",
                         isOn: Binding(get: { model.showsShadows }, set: { model.showsShadows = $0 })
                     )

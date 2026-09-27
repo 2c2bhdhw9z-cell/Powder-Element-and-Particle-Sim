@@ -136,6 +136,18 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     /// The one thing that says how *high* something is. Without it a body near the top of the box and a body near
     /// the back look identical, because both are simply higher up the screen.
     public var showsShadows: Bool
+    /// How far apart the two eyes are, in degrees of turn, for red-and-blue glasses. Nought is off.
+    ///
+    /// ## How this works, and why it is a turn rather than a shift
+    ///
+    /// The box is drawn twice: once as the left eye sees it, in red, and once as the right eye sees it, in blue and
+    /// green. Through a pair of paper glasses each eye receives only its own picture, and the brain does the rest.
+    ///
+    /// The two pictures differ by a small turn about the middle of the box rather than a sideways shift, because a
+    /// turn is what two eyes actually are — they look at the same point from slightly different angles. A shift
+    /// would give everything the same separation whatever its depth, which is exactly the information the effect
+    /// depends on.
+    public var glassesTurn: Double
 
     /// Where a field in 3D is looked at from until somebody turns it: a little from the left and a little from
     /// above, which is where depth shows best.
@@ -164,7 +176,8 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         sliceDepth: Double = 1,
         sliceAt: Double = 0,
         colorsByDistance: Bool = false,
-        showsShadows: Bool = false
+        showsShadows: Bool = false,
+        glassesTurn: Double = 0
     ) {
         self.growsWorldWhenZoomedOut = growsWorldWhenZoomedOut
         self.zoom = Self.clampZoom(zoom)
@@ -185,7 +198,11 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         self.sliceAt = sliceAt.isFinite ? max(-1, min(1, sliceAt)) : 0
         self.colorsByDistance = colorsByDistance
         self.showsShadows = showsShadows
+        self.glassesTurn = glassesTurn.isFinite ? max(0, min(8, glassesTurn)) : 0
     }
+
+    /// Whether the box is being drawn for red-and-blue glasses.
+    public var wearsGlasses: Bool { glassesTurn > 0.01 }
 
     /// Whether only a slab of the box is being shown.
     public var isSliced: Bool { sliceDepth < 0.999 }
@@ -204,7 +221,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     private enum CodingKeys: String, CodingKey {
         case zoom, panX, panY, yaw, pitch, growsWorldWhenZoomedOut, autoOrbit, autoOrbitAngle
         case orbitYaw, orbitPitch, perspective, fog, showsBox, glows, spinRate
-        case sliceDepth, sliceAt, colorsByDistance, showsShadows
+        case sliceDepth, sliceAt, colorsByDistance, showsShadows, glassesTurn
     }
 
     /// Read from a file with anything missing taken as its resting value.
@@ -234,7 +251,8 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
             sliceDepth: (try? c.decodeIfPresent(Double.self, forKey: .sliceDepth)) ?? 1,
             sliceAt: (try? c.decodeIfPresent(Double.self, forKey: .sliceAt)) ?? 0,
             colorsByDistance: (try? c.decodeIfPresent(Bool.self, forKey: .colorsByDistance)) ?? false,
-            showsShadows: (try? c.decodeIfPresent(Bool.self, forKey: .showsShadows)) ?? false
+            showsShadows: (try? c.decodeIfPresent(Bool.self, forKey: .showsShadows)) ?? false,
+            glassesTurn: (try? c.decodeIfPresent(Double.self, forKey: .glassesTurn)) ?? 0
         )
     }
 
@@ -259,6 +277,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         try c.encode(sliceAt, forKey: .sliceAt)
         try c.encode(colorsByDistance, forKey: .colorsByDistance)
         try c.encode(showsShadows, forKey: .showsShadows)
+        try c.encode(glassesTurn, forKey: .glassesTurn)
     }
 
     /// Looking straight down at the whole world, centred.

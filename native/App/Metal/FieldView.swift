@@ -58,6 +58,8 @@ final class FieldView: MTKView {
         /// One to colour by how far away things are; one to draw the pass as shadows on the floor.
         var colorsByDistance: Float
         var asShadow: Float
+        /// What each channel of the pass is multiplied by. All ones unless the picture is for paper glasses.
+        var tint: SIMD4<Float>
     }
 
     /// Everything drawing in 3D needs besides what the flat drawing has.
@@ -1167,7 +1169,8 @@ final class FieldView: MTKView {
             sliceNear: Float(view.sliceNear),
             sliceFar: Float(view.sliceFar),
             colorsByDistance: view.colorsByDistance ? 1 : 0,
-            asShadow: 0
+            asShadow: 0,
+            tint: SIMD4<Float>(1, 1, 1, 1)
         )
     }
 
@@ -1177,16 +1180,45 @@ final class FieldView: MTKView {
     /// Solid, the nearer hides the further, whatever order things are drawn in — so the crowd can hide a body
     /// behind it, which on a flat field it never may. Glowing, nothing hides anything and overlapping bodies add
     /// up to something brighter than either.
+    /// The field in 3D, drawn once — or twice, once for each eye, when it is meant for paper glasses.
     private func encodeInDepth(
         _ frame: ParticleFieldModel.Frame,
         view: ParticleFieldModel.DepthView,
         drawing: DepthDrawing,
         into encoder: MTLRenderCommandEncoder
     ) {
+        guard view.glassesTurn > 0 else {
+            encodeOneEye(frame, view: view, drawing: drawing, tint: nil, into: encoder)
+            return
+        }
+        // Two pictures of the same box from slightly different angles, each filtered to the colours one lens lets
+        // through. Added together they make one picture that a pair of paper glasses separates again.
+        //
+        // Both are drawn as light rather than as solid bodies, and deliberately: adding is exactly what has to
+        // happen between the two, since each eye's picture must reach its own channels without either hiding the
+        // other. A solid pass would let the second eye's near bodies cover the first eye's picture outright.
+        let half = view.glassesTurn * 0.5
+        var left = view
+        left.yaw = view.yaw - half
+        var right = view
+        right.yaw = view.yaw + half
+        // Red for the left lens, blue and green for the right: the way every pair of these glasses is made.
+        encodeOneEye(frame, view: left, drawing: drawing, tint: SIMD4<Float>(1, 0, 0, 1), into: encoder)
+        encodeOneEye(frame, view: right, drawing: drawing, tint: SIMD4<Float>(0, 1, 1, 1), into: encoder)
+    }
+
+    private func encodeOneEye(
+        _ frame: ParticleFieldModel.Frame,
+        view: ParticleFieldModel.DepthView,
+        drawing: DepthDrawing,
+        tint: SIMD4<Float>?,
+        into encoder: MTLRenderCommandEncoder
+    ) {
         var uniforms = Self.uniforms(for: frame)
         var depthUniforms = Self.depthUniforms(for: view)
+        if let tint { depthUniforms.tint = tint }
         let set = frameBuffers[frameSlot]
-        let glows = view.glows
+        let glows = view.glows || tint != nil
         let uniformLength = MemoryLayout<Uniforms>.stride
         let depthLength = MemoryLayout<DepthUniforms>.stride
         // What the bodies do with the record of depth, and what the lines do.

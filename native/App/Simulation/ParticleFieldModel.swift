@@ -1231,6 +1231,8 @@ final class ParticleFieldModel {
         var colorsByDistance: Bool
         /// Whether every body drops a shadow on the floor of the box.
         var showsShadows: Bool
+        /// How far apart the two eyes are, in radians of turn, for red-and-blue glasses. Nought is off.
+        var glassesTurn: Double
     }
 
     /// The renderer's lists of how far into the screen everything is, filled only while the field is in 3D.
@@ -2828,7 +2830,8 @@ final class ParticleFieldModel {
             sliceNear: drawn.isSliced ? max(0, (drawn.sliceAt + 1) * 0.5 - drawn.sliceDepth * 0.5) : 0,
             sliceFar: drawn.isSliced ? min(1, (drawn.sliceAt + 1) * 0.5 + drawn.sliceDepth * 0.5) : 1,
             colorsByDistance: drawn.colorsByDistance,
-            showsShadows: drawn.showsShadows
+            showsShadows: drawn.showsShadows,
+            glassesTurn: ParticleCamera.radians(drawn.glassesTurn)
         )
     }
 
@@ -2858,6 +2861,16 @@ final class ParticleFieldModel {
         set {
             var next = storedCamera
             next.colorsByDistance = newValue
+            camera = next
+        }
+    }
+
+    /// How far apart the two eyes are for red-and-blue glasses, in degrees. Nought is off.
+    var glassesTurn: Double {
+        get { observeEngine(); return storedCamera.glassesTurn }
+        set {
+            var next = storedCamera
+            next.glassesTurn = max(0, min(8, newValue.isFinite ? newValue : 0))
             camera = next
         }
     }

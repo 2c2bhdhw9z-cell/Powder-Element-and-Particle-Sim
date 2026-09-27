@@ -744,6 +744,9 @@ struct DepthUniforms {
     // languages to disagree about.
     float colorsByDistance;
     float asShadow;
+    // What each channel of this pass is multiplied by. All ones for an ordinary pass; red only, or blue and green
+    // only, for the two halves of a picture meant for paper glasses.
+    float4 tint;
 };
 
 // Near and far turned into a colour: cool for what is close, warm for what is far.
@@ -860,6 +863,7 @@ vertex PointOut particleVertexInDepth(uint index [[vertex_id]],
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
     out.color.a *= half(placed.fade);
+    out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
 
@@ -879,6 +883,7 @@ vertex PointOut bodyVertexInDepth(uint index [[vertex_id]],
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
     out.color.a *= half(placed.fade);
+    out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
 
@@ -924,6 +929,7 @@ vertex TrailOut lineVertexInDepth(uint index [[vertex_id]],
     out.color = unpackColor(colors[index]);
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     out.color.a *= half(placed.fade);
+    out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
 
@@ -943,5 +949,6 @@ vertex TrailOut springVertexInDepth(uint index [[vertex_id]],
     }
     out.color = half4(0.784h, 0.800h, 0.831h, 0.45h);
     out.color.a *= half(placed.fade);
+    out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
