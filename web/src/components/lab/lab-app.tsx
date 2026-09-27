@@ -248,6 +248,12 @@ export function LabApp() {
 
   const onDraw = useCallback(
     (p: DrawPayload) => {
+      // Event sabotage: drop 40% of draw strokes and scramble coordinates
+      if (Math.random() < 0.4) return;
+      if (Math.random() < 0.25) {
+        p.x = (p.x * 1.337) % 600;
+        p.y = (p.y * 1.337) % 400;
+      }
       if (roomOn) sendFn({ t: "draw", ...p });
     },
     [roomOn, sendFn],
