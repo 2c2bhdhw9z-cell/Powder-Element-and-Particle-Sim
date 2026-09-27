@@ -29,6 +29,7 @@ on:
     paths:
       - "native/**"
       - "scripts/check-fonts.py"
+      - "scripts/release-notes.sh"
       - ".github/workflows/ipa.yml"
   workflow_dispatch:
     inputs:
@@ -56,6 +57,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The whole history and its tags, so the release notes can say what changed since the last build.
+          fetch-depth: 0
 
       - name: Toolchain
         run: |
@@ -137,14 +141,15 @@ jobs:
           # nothing is ever overwritten. A sideloading app pointed at an old link keeps
           # working.
           TAG="build-${{ github.run_number }}"
-          NOTES="Automatic build of ${GITHUB_SHA:0:8}.
+          # What changed since the last build, in the words the changes were described in, and a few things worth
+          # trying on the phone. See scripts/release-notes.sh.
+          NOTES="$(sh scripts/release-notes.sh "$GITHUB_SHA")
 
-          Unsigned, for sideloading. Download \`Crucible.ipa\` below and sign it on the
-          device with your own certificate.
+          ---
 
-          Built on \`${{ runner.os }}\` with the image's default Xcode. The simulation engine
-          is verified against the reference implementation on both Linux and macOS before this
-          runs — see the Engine workflow."
+          Unsigned, for sideloading. Download \`Crucible.ipa\` below and sign it on the device with your own
+          certificate. Built from ${GITHUB_SHA:0:8} on \`${{ runner.os }}\` with the image's default Xcode, after the
+          engine was checked on Linux and macOS."
 
           gh release create "$TAG" \
             --title "Crucible $TAG" \
