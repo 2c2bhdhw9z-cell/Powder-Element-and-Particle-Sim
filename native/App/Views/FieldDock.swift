@@ -15,6 +15,8 @@ struct FieldDock: View {
     let today: String
     /// Pours the whole field into the powder world.
     let onSettleEverything: () -> Void
+    /// Shows the powder world in the box, as a slab to turn round.
+    let onShowPowderInTheBox: () -> Void
 
     /// The mouse modes, named for what they do rather than what they are called internally.
     private static let tools: [(mode: ParticleMouseMode, name: String, symbol: String)] = [
@@ -963,6 +965,13 @@ struct FieldDock: View {
                 Haptics.firm()
                 flash("settle")
                 onSettleEverything()
+            }
+            // The other direction: the powder world shown in the box, as a slab to turn round. A view of that world
+            // rather than a copy of it — nothing can be built from this side, and the powder world is untouched.
+            destination("Show the powder world", "cube.transparent", id: "slab") {
+                Haptics.firm()
+                flash("slab")
+                onShowPowderInTheBox()
             }
             if model.hasRibbons {
                 destination("Rub out the light", "eraser", id: "ribbons") {

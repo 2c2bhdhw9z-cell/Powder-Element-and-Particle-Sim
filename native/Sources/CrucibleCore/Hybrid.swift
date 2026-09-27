@@ -18,6 +18,79 @@
 
 /// The bridges between the two chambers.
 public enum Hybrid {
+    /// Lays the powder world into the field's crowd as a slab, for looking at through the box's camera.
+    ///
+    /// ## What this is
+    ///
+    /// A view of the same world, not a second one. Every grain stays exactly where it is on its own flat grid and goes
+    /// on falling as it always did; this copies the shell of it — every grain with air beside it — into the crowd, which
+    /// the box already knows how to turn round, light, fog and shadow. Nothing can be built from that side, and the next
+    /// call replaces it.
+    ///
+    /// The field's own contents are cleared first, for the plain reason that a galaxy and a sandcastle in one box is not
+    /// a thing anybody asked for — and because the crowd is what carries the slab.
+    ///
+    /// - Returns: how many grains were laid in.
+    @discardableResult
+    public static func showPowderSlab(
+        _ powder: PowderEngine,
+        in field: ParticleEngine,
+        overlay: PowderOverlayMode = .normal,
+        thickness: Double = 0.1
+    ) -> Int {
+        field.swarm.removeAll()
+        guard powder.width > 0, powder.height > 0, powder.activeParticleCount > 0 else { return 0 }
+
+        // As wide as the box, keeping the world's shape, so a tall phone's world is a tall slab.
+        let shape = PowderSlab.Shape(
+            width: field.width,
+            height: field.width * Double(powder.height) / Double(powder.width),
+            thickness: thickness
+        )
+        var cubes: [PowderSlab.Cube] = []
+        var colours: [UInt32] = []
+        let written = powder.fillSlab(
+            into: &cubes,
+            shape: shape,
+            overlay: overlay,
+            every: powder.slabStride(limit: min(PowderSlab.mostCubes, field.maxParticles)),
+            colours: &colours
+        )
+        guard written > 0 else { return 0 }
+
+        // The middle of the box, so turning it turns the slab about itself.
+        let middleX = field.width / 2
+        let middleY = field.height / 2
+        for at in 0 ..< written {
+            let cube = cubes[at]
+            let placed = field.swarm.append(
+                x: middleX + cube.x,
+                y: middleY + cube.y,
+                velocityX: 0,
+                velocityY: 0,
+                color: cube.color | 0xFF00_0000,
+                budget: field.maxParticles,
+                // Held exactly where it was put, and held *firmly*: a shape's grains are deliberately soft so that a
+                // finger can dent one, but this is a picture of a world and a picture must not sag. Measured: at the
+                // ordinary softness the slab dropped eighty-six pixels in two seconds of gravity.
+                role: .holds,
+                home: Swarm.Home(
+                    anchorX: middleX + cube.x,
+                    anchorY: middleY + cube.y,
+                    radius: 0,
+                    angle: 0,
+                    spin: 0,
+                    squash: 1,
+                    stiffness: 0.5,
+                    anchorZ: cube.z
+                ),
+                z: cube.z
+            )
+            if !placed { return at }
+        }
+        return written
+    }
+
     // MARK: Sparks from an explosion
 
     /// The two colours a spark can be. Warm, because it came out of a blast.

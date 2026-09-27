@@ -977,7 +977,11 @@ struct ContentView: View {
                 // list of controls that mostly did not apply.
                 onShowSettings: { showingFieldSettings = true },
                 today: Self.today,
-                onSettleEverything: { _ = bridge?.settleEverything() }
+                onSettleEverything: { _ = bridge?.settleEverything() },
+                onShowPowderInTheBox: {
+                    breadcrumbs.record("showed the powder world in the box")
+                    _ = bridge?.showPowderInTheBox()
+                }
             )
         }
     }

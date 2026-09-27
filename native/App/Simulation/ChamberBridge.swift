@@ -95,6 +95,24 @@ final class ChamberBridge {
     ///
     /// - Returns: how many went across.
     @discardableResult
+    /// Shows the powder world in the box: the same world, drawn as a slab of cubes the camera can be turned round.
+    ///
+    /// A view, not a second simulation — see `Hybrid.showPowderSlab`. It replaces whatever the field was showing, which
+    /// is why it takes an undo point there, and it does not touch the powder world at all.
+    ///
+    /// - Returns: how many grains were laid in.
+    @discardableResult
+    func showPowderInTheBox() -> Int {
+        field.recordUndoPointForBridge()
+        if !field.depthEnabled { field.depthEnabled = true }
+        let laid = Hybrid.showPowderSlab(powder.engine, in: field.engine, overlay: powder.overlay)
+        // A picture of a world does not need bodies pushing each other apart, and at a few hundred thousand grains
+        // that pass is what would make turning it a slideshow.
+        if laid > 0, field.collisionsEnabled { field.collisionsEnabled = false }
+        field.refreshCounts()
+        return laid
+    }
+
     func settleEverything() -> Int {
         // An undo point in both chambers, because this changes both — and undoing only half of it
         // would leave the pair in a state neither of them was ever in.
