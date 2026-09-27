@@ -5,6 +5,7 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- Colours from a photo: the field drawn in whatever colours a picture is made of
 - Particle life: five colours with their own likes and dislikes, and a Shuffle for new creatures
 - Arrangement morphing: slide between any two crowd scenes, touchable all the way
 - Physics lens: tap a body to see what is acting on it and where it is heading

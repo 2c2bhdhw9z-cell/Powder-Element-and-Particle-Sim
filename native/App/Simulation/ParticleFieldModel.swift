@@ -2534,6 +2534,27 @@ final class ParticleFieldModel {
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
 
+    // MARK: - Colours from a photograph
+
+    /// What went wrong with the last picture, if anything. Said out loud rather than swallowed.
+    private(set) var colourPictureProblem: String?
+
+    /// Takes the colours a picture is mostly made of and draws the field in them.
+    func takeColours(from image: UIImage) {
+        guard let spec = PhotoColours.palette(from: image) else {
+            colourPictureProblem = "Nothing to take from that picture — try one with more than one colour in it."
+            engineDidChange()
+            return
+        }
+        colourPictureProblem = nil
+        engine.palette = spec
+        engine.paletteEnabled = true
+        // The ramp says which colours; the mode says what decides where along it each body sits. Left on its own
+        // colour, a ramp does nothing visible, so speed is chosen — the one that always has something to say.
+        if engine.colorMode == .native { engine.colorMode = .velocity }
+        engineDidChange()
+    }
+
     // MARK: - Particle life
 
     /// Whether the field is the one where colours like and dislike each other.

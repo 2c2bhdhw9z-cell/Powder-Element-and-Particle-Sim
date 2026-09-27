@@ -1,4 +1,5 @@
 import CrucibleCore
+import PhotosUI
 import SwiftUI
 
 /// The particle field's own settings.
@@ -10,6 +11,9 @@ import SwiftUI
 /// spelled out, rather than hidden behind separate panels.
 struct FieldSettingsSheet: View {
     let model: ParticleFieldModel
+
+    /// The picture being chosen, while the picker is open.
+    @State private var colourPicture: PhotosPickerItem?
 
     var body: some View {
         LabSheet(title: "Field", subtitle: "Forces, edges and touch") {
@@ -175,6 +179,42 @@ struct FieldSettingsSheet: View {
             LabDivider()
             LabSlider(label: "Fade away", value: bind(\.decaySpeed), range: 0 ... 10, step: 1) {
                 $0 == 0 ? "never" : "\($0.formatted(.number.precision(.fractionLength(0))))×"
+            }
+            LabDivider()
+            photoColours
+        }
+    }
+
+    /// Taking the field's colours from a photograph.
+    @ViewBuilder
+    private var photoColours: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            PhotosPicker(selection: $colourPicture, matching: .images, photoLibrary: .shared()) {
+                HStack(spacing: 6) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.labBody(12, .medium))
+                    Text("Take the colours from a photo")
+                        .font(.labBody(13))
+                }
+                .foregroundStyle(Palette.foreground)
+            }
+            Text(model.colourPictureProblem
+                ?? "The field is drawn in whatever colours the picture is mostly made of.")
+                .font(.labBody(11))
+                .foregroundStyle(model.colourPictureProblem == nil ? Palette.subtleForeground : Palette.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .onChange(of: colourPicture) { _, chosen in
+            guard let chosen else { return }
+            Task { @MainActor in
+                // Loaded as data and turned into a picture here rather than asking for a `UIImage` directly, which
+                // is the one transferable representation every source is guaranteed to offer.
+                if let data = try? await chosen.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                    model.takeColours(from: image)
+                }
+                colourPicture = nil
             }
         }
     }
