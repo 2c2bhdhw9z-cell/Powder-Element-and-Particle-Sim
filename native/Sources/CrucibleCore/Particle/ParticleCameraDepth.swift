@@ -79,22 +79,69 @@ extension ParticleCamera {
     ///
     /// Measured against the world's height, so the perspective looks the same whatever the screen and however
     /// far the view has been pulled out. At full strength the eye is a world's height away; at a tenth, ten.
+    ///
+    /// Flying in brings it closer, all the way to the middle of the box — by the same share of the remaining way
+    /// for each step of the slider rather than the same distance, so the first part of the slider does not cross
+    /// empty space outside the box in a blink and leave the rest for the inside. With no perspective at all there
+    /// is no eye to fly, so flying in brings one: from as far as the weakest perspective puts it.
     public func eyeDistance(worldHeight: Double) -> Double? {
-        guard perspective > 0.001, worldHeight > 0 else { return nil }
-        return min(40, 2 / perspective) * worldHeight * 0.5
+        guard let outside = eyeOutside(worldHeight: worldHeight) else { return nil }
+        let inward = flyInShare
+        guard inward > 0 else { return outside }
+        let closest = worldHeight * Self.flyInClosest
+        return outside * jsPow(closest / outside, inward)
     }
+
+    /// How wide the view is, as the distance at which it takes in a world's height across the middle of the
+    /// picture — the lens, rather than where the eye is. Nothing when there is no perspective.
+    ///
+    /// Outside the box, the same as ``eyeDistance(worldHeight:)``, which is exactly what it has always been: the
+    /// middle of the box is drawn at its true size. Flying in, the eye moves in much faster than this does, so the
+    /// middle of the box grows — which is what getting closer to something looks like — and the view widens only a
+    /// little, to about the width of a phone's own camera once it is inside. Keeping the lens and the eye together,
+    /// as the first attempt did, gave a view from inside wider than a fish's eye: everything shrank to the middle of
+    /// the screen, and being inside the box looked like being further away from it.
+    public func focalLength(worldHeight: Double) -> Double? {
+        guard let outside = eyeOutside(worldHeight: worldHeight) else { return nil }
+        let inward = flyInShare
+        guard inward > 0 else { return outside }
+        let inside = worldHeight * Self.flyInLens
+        return outside * jsPow(inside / outside, inward)
+    }
+
+    /// Where the eye is before any flying in, or nothing when there is neither perspective nor flying.
+    private func eyeOutside(worldHeight: Double) -> Double? {
+        guard worldHeight > 0 else { return nil }
+        guard perspective > 0.001 || flyInShare > 0 else { return nil }
+        // Exactly what it always was while not flying: two over the perspective, never more than forty. With no
+        // perspective at all there is no eye to fly, so flying in brings one, from as far as the weakest perspective
+        // would put it.
+        return min(40, 2 / max(perspective, 0.05)) * worldHeight * 0.5
+    }
+
+    private var flyInShare: Double { flyIn.isFinite ? max(0, min(1, flyIn)) : 0 }
+
+    /// How wide the view is once flown all the way in, as the distance at which it takes in a world's height.
+    public static let flyInLens = 0.45
 
     /// Half the diagonal of the box: nothing in it is further from its middle than this.
     public static func depthRadius(worldWidth: Double, worldHeight: Double, worldDepth: Double) -> Double {
         max(1, (worldWidth * worldWidth + worldHeight * worldHeight + worldDepth * worldDepth).squareRoot() * 0.5)
     }
 
+    /// How far anything in the box can be from where the view turns round: half the diagonal, plus however far that
+    /// place is from the middle. What how far away something is gets measured against, so near and far still run
+    /// from nought to one — and nothing hides the wrong thing — wherever the view has flown to.
+    public func depthRadius(worldWidth: Double, worldHeight: Double, worldDepth: Double) -> Double {
+        Self.depthRadius(worldWidth: worldWidth, worldHeight: worldHeight, worldDepth: worldDepth) + centreOffset
+    }
+
     /// Where a place is once the box has been turned and tipped: across, up, and away from the viewer, each
     /// measured from the middle of the box.
     public func viewSpace(x: Double, y: Double, z: Double, worldWidth: Double, worldHeight: Double) -> (u: Double, v: Double, w: Double) {
-        let u = Self.usable(x) - worldWidth * 0.5
-        let v = worldHeight * 0.5 - Self.usable(y)
-        let depth = Self.usable(z)
+        let u = Self.usable(x) - (worldWidth * 0.5 + centreX)
+        let v = (worldHeight * 0.5 + centreY) - Self.usable(y)
+        let depth = Self.usable(z) - centreZ
         let yaw = Self.radians(effectiveOrbitYaw)
         let pitch = Self.radians(orbitPitch)
         let cosYaw = jsCos(yaw), sinYaw = jsSin(yaw)
@@ -131,12 +178,12 @@ extension ParticleCamera {
         let turned = viewSpace(x: x, y: y, z: z, worldWidth: w, worldHeight: h)
         var scale = 1.0
         var inFront = true
-        if let eye = eyeDistance(worldHeight: h) {
+        if let eye = eyeDistance(worldHeight: h), let lens = focalLength(worldHeight: h) {
             let distance = eye + turned.w
             inFront = distance > eye * Self.depthNearLimit
-            scale = eye / max(eye * Self.depthNearLimit, distance)
+            scale = lens / max(eye * Self.depthNearLimit, distance)
         }
-        let radius = Self.depthRadius(worldWidth: w, worldHeight: h, worldDepth: worldDepth)
+        let radius = depthRadius(worldWidth: w, worldHeight: h, worldDepth: worldDepth)
         return ParticleDepthProjection(
             x: turned.u * scale / (w * 0.5) * pictureScale + Self.panToScreenFraction(panX, across: viewWidth),
             y: turned.v * scale / (h * 0.5) * pictureScale - Self.panToScreenFraction(panY, across: viewHeight),
@@ -170,13 +217,21 @@ extension ParticleCamera {
         let directionView: (u: Double, v: Double, w: Double)
         let focus: Double
         let widens: Bool
-        if let eye = eyeDistance(worldHeight: h) {
+        var reachScale = 1.0
+        if let eye = eyeDistance(worldHeight: h), let lens = focalLength(worldHeight: h) {
+            // From the eye, through the place on the glass. The lens says how wide the view is, so it says how far
+            // across a place on the glass is for every step into the box — the same as the eye's distance, and so
+            // exactly what it always was, until the eye flies in.
+            let across = eye / max(1e-9, lens)
             originView = (0, 0, -eye)
-            directionView = (u, v, eye)
-            focus = (u * u + v * v + eye * eye).squareRoot()
+            directionView = (u * across, v * across, eye)
+            focus = (u * u * across * across + v * v * across * across + eye * eye).squareRoot()
             widens = true
+            // Flown in, the middle of the box is drawn larger by the lens over the eye, so the finger's circle on the
+            // glass covers that much less of it. Without this a finger inside the box reached far past its ring.
+            reachScale = across
         } else {
-            let back = Self.depthRadius(worldWidth: w, worldHeight: h, worldDepth: worldDepth) + 10
+            let back = depthRadius(worldWidth: w, worldHeight: h, worldDepth: worldDepth) + 10
             originView = (u, v, -back)
             directionView = (0, 0, 1)
             focus = back
@@ -185,14 +240,15 @@ extension ParticleCamera {
         let origin = worldSpace(u: originView.u, v: originView.v, w: originView.w)
         let direction = worldSpace(u: directionView.u, v: directionView.v, w: directionView.w)
         return ParticleFingerRay(
-            originX: origin.x + w * 0.5,
-            originY: h * 0.5 - origin.y,
-            originZ: origin.z,
+            originX: origin.x + w * 0.5 + centreX,
+            originY: h * 0.5 + centreY - origin.y,
+            originZ: origin.z + centreZ,
             directionX: direction.x,
             directionY: -direction.y,
             directionZ: direction.z,
             focusDistance: focus,
-            widens: widens
+            widens: widens,
+            reachScale: reachScale
         )
     }
 

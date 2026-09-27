@@ -27,6 +27,10 @@ public struct ParticleFingerRay: Sendable, Hashable {
     /// away looks half the size, so twice as much of the world fits inside the same circle on the glass.
     /// Without perspective the circle is the same size all the way along.
     public var widens: Bool
+    /// How much of the world the finger's circle covers at the focus, for every pixel of the circle's size. One,
+    /// except when the view has flown into the box: the middle of the box is then drawn larger, so the same circle
+    /// on the glass covers less of it.
+    public var reachScale: Double
 
     public init(
         originX: Double,
@@ -36,10 +40,12 @@ public struct ParticleFingerRay: Sendable, Hashable {
         directionY: Double,
         directionZ: Double,
         focusDistance: Double = 0,
-        widens: Bool = false
+        widens: Bool = false,
+        reachScale: Double = 1
     ) {
         self.focusDistance = focusDistance.isFinite ? max(0, focusDistance) : 0
         self.widens = widens && self.focusDistance > 0
+        self.reachScale = reachScale.isFinite && reachScale > 0 ? min(1, reachScale) : 1
         self.originX = originX.isFinite ? originX : 0
         self.originY = originY.isFinite ? originY : 0
         self.originZ = originZ.isFinite ? originZ : 0
@@ -80,7 +86,7 @@ public struct ParticleFingerRay: Sendable, Hashable {
     public func reach(_ reach: Double, at along: Double) -> Double {
         guard widens, reach.isFinite else { return reach }
         // Never narrower than a twentieth, so something right at the eye can still be touched.
-        return reach * max(0.05, along / focusDistance)
+        return reach * reachScale * max(0.05, along / focusDistance)
     }
 
     /// The point on the line nearest a body, how far along the line that is, and the gap from the body to it.

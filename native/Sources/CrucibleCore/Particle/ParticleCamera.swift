@@ -148,6 +148,32 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
     /// would give everything the same separation whatever its depth, which is exactly the information the effect
     /// depends on.
     public var glassesTurn: Double
+    /// How soft things go away from the distance in focus, like a real camera's shallow focus. Nought is off: all
+    /// of the box sharp, as it has always been.
+    public var focusBlur: Double
+    /// Which distance is in focus, from nought — the nearest anything in the box can be — to one, the furthest.
+    ///
+    /// Measured the same way the fog and the slice measure how far away something is, so the three agree about
+    /// what "the middle of the box" means.
+    public var focusAt: Double
+    /// How far the eye has flown into the box, from nought — outside it, where it has always been — to one, in
+    /// the very middle.
+    ///
+    /// ## What flying in is
+    ///
+    /// The view turns round the middle of the box. Outside it, turning goes round the box and it is seen whole.
+    /// Moved in close to that middle, the same turn becomes looking round from inside: the eye is at the heart of
+    /// the galaxy, and turning shows the disc passing all the way round it. Nothing else changes — the finger's
+    /// line into the box starts from the eye wherever it is, so every tool still reaches exactly what is under it.
+    public var flyIn: Double
+    /// Where in the box the view turns round and flies toward, as how far from the middle of the box, across, down
+    /// and into it, in the world's pixels. Nought, nought, nought is the middle, which is where it has always been.
+    ///
+    /// Moved to a body — a black hole, the eye of a tornado — the view turns round that instead, and flying in takes
+    /// the eye there.
+    public var centreX: Double
+    public var centreY: Double
+    public var centreZ: Double
 
     /// Where a field in 3D is looked at from until somebody turns it: a little from the left and a little from
     /// above, which is where depth shows best.
@@ -177,7 +203,13 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         sliceAt: Double = 0,
         colorsByDistance: Bool = false,
         showsShadows: Bool = false,
-        glassesTurn: Double = 0
+        glassesTurn: Double = 0,
+        focusBlur: Double = 0,
+        focusAt: Double = 0.5,
+        flyIn: Double = 0,
+        centreX: Double = 0,
+        centreY: Double = 0,
+        centreZ: Double = 0
     ) {
         self.growsWorldWhenZoomedOut = growsWorldWhenZoomedOut
         self.zoom = Self.clampZoom(zoom)
@@ -199,7 +231,43 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         self.colorsByDistance = colorsByDistance
         self.showsShadows = showsShadows
         self.glassesTurn = glassesTurn.isFinite ? max(0, min(8, glassesTurn)) : 0
+        self.focusBlur = Self.unit(focusBlur, fallback: 0)
+        self.focusAt = Self.unit(focusAt, fallback: 0.5)
+        self.flyIn = Self.unit(flyIn, fallback: 0)
+        self.centreX = Self.usableCentre(centreX)
+        self.centreY = Self.usableCentre(centreY)
+        self.centreZ = Self.usableCentre(centreZ)
     }
+
+    /// A place for the view to turn round, kept to a sane distance from the middle: nothing in a box is further away
+    /// than this, and a file claiming otherwise would put the view somewhere nothing could be seen.
+    static func usableCentre(_ value: Double) -> Double {
+        value.isFinite ? max(-100_000, min(100_000, value)) : 0
+    }
+
+    /// Whether the view turns round somewhere other than the middle of the box.
+    public var isOffCentre: Bool { centreX != 0 || centreY != 0 || centreZ != 0 }
+
+    /// How far from the middle of the box the view turns round.
+    public var centreOffset: Double { (centreX * centreX + centreY * centreY + centreZ * centreZ).squareRoot() }
+
+    /// Whether near and far are going soft.
+    public var focuses: Bool { focusBlur > 0.001 }
+
+    /// How far out of focus something at a distance is, from nought — sharp — to one, as soft as it goes.
+    ///
+    /// The same rule the drawing uses, so what the settings describe and what is seen cannot disagree. A thing at
+    /// the distance in focus is sharp; the softness grows steadily either side of it, faster the higher the setting.
+    public func outOfFocus(atDepth depth: Double) -> Double {
+        guard focuses, depth.isFinite else { return 0 }
+        return max(0, min(1, abs(depth - focusAt) * focusBlur * Self.focusFalloff))
+    }
+
+    /// How quickly things go soft either side of the distance in focus, at the strongest setting: a fifth of the
+    /// way through the box is enough to be completely out of focus.
+    public static let focusFalloff = 5.0
+    /// How close to the middle of the box flying in all the way takes the eye, as a share of the world's height.
+    public static let flyInClosest = 0.03
 
     /// Whether the box is being drawn for red-and-blue glasses.
     public var wearsGlasses: Bool { glassesTurn > 0.01 }
@@ -222,6 +290,7 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         case zoom, panX, panY, yaw, pitch, growsWorldWhenZoomedOut, autoOrbit, autoOrbitAngle
         case orbitYaw, orbitPitch, perspective, fog, showsBox, glows, spinRate
         case sliceDepth, sliceAt, colorsByDistance, showsShadows, glassesTurn
+        case focusBlur, focusAt, flyIn, centreX, centreY, centreZ
     }
 
     /// Read from a file with anything missing taken as its resting value.
@@ -252,7 +321,13 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
             sliceAt: (try? c.decodeIfPresent(Double.self, forKey: .sliceAt)) ?? 0,
             colorsByDistance: (try? c.decodeIfPresent(Bool.self, forKey: .colorsByDistance)) ?? false,
             showsShadows: (try? c.decodeIfPresent(Bool.self, forKey: .showsShadows)) ?? false,
-            glassesTurn: (try? c.decodeIfPresent(Double.self, forKey: .glassesTurn)) ?? 0
+            glassesTurn: (try? c.decodeIfPresent(Double.self, forKey: .glassesTurn)) ?? 0,
+            focusBlur: (try? c.decodeIfPresent(Double.self, forKey: .focusBlur)) ?? 0,
+            focusAt: (try? c.decodeIfPresent(Double.self, forKey: .focusAt)) ?? 0.5,
+            flyIn: (try? c.decodeIfPresent(Double.self, forKey: .flyIn)) ?? 0,
+            centreX: (try? c.decodeIfPresent(Double.self, forKey: .centreX)) ?? 0,
+            centreY: (try? c.decodeIfPresent(Double.self, forKey: .centreY)) ?? 0,
+            centreZ: (try? c.decodeIfPresent(Double.self, forKey: .centreZ)) ?? 0
         )
     }
 
@@ -278,6 +353,12 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         try c.encode(colorsByDistance, forKey: .colorsByDistance)
         try c.encode(showsShadows, forKey: .showsShadows)
         try c.encode(glassesTurn, forKey: .glassesTurn)
+        try c.encode(focusBlur, forKey: .focusBlur)
+        try c.encode(focusAt, forKey: .focusAt)
+        try c.encode(flyIn, forKey: .flyIn)
+        try c.encode(centreX, forKey: .centreX)
+        try c.encode(centreY, forKey: .centreY)
+        try c.encode(centreZ, forKey: .centreZ)
     }
 
     /// Looking straight down at the whole world, centred.
@@ -400,6 +481,12 @@ public struct ParticleCamera: Sendable, Hashable, Codable {
         // mostly vanished is the first thing anybody would press reset to undo.
         sliceDepth = 1
         sliceAt = 0
+        // Out of the box and back to turning round its middle, for the same reason: from inside, a field can look like
+        // nothing at all, and reset is what somebody lost in there reaches for.
+        flyIn = 0
+        centreX = 0
+        centreY = 0
+        centreZ = 0
     }
 
     // MARK: - The projection

@@ -1073,6 +1073,8 @@ final class ParticleFieldModel {
         advanceClock()
         // And how far through a recorded turn we are.
         advanceTurntable()
+        // And the view gliding to wherever it was sent to fly.
+        advanceFlight()
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -1258,6 +1260,16 @@ final class ParticleFieldModel {
         var showsShadows: Bool
         /// How far apart the two eyes are, in radians of turn, for red-and-blue glasses. Nought is off.
         var glassesTurn: Double
+        /// Which distance is in focus, from nought to one, and how soft things go away from it. Nought is off.
+        var focusAt: Double = 0.5
+        var focusBlur: Double = 0
+        /// How wide the view is, as the distance at which it takes in a world's height — the eye's own distance
+        /// until the view flies in. Nought with no perspective.
+        var lens: Double = 0
+        /// Where in the box the view turns round, as how far from the middle.
+        var centreX: Double = 0
+        var centreY: Double = 0
+        var centreZ: Double = 0
     }
 
     /// The renderer's lists of how far into the screen everything is, filled only while the field is in 3D.
@@ -2200,6 +2212,13 @@ final class ParticleFieldModel {
             let box = engine.framingInDepth()
             guard !box.isEmpty else { return }
             var next = storedCamera
+            // Everything on screen means seen from outside: from inside the box there is no fitting it all in, and a
+            // fit worked out from there would be nonsense. So this flies back out first.
+            next.flyIn = 0
+            next.centreX = 0
+            next.centreY = 0
+            next.centreZ = 0
+            flyTarget = nil
             let view = viewPixels
             next.fitInDepth(
                 to: box,
@@ -2830,6 +2849,8 @@ final class ParticleFieldModel {
         let reach = max(12, engine.brushUnit * 0.05 * max(1, storedCamera.worldScale))
         let read = engine.reading(nearX: place.x, y: place.y, within: reach)
         lensReading = read.found ? read : nil
+        // With camera focus on, looking at something brings it into focus, as a real camera does when you tap it.
+        if read.found { focus(onX: read.x, y: read.y, z: read.z) }
         engineDidChange()
     }
 
@@ -3128,7 +3149,8 @@ final class ParticleFieldModel {
         DepthView(
             worldDepth: engine.worldDepth,
             eyeDistance: drawn.eyeDistance(worldHeight: engine.height) ?? 0,
-            radius: ParticleCamera.depthRadius(worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth),
+            // From wherever the view turns round, so near and far still run from nought to one once it has flown.
+            radius: drawn.depthRadius(worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth),
             yaw: ParticleCamera.radians(drawn.effectiveOrbitYaw),
             pitch: ParticleCamera.radians(drawn.orbitPitch),
             fog: drawn.fog,
@@ -3138,8 +3160,117 @@ final class ParticleFieldModel {
             sliceFar: drawn.isSliced ? min(1, (drawn.sliceAt + 1) * 0.5 + drawn.sliceDepth * 0.5) : 1,
             colorsByDistance: drawn.colorsByDistance,
             showsShadows: drawn.showsShadows,
-            glassesTurn: ParticleCamera.radians(drawn.glassesTurn)
+            glassesTurn: ParticleCamera.radians(drawn.glassesTurn),
+            focusAt: drawn.focusAt,
+            focusBlur: drawn.focusBlur,
+            lens: drawn.focalLength(worldHeight: engine.height) ?? 0,
+            centreX: drawn.centreX,
+            centreY: drawn.centreY,
+            centreZ: drawn.centreZ
         )
+    }
+
+    /// How soft things go away from the distance in focus. Nought is off.
+    var focusBlur: Double {
+        get { observeEngine(); return storedCamera.focusBlur }
+        set {
+            var next = storedCamera
+            next.focusBlur = max(0, min(1, newValue.isFinite ? newValue : 0))
+            camera = next
+        }
+    }
+
+    /// Which distance is in focus, from the nearest anything in the box can be to the furthest.
+    var focusAt: Double {
+        get { observeEngine(); return storedCamera.focusAt }
+        set {
+            var next = storedCamera
+            next.focusAt = max(0, min(1, newValue.isFinite ? newValue : 0.5))
+            camera = next
+        }
+    }
+
+    /// How far the eye has flown into the box. Nought is outside it; one is the very middle.
+    var flyIn: Double {
+        get { observeEngine(); return storedCamera.flyIn }
+        set {
+            var next = storedCamera
+            next.flyIn = max(0, min(1, newValue.isFinite ? newValue : 0))
+            camera = next
+        }
+    }
+
+    /// Where the view is gliding to, as how far from the middle of the box, while it is on its way.
+    @ObservationIgnored private var flyTarget: (x: Double, y: Double, z: Double)?
+
+    /// Whether the view can fly to what Look last touched: in 3D, flown in, with something touched.
+    var canFlyToLookedAt: Bool {
+        observeEngine()
+        return engine.depthEnabled && lensReading != nil
+    }
+
+    /// Whether the view turns round somewhere other than the middle of the box.
+    var isOffCentre: Bool {
+        observeEngine()
+        return storedCamera.isOffCentre
+    }
+
+    /// Flies the view to whatever Look last touched, so it turns round that — and flying in takes the eye there.
+    func flyToLookedAt() {
+        guard engine.depthEnabled, let read = lensReading else { return }
+        flyTarget = (read.x - engine.width * 0.5, read.y - engine.height * 0.5, read.z)
+        // Some way in, if not already: flying to something from outside the box would only shift the picture.
+        if storedCamera.flyIn < 0.35 {
+            var next = storedCamera
+            next.flyIn = 0.6
+            camera = next
+        }
+    }
+
+    /// Flies the view back to turning round the middle of the box.
+    func flyBackToTheMiddle() {
+        flyTarget = (0, 0, 0)
+    }
+
+    /// Carries the view a little further toward where it is flying to. A glide rather than a jump, which would give
+    /// no sense of where it had gone.
+    private func advanceFlight() {
+        guard let target = flyTarget else { return }
+        guard engine.depthEnabled else {
+            flyTarget = nil
+            return
+        }
+        var next = storedCamera
+        let share = 0.12
+        next.centreX += (target.x - next.centreX) * share
+        next.centreY += (target.y - next.centreY) * share
+        next.centreZ += (target.z - next.centreZ) * share
+        let gap = abs(target.x - next.centreX) + abs(target.y - next.centreY) + abs(target.z - next.centreZ)
+        if gap < 0.5 {
+            next.centreX = target.x
+            next.centreY = target.y
+            next.centreZ = target.z
+            flyTarget = nil
+        }
+        // Straight into the stored view rather than through `camera`, as the automatic spin does, so the glide is a
+        // continuous change and not a new view every frame.
+        storedCamera = next
+        engineDidChange()
+    }
+
+    /// Brings whatever is at a place in the box into focus, when focus is on.
+    private func focus(onX x: Double, y: Double, z: Double) {
+        guard engine.depthEnabled, storedCamera.focuses else { return }
+        let view = viewPixels
+        let placed = drawingCamera.projectInDepth(
+            x: x, y: y, z: z,
+            worldWidth: engine.width, worldHeight: engine.height, worldDepth: engine.worldDepth,
+            viewWidth: view.width, viewHeight: view.height
+        )
+        guard abs(placed.depth - storedCamera.focusAt) > 0.002 else { return }
+        var next = storedCamera
+        next.focusAt = placed.depth
+        camera = next
     }
 
     /// How thin a slab of the box is shown, as a share of its depth. One is the whole box.
@@ -3254,6 +3385,12 @@ final class ParticleFieldModel {
         }
         var next = storedCamera
         next.look(from: details.view)
+        // A new scene is laid out round the middle of the box, so wherever the view had flown to belongs to the last
+        // one. How far in it is stays: flown into a galaxy, the next scene is flown into too.
+        next.centreX = 0
+        next.centreY = 0
+        next.centreZ = 0
+        flyTarget = nil
         camera = next
         depthModeMayHaveChanged(from: wasInDepth)
     }

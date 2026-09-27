@@ -60,6 +60,12 @@ final class FieldView: MTKView {
         var asShadow: Float
         /// What each channel of the pass is multiplied by. All ones unless the picture is for paper glasses.
         var tint: SIMD4<Float>
+        /// Camera focus: the distance in focus, how quickly things go soft either side of it, how many times larger
+        /// something wholly out of focus is drawn, and which bodies the pass draws — nought all, one only the sharp,
+        /// two only the soft. Last, and a whole sixteen bytes, so the layout the two sides share is unchanged above.
+        var focus: SIMD4<Float>
+        /// Where in the box the view turns round, as how far from the middle. Last, and a whole sixteen bytes.
+        var centre: SIMD4<Float>
     }
 
     /// Everything drawing in 3D needs besides what the flat drawing has.
@@ -73,6 +79,9 @@ final class FieldView: MTKView {
         /// Bodies each at their own size.
         var bodies: MTLRenderPipelineState
         var bodiesGlowing: MTLRenderPipelineState
+        /// Bodies out of focus, as soft discs that hide nothing: the crowd at one size, and each at its own.
+        var pointsSoft: MTLRenderPipelineState
+        var bodiesSoft: MTLRenderPipelineState
         /// Trails, streaks, the box and whatever has been drawn into it.
         var lines: MTLRenderPipelineState
         var linesGlowing: MTLRenderPipelineState
@@ -362,7 +371,10 @@ final class FieldView: MTKView {
                   let lineInDepth = library.makeFunction(name: "lineVertexInDepth"),
                   let springInDepth = library.makeFunction(name: "springVertexInDepth"),
                   let solidFragment = library.makeFunction(name: "solidParticleFragment"),
+                  let softFragment = library.makeFunction(name: "softParticleFragment"),
                   let points = pipeline(pointInDepth, solidFragment, inDepth: true),
+                  let pointsSoft = pipeline(pointInDepth, softFragment, inDepth: true),
+                  let bodiesSoft = pipeline(bodyInDepth, softFragment, inDepth: true),
                   let pointsGlowing = pipeline(pointInDepth, pointFragment, blending: .glowing, inDepth: true),
                   let bodies = pipeline(bodyInDepth, solidFragment, inDepth: true),
                   let bodiesGlowing = pipeline(bodyInDepth, pointFragment, blending: .glowing, inDepth: true),
@@ -382,6 +394,8 @@ final class FieldView: MTKView {
                 pointsGlowing: pointsGlowing,
                 bodies: bodies,
                 bodiesGlowing: bodiesGlowing,
+                pointsSoft: pointsSoft,
+                bodiesSoft: bodiesSoft,
                 lines: lines,
                 linesGlowing: linesGlowing,
                 springs: springs,
@@ -1161,7 +1175,7 @@ final class FieldView: MTKView {
                 Float(cos(view.pitch)),
                 Float(sin(view.pitch))
             ),
-            fog: SIMD4<Float>(Float(view.fog), 0, 0, 0),
+            fog: SIMD4<Float>(Float(view.fog), Float(view.lens), 0, 0),
             worldDepth: Float(view.worldDepth),
             eyeDistance: Float(view.eyeDistance),
             radius: Float(view.radius),
@@ -1170,8 +1184,30 @@ final class FieldView: MTKView {
             sliceFar: Float(view.sliceFar),
             colorsByDistance: view.colorsByDistance ? 1 : 0,
             asShadow: 0,
-            tint: SIMD4<Float>(1, 1, 1, 1)
+            tint: SIMD4<Float>(1, 1, 1, 1),
+            focus: SIMD4<Float>(
+                Float(view.focusAt),
+                Float(view.focusBlur * ParticleCamera.focusFalloff),
+                Float(Self.focusGrowthLimit),
+                0
+            ),
+            centre: SIMD4<Float>(Float(view.centreX), Float(view.centreY), Float(view.centreZ), 0)
         )
+    }
+
+    /// The most a body wholly out of focus is drawn larger by.
+    private static let focusGrowthLimit = 5.0
+
+    /// How many screen pixels the out-of-focus discs of one draw may cover between them, before they are allowed to
+    /// grow less. A million bodies each spread over a disc five times as wide would be many billions of pixels a
+    /// frame — so a big crowd goes soft mostly by fading, and a few hundred bodies go soft as a real lens does.
+    private static let focusPixelBudget = 16_000_000.0
+
+    /// How many times larger this many bodies of this size may be drawn when wholly out of focus.
+    private static func focusGrowth(count: Int, pixels: Double) -> Float {
+        guard count > 0, pixels > 0 else { return Float(focusGrowthLimit) }
+        let allowed = (focusPixelBudget / (Double(count) * pixels * pixels)).squareRoot()
+        return Float(max(1, min(focusGrowthLimit, allowed)))
     }
 
     /// The field in 3D. The same passes as a flat field, with every body and each end of every line at its own
@@ -1219,6 +1255,11 @@ final class FieldView: MTKView {
         if let tint { depthUniforms.tint = tint }
         let set = frameBuffers[frameSlot]
         let glows = view.glows || tint != nil
+        // With focus on and the bodies solid, the sharp and the soft are drawn apart: the sharp first, hiding what is
+        // behind them, and then the soft over them, hiding nothing. Glowing, nothing hides anything anyway, and every
+        // body is drawn in one pass however soft.
+        let splitsFocus = view.focusBlur > 0.001 && !glows
+        if splitsFocus { depthUniforms.focus.w = 1 }
         let uniformLength = MemoryLayout<Uniforms>.stride
         let depthLength = MemoryLayout<DepthUniforms>.stride
         // What the bodies do with the record of depth, and what the lines do.
@@ -1239,6 +1280,8 @@ final class FieldView: MTKView {
         if view.showsShadows {
             var shadowUniforms = depthUniforms
             shadowUniforms.asShadow = 1
+            // Every shadow, whatever is in focus: the shader never softens a shadow.
+            shadowUniforms.focus.w = 0
             // Never coloured by distance: a shadow is a shadow.
             shadowUniforms.colorsByDistance = 0
             encoder.setDepthStencilState(drawing.ignoresDepth)
@@ -1278,6 +1321,7 @@ final class FieldView: MTKView {
             var swarmUniforms = uniforms
             // The crowd's one size, following the zoom, as on a flat field.
             swarmUniforms.pointSize = Float(frame.swarmPointSize * frame.pixelRatio * frame.camera.zoom)
+            depthUniforms.focus.z = Self.focusGrowth(count: frame.swarmCount, pixels: Double(swarmUniforms.pointSize))
             encoder.setDepthStencilState(bodiesTreatDepth)
             encoder.setVertexBuffer(positions, offset: 0, index: 0)
             encoder.setVertexBuffer(colours, offset: 0, index: 1)
@@ -1325,6 +1369,8 @@ final class FieldView: MTKView {
 
         if frame.bodyCount > 0, let positions = set.position, let colours = set.color,
            let sizes = set.size, let depths = set.bodyDepth {
+            // The individual bodies are drawn a few pixels across each, a dozen or so on a phone's screen.
+            depthUniforms.focus.z = Self.focusGrowth(count: frame.bodyCount, pixels: 24)
             encoder.setRenderPipelineState(glows ? drawing.bodiesGlowing : drawing.bodies)
             encoder.setDepthStencilState(bodiesTreatDepth)
             encoder.setVertexBuffer(positions, offset: 0, index: 0)
@@ -1335,6 +1381,12 @@ final class FieldView: MTKView {
             encoder.setVertexBytes(&depthUniforms, length: depthLength, index: 5)
             encoder.setFragmentBytes(&uniforms, length: uniformLength, index: 0)
             encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
+        }
+
+        // What is out of focus, now that everything sharp has said how far away it is.
+        if splitsFocus {
+            encodeSoftInDepth(frame, set: set, uniforms: uniforms, depth: depthUniforms, drawing: drawing, into: encoder)
+            depthUniforms.focus.w = 0
         }
 
         if !glows {
@@ -1349,6 +1401,58 @@ final class FieldView: MTKView {
             encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
             encoder.setFragmentBytes(&ringUniforms, length: MemoryLayout<RingUniforms>.stride, index: 0)
             encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+    }
+
+    /// The bodies out of focus, in the solid drawing: the second of the two passes camera focus splits them into.
+    private func encodeSoftInDepth(
+        _ frame: ParticleFieldModel.Frame,
+        set: FrameBuffers,
+        uniforms: Uniforms,
+        depth: DepthUniforms,
+        drawing: DepthDrawing,
+        into encoder: MTLRenderCommandEncoder
+    ) {
+        var uniforms = uniforms
+        var depth = depth
+        depth.focus.w = 2
+        let uniformLength = MemoryLayout<Uniforms>.stride
+        let depthLength = MemoryLayout<DepthUniforms>.stride
+        // Hidden by anything sharp in front, hiding nothing themselves.
+        encoder.setDepthStencilState(drawing.isHiddenByWhatIsNearer)
+
+        // Streaks are lines, which fade rather than spread, and were drawn whole in the first pass.
+        if frame.swarmCount > 0, !frame.swarmIsStreaked,
+           let positions = set.swarmPosition, let colours = set.swarmColor, let depths = set.swarmDepth {
+            var swarmUniforms = uniforms
+            swarmUniforms.pointSize = Float(frame.swarmPointSize * frame.pixelRatio * frame.camera.zoom)
+            depth.focus.z = Self.focusGrowth(count: frame.swarmCount, pixels: Double(swarmUniforms.pointSize))
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBuffer(colours, offset: 0, index: 1)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depth, length: depthLength, index: 5)
+            if frame.swarmHasSizes, let sizes = set.swarmSize {
+                encoder.setRenderPipelineState(drawing.bodiesSoft)
+                encoder.setVertexBuffer(sizes, offset: 0, index: 3)
+                encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            } else {
+                encoder.setRenderPipelineState(drawing.pointsSoft)
+                encoder.setVertexBytes(&swarmUniforms, length: uniformLength, index: 2)
+            }
+            encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.swarmCount)
+        }
+
+        if frame.bodyCount > 0, let positions = set.position, let colours = set.color,
+           let sizes = set.size, let depths = set.bodyDepth {
+            depth.focus.z = Self.focusGrowth(count: frame.bodyCount, pixels: 24)
+            encoder.setRenderPipelineState(drawing.bodiesSoft)
+            encoder.setVertexBuffer(positions, offset: 0, index: 0)
+            encoder.setVertexBuffer(colours, offset: 0, index: 1)
+            encoder.setVertexBytes(&uniforms, length: uniformLength, index: 2)
+            encoder.setVertexBuffer(sizes, offset: 0, index: 3)
+            encoder.setVertexBuffer(depths, offset: 0, index: 4)
+            encoder.setVertexBytes(&depth, length: depthLength, index: 5)
+            encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: frame.bodyCount)
         }
     }
 

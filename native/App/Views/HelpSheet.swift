@@ -117,7 +117,11 @@ struct HelpSheet: View {
                     + "The tray's 3D section has the rest: views from the front, side, top or at an angle, "
                     + "how deep the box is, how strong the perspective and the fog are, whether the box is "
                     + "drawn, **Glow**, where overlapping bodies add up into light, and looking round the box "
-                    + "by moving the phone."
+                    + "by moving the phone.\n\n"
+                    + "**Fly in** takes you inside the box: turning the view with Turn then looks round from "
+                    + "in there. Touch something with **Look** and press **Fly to what Look touched** to fly "
+                    + "to it instead of the middle. **Camera focus** makes near and far go soft like a "
+                    + "photograph; touching something with Look brings it into focus."
             )
         }
     }

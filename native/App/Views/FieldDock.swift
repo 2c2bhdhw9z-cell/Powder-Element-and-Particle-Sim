@@ -451,6 +451,56 @@ struct FieldDock: View {
                 )
                 inlineSlider("Perspective", \.perspective, 0 ... 1, step: 0.05, format: { Self.share($0) })
                 inlineSlider("Fog on the far side", \.fog, 0 ... 1, step: 0.05, format: { Self.share($0) })
+                // Into the middle of the box, where turning the view becomes looking round from inside it.
+                inlineSlider(
+                    "Fly in",
+                    \.flyIn,
+                    0 ... 1,
+                    step: 0.02,
+                    format: { $0 < 0.01 ? "outside" : ($0 > 0.99 ? "the middle" : Self.share($0)) }
+                )
+                if model.flyIn > 0.01 {
+                    Text("From inside, turning the view with Turn is looking round. Every tool still reaches what "
+                        + "is under your finger.")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // Somewhere other than the middle: touch it with Look, then fly there.
+                HStack(spacing: 6) {
+                    chip("Fly to what Look touched", symbol: "location.fill", lit: false) {
+                        Haptics.firm()
+                        model.flyToLookedAt()
+                    }
+                    .disabled(!model.canFlyToLookedAt)
+                    .opacity(model.canFlyToLookedAt ? 1 : 0.4)
+                    if model.isOffCentre {
+                        chip("Back to the middle", symbol: "scope", lit: false) {
+                            Haptics.tap()
+                            model.flyBackToTheMiddle()
+                        }
+                    }
+                }
+
+                // Near and far go soft, as in a photograph.
+                switchAndNumbers(
+                    "Camera focus — near and far go soft",
+                    isOn: Binding(get: { model.focusBlur > 0.001 }, set: { model.focusBlur = $0 ? 0.5 : 0 })
+                ) {
+                    Text("Pick Look in the tools and touch something to bring it into focus.")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.bottom, 2)
+                    inlineSlider("How soft", \.focusBlur, 0.05 ... 1, step: 0.05, format: { Self.share($0) })
+                    inlineSlider(
+                        "In focus",
+                        \.focusAt,
+                        0 ... 1,
+                        step: 0.01,
+                        format: { $0 < 0.4 ? "near" : ($0 > 0.6 ? "far" : "middle") }
+                    )
+                }
 
                 // A thin slab instead of the whole box, for seeing inside a crowd.
                 switchAndNumbers(

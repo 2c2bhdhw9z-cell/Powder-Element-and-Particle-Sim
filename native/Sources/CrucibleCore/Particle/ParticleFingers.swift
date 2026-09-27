@@ -127,7 +127,8 @@ extension ParticleEngine {
                 directionY: main.directionY,
                 directionZ: main.directionZ,
                 focusDistance: main.focusDistance,
-                widens: main.widens
+                widens: main.widens,
+                reachScale: main.reachScale
             )
         }
     }

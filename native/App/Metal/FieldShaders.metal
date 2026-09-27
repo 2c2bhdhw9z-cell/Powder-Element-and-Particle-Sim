@@ -725,7 +725,8 @@ fragment half4 glowAddFragment(RingOut in [[stage_in]],
 struct DepthUniforms {
     // The cosine and sine of the turn round the box, then of the tip above it.
     float4 turn;
-    // How much the far side fades, from nought to one. The other three are spare.
+    // How much the far side fades, from nought to one; then how wide the view is, as the distance at which it takes
+    // in a world's height, which is the eye's own distance until the view flies into the box. The last two are spare.
     float4 fog;
     // How deep the box is, in the world's pixels.
     float worldDepth;
@@ -747,7 +748,43 @@ struct DepthUniforms {
     // What each channel of this pass is multiplied by. All ones for an ordinary pass; red only, or blue and green
     // only, for the two halves of a picture meant for paper glasses.
     float4 tint;
+    // Camera focus. The distance in focus, from nought to one as above; how quickly things go soft either side of
+    // it, nought for never; how many times larger a body completely out of focus is drawn; and which bodies this
+    // pass draws — nought for all of them, one for only the sharp, two for only the soft.
+    float4 focus;
+    // Where in the box the view turns round, as how far from the middle across, down and into it. The last is spare.
+    float4 centre;
 };
+
+// How far out of focus something at this distance is, from nought — sharp — to one. The same rule as
+// `ParticleCamera.outOfFocus`, which is what is tested.
+static inline float outOfFocus(float depth, constant DepthUniforms &d) {
+    if (d.focus.y <= 0.0) { return 0.0; }
+    return clamp(abs(depth - d.focus.x) * d.focus.y, 0.0, 1.0);
+}
+
+// From how far out of focus a body is drawn soft rather than solid.
+constant float kSoftFrom = 0.12;
+
+// Whether this pass draws a body that far out of focus.
+static inline bool drawnThisPass(float blur, constant DepthUniforms &d) {
+    if (d.focus.w < 0.5) { return true; }
+    bool soft = blur >= kSoftFrom;
+    return d.focus.w < 1.5 ? !soft : soft;
+}
+
+// How much larger a body that far out of focus is drawn. Out of focus, a point of light spreads over a disc.
+static inline float focusGrowth(float blur, constant DepthUniforms &d) {
+    return 1.0 + blur * max(0.0, d.focus.z - 1.0);
+}
+
+// How much of its colour is left once it has been spread that wide: the same light over a larger disc is fainter,
+// though never so faint it disappears — and a little fainter still when the disc could not be allowed to grow, so
+// something out of focus always looks it.
+static inline float focusFade(float blur, float grow) {
+    if (blur <= 0.0) { return 1.0; }
+    return max(0.06, pow(grow, -1.5)) * (1.0 - 0.35 * blur);
+}
 
 // Near and far turned into a colour: cool for what is close, warm for what is far.
 //
@@ -765,8 +802,9 @@ static inline float3 turnInDepth(float2 world, float z,
     float width = max(u.worldSize.x, 1e-6);
     float height = max(u.worldSize.y, 1e-6);
     // The world's down is the screen's down; the picture's up is the other way.
-    float across = world.x - width * 0.5;
-    float up = height * 0.5 - world.y;
+    float across = world.x - (width * 0.5 + d.centre.x);
+    float up = (height * 0.5 + d.centre.y) - world.y;
+    z = z - d.centre.z;
     float cy = d.turn.x, sy = d.turn.y, cp = d.turn.z, sp = d.turn.w;
     // Round the upright first...
     float turnedAcross = across * cy - z * sy;
@@ -807,7 +845,9 @@ static inline DepthPlacement placeInDepth(float2 world, float z,
     float scale = 1.0;
     if (d.eyeDistance > 0.0) {
         float distance = d.eyeDistance + turned.z;
-        scale = d.eyeDistance / max(d.eyeDistance * d.nearLimit, distance);
+        // The lens over the distance: the same as the eye's own distance until the view flies in.
+        float lens = d.fog.y > 0.0 ? d.fog.y : d.eyeDistance;
+        scale = lens / max(d.eyeDistance * d.nearLimit, distance);
     }
 
     // Zoom and pan last, exactly as on a flat field.
@@ -856,13 +896,16 @@ vertex PointOut particleVertexInDepth(uint index [[vertex_id]],
                                       const device float *depths [[buffer(4)]],
                                       constant DepthUniforms &depth [[buffer(5)]]) {
     DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    // Shadows are never out of focus: they lie on the floor, and softening them too only muddies what they say.
+    float blur = depth.asShadow > 0.5 ? 0.0 : outOfFocus(placed.depth, depth);
+    float grow = focusGrowth(blur, depth);
     PointOut out;
-    out.position = placed.position;
-    out.size = clamp(uniforms.pointSize * placed.scale, 1.0, 511.0);
+    out.position = drawnThisPass(blur, depth) ? placed.position : kNotDrawn;
+    out.size = clamp(uniforms.pointSize * placed.scale * grow, 1.0, 511.0);
     out.color = unpackColor(colors[index]);
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
-    out.color.a *= half(placed.fade);
+    out.color.a *= half(placed.fade * focusFade(blur, grow));
     out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
@@ -876,15 +919,36 @@ vertex PointOut bodyVertexInDepth(uint index [[vertex_id]],
                                   const device float *depths [[buffer(4)]],
                                   constant DepthUniforms &depth [[buffer(5)]]) {
     DepthPlacement placed = placeInDepth(positions[index], depths[index], uniforms, depth);
+    float blur = depth.asShadow > 0.5 ? 0.0 : outOfFocus(placed.depth, depth);
+    float grow = focusGrowth(blur, depth);
     PointOut out;
-    out.position = placed.position;
-    out.size = clamp(sizes[index] * uniforms.pointSize * placed.scale, 1.0, 511.0);
+    out.position = drawnThisPass(blur, depth) ? placed.position : kNotDrawn;
+    out.size = clamp(sizes[index] * uniforms.pointSize * placed.scale * grow, 1.0, 511.0);
     out.color = unpackColor(colors[index]);
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
     if (depth.asShadow > 0.5) { out.color = half4(0.0h, 0.0h, 0.0h, out.color.a * 0.35h); }
-    out.color.a *= half(placed.fade);
+    out.color.a *= half(placed.fade * focusFade(blur, grow));
     out.color.rgb *= half3(depth.tint.rgb);
     return out;
+}
+
+// A body out of focus, in the solid drawing: a soft disc fading out toward its edge.
+//
+// Drawn in a pass of its own after everything sharp, over what is behind it and hidden by anything sharp in front,
+// but never writing how far away it is — so a haze of out-of-focus bodies near the eye veils what is behind it
+// instead of cutting holes in it. Whatever shape the bodies are, out of focus they are round, as through a lens.
+fragment half4 softParticleFragment(PointOut in [[stage_in]],
+                                    float2 coordinate [[point_coord]]) {
+    float r = length(coordinate * 2.0 - 1.0);
+    if (r >= 1.0) {
+        discard_fragment();
+    }
+    half4 color = in.color;
+    color.a *= half(1.0 - smoothstep(0.3, 1.0, r));
+    if (color.a < 0.004h) {
+        discard_fragment();
+    }
+    return color;
 }
 
 // A body in the solid drawing.
@@ -928,7 +992,8 @@ vertex TrailOut lineVertexInDepth(uint index [[vertex_id]],
     }
     out.color = unpackColor(colors[index]);
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }
-    out.color.a *= half(placed.fade);
+    // Lines are not spread out of focus, only faded, so a trail does not stay sharp behind a body gone soft.
+    out.color.a *= half(placed.fade * (1.0 - 0.75 * outOfFocus(placed.depth, depth)));
     out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
@@ -948,7 +1013,7 @@ vertex TrailOut springVertexInDepth(uint index [[vertex_id]],
         out.position = kNotDrawn;
     }
     out.color = half4(0.784h, 0.800h, 0.831h, 0.45h);
-    out.color.a *= half(placed.fade);
+    out.color.a *= half(placed.fade * (1.0 - 0.75 * outOfFocus(placed.depth, depth)));
     out.color.rgb *= half3(depth.tint.rgb);
     return out;
 }
