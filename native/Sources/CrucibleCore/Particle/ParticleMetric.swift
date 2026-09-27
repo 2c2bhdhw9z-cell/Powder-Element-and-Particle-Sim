@@ -278,7 +278,6 @@ extension ParticleEngine {
         let maxLives = swarm.maxLives
         let source = swarm.colors
         let usePalette = paletteEnabled && drawColorScratch.count >= bodies
-        var target = target
         drawColorScratch.withUnsafeBufferPointer { scratch in
             for i in 0 ..< bodies {
                 var colour = usePalette ? scratch[i] : source[i]

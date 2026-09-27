@@ -62,7 +62,21 @@ extension PowderEngine {
 
                 switch overlay {
                 case .temperature:
-                    pixels[i] = Self.heatMap(temp)
+                    // Empty space sitting at room temperature is left dark rather than painted.
+                    //
+                    // It used to be painted, and the heat view of any ordinary world was therefore a flat green
+                    // rectangle — the air is most of the grid and all of it is within a degree of the room, so the
+                    // world itself vanished inside it. You could not see where the heat *was*, which is the only
+                    // thing the view is for.
+                    //
+                    // Air genuinely carrying heat — a draught off a fire, the chill over ice — is still painted,
+                    // because that is what somebody switched to this view to find. Ten degrees is the threshold the
+                    // tinted mode already uses to decide air is worth drawing, reused rather than reinvented.
+                    if id == Element.empty, abs(temp - Double(ambientTemp)) <= 10 {
+                        pixels[i] = background
+                    } else {
+                        pixels[i] = Self.heatMap(temp)
+                    }
                     continue
 
                 case .density:

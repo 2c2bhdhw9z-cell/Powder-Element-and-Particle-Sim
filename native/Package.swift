@@ -23,6 +23,7 @@ let package = Package(
         .library(name: "CrucibleCore", targets: ["CrucibleCore"]),
         .library(name: "CrucibleText", targets: ["CrucibleText"]),
         .executable(name: "crucible-bench", targets: ["CrucibleBench"]),
+        .executable(name: "crucible-daily", targets: ["CrucibleDaily"]),
     ],
     targets: [
         .target(
@@ -49,6 +50,15 @@ let package = Package(
         // on real hardware, not from reasoning about what ought to be fast.
         .executableTarget(
             name: "CrucibleBench",
+            dependencies: ["CrucibleCore"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        // Draws the day's shared world as a picture, from the simulation, with no phone in the loop. A machine runs it
+        // on a timer; see .github/workflows/daily.yml.
+        .executableTarget(
+            name: "CrucibleDaily",
             dependencies: ["CrucibleCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

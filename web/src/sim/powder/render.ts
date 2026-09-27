@@ -30,6 +30,19 @@ export function renderToCanvas(e: PowderCtx, ctx: CanvasRenderingContext2D, over
 
       // 1. Pure Thermal Vision Heatmap
       if (overlayMode === "temp") {
+        // Empty space sitting at room temperature is left as the background rather than painted.
+        //
+        // It used to be painted, and the result was that the heat view of any ordinary world was a flat green
+        // rectangle: the air is most of the grid, all of it within a degree of the room, so the world itself was
+        // invisible inside it. You could not see where the heat *was*, which is the only thing the view is for.
+        //
+        // Air that is genuinely carrying heat — a draught off a fire, the chill above ice — is still painted, because
+        // that is exactly what somebody switched to this view to find. Ten degrees is the same threshold the tinted
+        // mode uses to decide that air is worth drawing.
+        if (type === 0 && Math.abs(temp - e.ambientTemp) <= 10) {
+          data32[i] = 0xff0c0a0a; // ABGR dark background #0a0a0c, the same one every other mode uses.
+          continue;
+        }
         // Temperature color mapping: -100°C -> deep blue, 0°C -> teal, 20°C -> green, 100°C -> yellow, 500°C -> orange, 1500°C -> red, 3000°C -> white
         let r = 0, g = 0, b = 0;
         if (temp < 0) {

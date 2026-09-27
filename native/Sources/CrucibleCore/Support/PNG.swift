@@ -164,6 +164,24 @@ public enum PNG {
     }
 }
 
+extension ParticleEngine {
+    /// The field as the bytes of a PNG file: soft dots, light adding up where bodies crowd.
+    ///
+    /// A likeness of the screen rather than a copy of it — the glow, the trails and the silhouettes are the GPU's, and
+    /// are not here. See ``fieldPicture(scale:dotSize:)`` for what is and is not reproduced, and why.
+    ///
+    /// - Parameters:
+    ///   - scale: whole-number enlargement. Dots grow with it.
+    ///   - glowing: whether the bright parts spread light. Defaults to whatever the field's own glow is set to.
+    public func pngBytes(scale: Int = 1, glowing: Bool? = nil) -> [UInt8]? {
+        let factor = max(1, scale)
+        let pixels = fieldPicture(scale: factor, glowing: glowing)
+        guard !pixels.isEmpty else { return nil }
+        // Already enlarged, dots and all, so the writer is handed the finished size and does no repeating of its own.
+        return PNG.bytes(from: pixels, width: Int(width) * factor, height: Int(height) * factor)
+    }
+}
+
 extension PowderEngine {
     /// The world as the bytes of a PNG file, with no phone and no libraries involved.
     ///

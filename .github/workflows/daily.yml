@@ -1,0 +1,127 @@
+name: The world of the day
+
+# Draws the world everybody gets today, and publishes the pictures.
+#
+# ## Why this exists
+#
+# One scene a day, the same for everyone, chosen by hashing the date. It is the only thing in the lab that is shared —
+# and until now the only way to see it was to open the app on a phone. So nobody could look at tomorrow's, nobody could
+# put a picture of today's anywhere, and nobody could tell whether a change had quietly altered what a given day
+# produces.
+#
+# This runs the real engine, picks the day's world with the real chooser, and writes the real pictures. No phone, no
+# simulator, no Apple hardware: the engine imports nothing, and since it can now write a PNG with nothing but
+# arithmetic (see native/Sources/CrucibleCore/Support/PNG.swift) a Linux container is enough.
+#
+# ## Where the pictures go
+#
+# Attached to the run, kept for a fortnight, and — for a scheduled run — hung on a release tagged with the date, which
+# gives every day a permanent address that anything can point at. Nothing is committed to the repository: a picture a
+# day committed forever is five megabytes a day of history that can never be removed.
+
+on:
+  schedule:
+    # A few minutes past midnight, UTC, which is the clock the chooser itself uses — so the day drawn here is always
+    # the day the app is showing. GitHub's timer is approximate under load; a run that slips an hour still lands on the
+    # right day, which is why it is not set to the stroke of midnight.
+    - cron: "7 0 * * *"
+  # By hand, for any day at all, which is how you look at tomorrow's before it arrives.
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Which day to draw (YYYY-MM-DD, blank for today)"
+        type: string
+        default: ""
+      steps:
+        description: "How many moments to run before drawing"
+        type: string
+        default: "240"
+      scale:
+        description: "How many pixels across one cell becomes"
+        type: string
+        default: "3"
+
+# Writing a release needs it. Nothing else here does.
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  draw:
+    name: Draw it
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the drawer
+        working-directory: native
+        run: swift build -c release --product crucible-daily
+
+      # Through the environment rather than pasted into the command, so whatever is typed is only ever an argument. The
+      # tool refuses anything that is not a date, and refuses to guess.
+      - name: Draw the day's world
+        id: draw
+        working-directory: native
+        env:
+          DAY: ${{ inputs.day }}
+          STEPS: ${{ inputs.steps || '240' }}
+          SCALE: ${{ inputs.scale || '3' }}
+        run: |
+          set -eu
+          mkdir -p ../pictures
+          if [ -n "${DAY:-}" ]; then
+            ./.build/release/crucible-daily --day "$DAY" --steps "$STEPS" --scale "$SCALE" --out ../pictures | tee out.txt
+          else
+            ./.build/release/crucible-daily --steps "$STEPS" --scale "$SCALE" --out ../pictures | tee out.txt
+          fi
+          # The day it actually drew, read back from what it printed, so the release is tagged with that rather than
+          # with this machine's idea of the date — the two can differ by a minute either side of midnight.
+          DREW=$(head -1 out.txt | awk '{print $NF}')
+          echo "day=$DREW" >> "$GITHUB_OUTPUT"
+          {
+            echo "### The world for $DREW"
+            echo
+            sed -n '2,6p' out.txt | sed 's/^  /- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Checked with something other than the code that wrote them. The engine's PNG writer is arithmetic rather than a
+      # library, so "it produced bytes" is not evidence it produced a picture — `file` reading the size and colour type
+      # back out of the header is.
+      # Checked with something other than the code that wrote them. The engine's PNG writer is arithmetic rather than a
+      # library, so "it produced bytes" is not evidence it produced a picture — and a correct PNG of a blank rectangle
+      # is a correct PNG, which is the failure that actually happened here twice. See scripts/check-png.py.
+      - name: Check they are really pictures of something
+        run: |
+          set -eu
+          ls -l pictures
+          python3 scripts/check-png.py pictures/*.png
+
+      - name: Keep them with the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-${{ steps.draw.outputs.day }}
+          path: pictures/
+          retention-days: 14
+
+      # A permanent address for the day, for scheduled runs only — a run started by hand to look at some other day
+      # should not overwrite a day's published pictures.
+      - name: Publish it
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DAY: ${{ steps.draw.outputs.day }}
+        run: |
+          set -eu
+          apt-get update -qq && apt-get install -y -qq gh >/dev/null 2>&1 || true
+          if command -v gh >/dev/null 2>&1; then
+            gh release create "world-$DAY" pictures/* \
+              --title "The world for $DAY" \
+              --notes-file "pictures/caption-$DAY.txt" \
+              || gh release upload "world-$DAY" pictures/* --clobber
+          else
+            echo "No gh here; the pictures are attached to the run instead."
+          fi
