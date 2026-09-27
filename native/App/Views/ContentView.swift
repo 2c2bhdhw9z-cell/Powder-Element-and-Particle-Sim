@@ -295,6 +295,24 @@ struct ContentView: View {
             // down with it: the play button and the clear button ended up inside the home-indicator strip,
             // where iOS takes the upward swipe and pressing them is a gamble.
             .ignoresSafeArea(edges: .top)
+            // The introduction, over everything, on the first launch and whenever it is asked for again.
+            //
+            // A layer rather than a screen the system presents. It was the latter, and it quietly broke every panel in
+            // the app: with a full-screen cover attached to the same view as the dozen sheets, tapping Lab afterwards
+            // opened nothing at all — the tap-through check found it, and nothing else would have. A layer cannot
+            // compete for the one slot the system gives a view.
+            .overlay {
+                if showingWelcome {
+                    WelcomeSheet(
+                        onFinish: {
+                            withAnimation(.easeOut(duration: 0.2)) { showingWelcome = false }
+                            hasBeenWelcomed = true
+                        },
+                        onWantsSimple: { isSimple = true }
+                    )
+                    .transition(.opacity)
+                }
+            }
         }
         // Behind everything, including the strip at the top and the one at the bottom, so that nothing
         // the world does not reach is ever left showing through to white.
@@ -415,17 +433,6 @@ struct ContentView: View {
     /// Every panel that slides up over the world.
     private var labWithPanels: some View {
         labWithWatchers
-        // Once, on the first launch, and from the Lab panel afterwards. Full screen rather than a card: it is the first
-        // thing anybody sees, and a card over a world nobody has made yet explains nothing.
-        .fullScreenCover(isPresented: $showingWelcome) {
-            WelcomeSheet(
-                onFinish: {
-                    showingWelcome = false
-                    hasBeenWelcomed = true
-                },
-                onWantsSimple: { isSimple = true }
-            )
-        }
         .sheet(isPresented: $showingScenes) {
             ScenePicker(simple: isSimple) { recipe in
                 breadcrumbs.record("loaded the \(recipe.name) scene")
