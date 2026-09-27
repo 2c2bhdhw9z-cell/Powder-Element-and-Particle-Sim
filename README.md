@@ -68,7 +68,7 @@ The simulation engine builds and tests anywhere, with no Apple hardware:
 
 ```bash
 cd native
-swift test              # 936 tests, Linux or macOS
+swift test              # 1,066 tests, Linux or macOS
 swift test -c release   # the optimiser is allowed to change floating-point results
 ```
 

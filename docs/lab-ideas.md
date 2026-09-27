@@ -498,7 +498,12 @@ are in brackets. Nearly everything from "after 11" onwards waits on the last ite
 
 ### The repository itself
 
-47. There is no history. The main branch is a single commit, and every push replaces it with a new single
+47. ~~There is no history.~~ **Not true any more, since 27 September 2026.** The main line now has a real history —
+    a hundred and eighty-odd commits, each one a change with its reasons, so a change can be compared against what
+    came before it and rolled back on its own. That is also how two changes that deliberately broke the project were
+    undone without losing anything. The original note follows, for the record.
+
+    There is no history. The main branch is a single commit, and every push replaces it with a new single
     commit containing everything. So there is nothing to compare a change against, nothing to roll back to,
     and no way to find which change broke something. Deliberate or not, it is worth knowing. [small]
 48. Two notes have gone stale. The gh commands listed as failing in the workshop now work, and the engine is
