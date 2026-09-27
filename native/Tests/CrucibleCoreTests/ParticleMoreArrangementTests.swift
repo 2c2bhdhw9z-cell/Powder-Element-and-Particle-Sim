@@ -512,6 +512,79 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("Particle life sorts itself out, and the kinds do not feel the same about each other")
+    func particleLifeOrganisesItself() {
+        let engine = field(width: 1_320, height: 2_868)
+        engine.screenWidth = 1_320
+        engine.screenHeight = 2_868
+        #expect(engine.loadArrangement("life"))
+        #expect(engine.particleLifeEnabled)
+        #expect(engine.particles.count > 100)
+
+        // Five kinds, all present, each carrying which it is.
+        let kinds = Set(engine.particles.map { ParticleEngine.particleLifeKind(of: $0) })
+        #expect(kinds.count == ParticleEngine.particleLifeKinds, "only \(kinds.count) kinds are in the field")
+
+        // The table is not mutual, which is the whole reason this looks alive: something has to be able to chase
+        // something that flees it.
+        let rules = engine.particleLifeRules
+        #expect(rules.count == ParticleEngine.particleLifeKinds)
+        var lopsided = 0
+        for mine in 0 ..< rules.count {
+            for theirs in 0 ..< rules.count where mine != theirs {
+                if abs(rules[mine][theirs] - rules[theirs][mine]) > 0.2 { lopsided += 1 }
+            }
+        }
+        #expect(lopsided > 2, "every kind feels the same about every other, so nothing can chase anything")
+
+        /// How clumped the field is: the average number of others within noticing distance.
+        func togetherness(_ engine: ParticleEngine) -> Double {
+            let bodies = engine.particles
+            guard bodies.count > 1 else { return 0 }
+            let reach = engine.brushUnit * ParticleEngine.particleLifeReach
+            let reachSquared = reach * reach
+            var total = 0
+            for i in 0 ..< bodies.count {
+                for j in 0 ..< bodies.count where j != i {
+                    let dx = bodies[j].x - bodies[i].x
+                    let dy = bodies[j].y - bodies[i].y
+                    if dx * dx + dy * dy < reachSquared { total += 1 }
+                }
+            }
+            return Double(total) / Double(bodies.count)
+        }
+
+        // Scattered at random to begin with; after a while it has sorted itself into something.
+        let atFirst = togetherness(engine)
+        for _ in 0 ..< 600 { engine.step() }
+        let later = togetherness(engine)
+        #expect(
+            abs(later - atFirst) > atFirst * 0.15,
+            "nothing organised itself: \(atFirst) neighbours each, then \(later)"
+        )
+        let finite = engine.particles.allSatisfy { $0.isFinite }
+        #expect(finite, "particle life flew apart")
+        // Nothing has escaped the world, which a force this free could easily do.
+        let inside = engine.particles.allSatisfy {
+            $0.x > -20 && $0.x < engine.width + 20 && $0.y > -20 && $0.y < engine.height + 20
+        }
+        #expect(inside, "something left the world")
+
+        // Shuffling gives a different world, and the same seed gives the same shuffle.
+        let before = engine.particleLifeRules
+        engine.shuffleParticleLife()
+        #expect(engine.particleLifeRules != before, "shuffling changed nothing")
+        let twice = ParticleEngine(width: 400, height: 700, seed: 5)
+        let thrice = ParticleEngine(width: 400, height: 700, seed: 5)
+        twice.shuffleParticleLife()
+        thrice.shuffleParticleLife()
+        #expect(twice.particleLifeRules == thrice.particleLifeRules, "the same seed gave two different worlds")
+
+        // And it is off for every other scene, so nothing else is quietly dragged about by it.
+        #expect(engine.loadArrangement("galaxy"))
+        #expect(!engine.particleLifeEnabled)
+    }
+
     @Test("A morph flows from one arrangement into another, and stays touchable all the way")
     func morphFlowsBetweenShapes() {
         let engine = field(width: 1_320, height: 2_868)

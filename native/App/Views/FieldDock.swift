@@ -233,6 +233,27 @@ struct FieldDock: View {
                     }
                 }
             }
+            // Only for the one scene it belongs to, so it is not a button that does nothing almost all the time.
+            if model.isParticleLife {
+                HStack(spacing: 8) {
+                    Button {
+                        Haptics.firm()
+                        model.shuffleParticleLife()
+                    } label: {
+                        Label("Shuffle their feelings", systemImage: "shuffle")
+                            .font(.labBody(12, .semiBold))
+                            .foregroundStyle(Palette.primaryForeground)
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(Capsule().fill(Palette.primary))
+                    }
+                    .buttonStyle(.plain)
+                    Text("A new table of likes and dislikes — the same bodies become a different creature.")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             morphControls
             if let details = model.arrangementDetails {
                 Text(details.about(inDepth: model.depthEnabled))

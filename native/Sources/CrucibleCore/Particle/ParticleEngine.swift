@@ -206,6 +206,9 @@ public final class ParticleEngine {
     var storedMorphAt = 0.0
     var storedMorphA: [(x: Double, y: Double, z: Double, color: UInt32)] = []
     var storedMorphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
+    /// Kinds that like and dislike each other. See `ParticleLife.swift`.
+    var storedParticleLifeEnabled = false
+    var storedParticleLifeRules: [[Double]] = []
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -461,6 +464,8 @@ public final class ParticleEngine {
         // Off again, or every scene chosen after a little round world would have its matter fall to the middle
         // of the screen instead of down it.
         storedGravityToCentre = 0
+        // And the feelings between kinds belong to the scene that set them.
+        storedParticleLifeEnabled = false
         // And back to working the grain size out for itself, so a scene that sets one does not quietly leave every
         // scene chosen afterwards packing the way it did.
         storedContactSettings = .default
@@ -817,6 +822,9 @@ public final class ParticleEngine {
         // Gravity pointing at the middle of the world, for the scenes that are little round worlds. Does nothing
         // at all unless it has been switched on, which is why it can sit outside the compared loops.
         stepGravityToCentre()
+
+        // And the kinds noticing each other, which is the same: off unless a scene asked for it.
+        stepParticleLife()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             if storedDepthEnabled {

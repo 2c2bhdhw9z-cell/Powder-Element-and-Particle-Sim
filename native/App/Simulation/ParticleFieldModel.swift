@@ -2534,6 +2534,20 @@ final class ParticleFieldModel {
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
 
+    // MARK: - Particle life
+
+    /// Whether the field is the one where colours like and dislike each other.
+    var isParticleLife: Bool {
+        observeEngine()
+        return engine.particleLifeEnabled
+    }
+
+    /// Makes up a fresh set of likes and dislikes, so the same bodies become a different kind of creature.
+    func shuffleParticleLife() {
+        engine.shuffleParticleLife()
+        engineDidChange()
+    }
+
     // MARK: - Morphing one arrangement into another
 
     /// Which two arrangements the morph runs between. Both start unset, so nothing happens until they are chosen.

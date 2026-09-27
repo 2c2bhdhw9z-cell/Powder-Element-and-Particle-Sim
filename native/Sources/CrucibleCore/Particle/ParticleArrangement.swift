@@ -218,6 +218,13 @@ public struct ParticleArrangement: Sendable, Hashable {
             inDepth: "A sheet pinned along one edge, falling and swinging through the box."
         ),
         ParticleArrangement(
+            "life", "Particle life", joining: .objects,
+            about: "Five colours, each with its own likes and dislikes of the others. Nothing is animated: cells, "
+                + "crawlers and chasers are what the likes and dislikes happen to produce. Shuffle for a new world.",
+            join: "New bodies join as one of the five kinds.",
+            inDepth: "The same, with the kinds free to move through the box as well as across it."
+        ),
+        ParticleArrangement(
             "jellyfish", "Jellyfish", joining: .structure,
             about: "See-through bells that swim by squeezing themselves, trailing tentacles. Nothing tells them "
                 + "where to go — the squeeze pushes the water, and the water pushes them.",
@@ -521,6 +528,7 @@ extension ParticleEngine {
         case "solar": spawnSolarSystem()
         case "pendulums": spawnPendulumWave()
         case "jellyfish": spawnJellyfish()
+        case "life": spawnParticleLife()
         case "marbling": spawnMarbling()
         case "atom": spawnAtom()
         case "shockwave": spawnShockwave(count: count)
