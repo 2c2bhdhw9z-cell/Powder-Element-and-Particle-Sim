@@ -241,6 +241,16 @@ struct ContentView: View {
             if room == nil {
                 room = RoomBridge(powder: powder)
             }
+            // One slow turn, recorded. The field is the only thing that knows when a full circle is complete;
+            // recording is a thing the whole screen does. So the field says when, and this does it.
+            field.onTurntableStart = { [recorder] in
+                guard !recorder.isRecording else { return }
+                recorder.toggle()
+            }
+            field.onTurntableFinish = { [recorder] in
+                guard recorder.isRecording else { return }
+                recorder.toggle()
+            }
             restoreAutosaveOnce()
             updateCompanionStepping()
         }

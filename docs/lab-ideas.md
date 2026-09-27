@@ -5,6 +5,7 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- Turntable video: one slow turn, recorded, stopping itself after a full circle
 - Colours from a photo: the field drawn in whatever colours a picture is made of
 - Particle life: five colours with their own likes and dislikes, and a Shuffle for new creatures
 - Arrangement morphing: slide between any two crowd scenes, touchable all the way
@@ -529,6 +530,17 @@ against its own gravity:
   usual strength down to a fiftieth; it collapses every time. The crowd's collisions cap how many neighbours each
   square examines — which is what keeps a million bodies affordable — and a ball being squeezed from all sides is
   exactly the case where that cap means most of the overlaps are never resolved.
+
+**Lava lamp** (Round 5). Not shipped, and for a plainer reason than the tiny planet: the particle field has no heat.
+A lava lamp is one thing — warm matter rises, cools at the top, sinks, warms again — and every part of that cycle is
+temperature. Two weights of liquid gives the rising half honestly, through the pressure between them, and then the
+blobs simply stay at the top for ever, because nothing can cool them. The powder world has temperature and would do
+this readily; the particle field would need it adding, and a temperature is a per-body number with a whole set of
+rules behind it rather than a scene's worth of work.
+
+Everything short of that was considered and rejected as dishonest: a timer that sinks blobs on a schedule, a
+height-dependent push, a slow wobble in gravity. Each would look approximately right and none would be a lava lamp —
+they would be an animation of one, which is the thing this field is built not to be.
 
 So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
 springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of

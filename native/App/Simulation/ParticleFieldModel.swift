@@ -1057,6 +1057,8 @@ final class ParticleFieldModel {
         advanceRelaxing(now: now)
         // And, if the field is a clock, whether the minute has turned over.
         advanceClock()
+        // And how far through a recorded turn we are.
+        advanceTurntable()
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -2533,6 +2535,64 @@ final class ParticleFieldModel {
     /// On by default, and the same switch the powder world's explosions already answer to, so the two halves of
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
+
+    // MARK: - One slow turn, recorded
+
+    /// Whether a recorded turn is in progress.
+    private(set) var turntableRunning = false
+
+    /// How far through it is, from nought to one, for something to show.
+    private(set) var turntableProgress = 0.0
+
+    /// Told when a turn begins and when it finishes, so whatever owns the recorder can start and stop it.
+    ///
+    /// The model does not own the recorder and should not: recording is a thing the whole screen does, and the field
+    /// is one part of the screen. It knows when a turn is complete, which nothing else does, so it says so.
+    @ObservationIgnored var onTurntableStart: (@MainActor () -> Void)?
+    @ObservationIgnored var onTurntableFinish: (@MainActor () -> Void)?
+
+    /// How far round the turn has gone so far, in degrees, counted rather than read — the camera's own angle wraps
+    /// at half a turn, so it cannot tell a full circle from none.
+    @ObservationIgnored private var turntableTurned = 0.0
+    @ObservationIgnored private var turntableWas: Double?
+
+    /// Starts one slow turn all the way round, recording as it goes.
+    func startTurntable() {
+        guard !turntableRunning else { return }
+        turntableRunning = true
+        turntableTurned = 0
+        turntableProgress = 0
+        turntableWas = nil
+        // A turn is only a turn if something is turning.
+        cameraAutoOrbit = true
+        onTurntableStart?()
+        engineDidChange()
+    }
+
+    /// Stops early, leaving whatever has been recorded so far.
+    func stopTurntable() {
+        guard turntableRunning else { return }
+        turntableRunning = false
+        turntableProgress = 0
+        onTurntableFinish?()
+        engineDidChange()
+    }
+
+    /// Watches the turn and finishes it off after one full circle.
+    private func advanceTurntable() {
+        guard turntableRunning else { return }
+        let now = storedCamera.effectiveOrbitYaw
+        defer { turntableWas = now }
+        guard let was = turntableWas else { return }
+        // The shortest way round, so the wrap from one side to the other does not read as most of a circle.
+        var step = now - was
+        if step > 180 { step -= 360 }
+        if step < -180 { step += 360 }
+        turntableTurned += abs(step)
+        turntableProgress = min(1, turntableTurned / 360)
+        guard turntableTurned >= 360 else { return }
+        stopTurntable()
+    }
 
     // MARK: - Colours from a photograph
 

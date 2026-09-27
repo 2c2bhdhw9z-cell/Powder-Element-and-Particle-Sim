@@ -1526,6 +1526,33 @@ struct FieldDock: View {
                 )
             }
 
+            // One slow turn, recorded, for showing somebody what you made.
+            if model.depthEnabled {
+                Button {
+                    Haptics.firm()
+                    if model.turntableRunning { model.stopTurntable() } else { model.startTurntable() }
+                } label: {
+                    Label(
+                        model.turntableRunning
+                            ? "Turning… \(Int((model.turntableProgress * 100).rounded()))%"
+                            : "Record one slow turn",
+                        systemImage: model.turntableRunning ? "stop.circle" : "video.badge.plus"
+                    )
+                    .font(.labBody(12, .semiBold))
+                    .foregroundStyle(model.turntableRunning ? Palette.primaryForeground : Palette.foreground)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(
+                        Capsule().fill(model.turntableRunning ? Palette.primary : Color.white.opacity(0.10))
+                    )
+                }
+                .buttonStyle(.plain)
+                Text("Records the whole screen and stops itself after one full circle. Close the tray first.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 8) {
                 Button {
                     Haptics.tap()
