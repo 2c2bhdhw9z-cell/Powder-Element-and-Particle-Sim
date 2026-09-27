@@ -512,6 +512,58 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("The lens says what is acting on one body, and names the biggest first")
+    func theLensExplainsOneBody() {
+        let engine = field()
+        // Nothing where there is nothing, rather than whatever happened to be nearest across the world.
+        #expect(!engine.reading(nearX: 100, y: 100).found)
+
+        engine.gravityY = 0.4
+        engine.damping = 0.99
+        _ = engine.placeLoose(200, 300, velocityX: 3, velocityY: 0, hue: 40)
+        for _ in 0 ..< 5 { engine.step() }
+
+        let read = engine.reading(nearX: 200, y: 320, within: 90)
+        #expect(read.found, "no body found near one that is there")
+        #expect(read.isCrowd)
+        #expect(read.speed > 0)
+        #expect(read.mass > 0)
+        // Gravity and drag are both acting, and both are named.
+        let names = read.pushes.map(\.name)
+        #expect(names.contains("Gravity"), "gravity was not named: \(names)")
+        #expect(names.contains("Drag"), "drag was not named: \(names)")
+        // Largest first, so the answer to "why did that move" is the first line.
+        for index in 1 ..< read.pushes.count {
+            #expect(read.pushes[index - 1].size >= read.pushes[index].size, "the pushes are not in order")
+        }
+        // And where it is heading, which is the other half of the question.
+        #expect(read.path.count > 8)
+        #expect(read.path.last?.y ?? 0 > read.y, "the path does not fall, though gravity is pulling down")
+
+        // A black hole is named, and on a galaxy it is the biggest thing acting on a nearby star.
+        let galaxy = field()
+        #expect(galaxy.loadArrangement("galaxy"))
+        for _ in 0 ..< 30 { galaxy.step() }
+        let hole = galaxy.particles.first { $0.kind == .blackhole }
+        #expect(hole != nil)
+        if let hole {
+            let near = galaxy.reading(nearX: hole.x + 60, y: hole.y, within: 60)
+            #expect(near.found)
+            #expect(near.pushes.first?.name == "Black hole", "the strongest force was \(near.pushes.first?.name ?? "none")")
+        }
+
+        // Painted wind is named too, which matters because it is the one force that is invisible unless drawn.
+        let windy = field()
+        windy.gravityX = 0
+        windy.gravityY = 0
+        windy.damping = 1
+        windy.mouseMode = .current
+        windy.paintCurrent(atX: 200, y: 350, directionX: 1, directionY: 0)
+        _ = windy.placeLoose(200, 350, hue: 200)
+        let felt = windy.reading(nearX: 200, y: 350)
+        #expect(felt.pushes.contains { $0.name == "Painted wind" }, "the wind was not named: \(felt.pushes.map(\.name))")
+    }
+
     @Test("The cost warning knows that the box costs more")
     func costWarningKnowsAboutDepth() {
         // Fewer bodies are affordable in the box than on a flat sheet, because each one costs more.

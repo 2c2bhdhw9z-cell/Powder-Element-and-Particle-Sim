@@ -1,3 +1,4 @@
+import CrucibleCore
 import SwiftUI
 import MetalKit
 
@@ -41,6 +42,74 @@ struct FieldWithLabels: View {
                     .allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if let read = model.lensReading {
+                    LensReadout(reading: read)
+                        .padding(10)
+                        // Above or below the finger, whichever leaves it visible: a panel under your own thumb is
+                        // a panel you cannot read.
+                        .frame(maxWidth: .infinity, alignment: model.lensAtX > 0.5 ? .leading : .trailing)
+                        .frame(maxHeight: .infinity, alignment: model.lensAtY > 0.5 ? .top : .bottom)
+                        .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+/// What the lens found, in words.
+///
+/// Deliberately plain: the name of each force and how hard it is pushing, biggest first, so the answer to "why did
+/// that just move" is the first line rather than something to be worked out.
+struct LensReadout: View {
+    let reading: ParticleReading
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(reading.isCrowd ? "One of the crowd" : "A body of its own")
+                .font(.labBody(11, .semiBold))
+                .foregroundStyle(Palette.foreground)
+            row("Speed", value: reading.speed, unit: " a moment")
+            row("Weight", value: reading.mass, unit: "")
+            Text("\(reading.neighbours) close by")
+                .font(.labNumeric(10))
+                .foregroundStyle(Palette.subtleForeground)
+            if !reading.pushes.isEmpty {
+                Divider().overlay(Palette.border).padding(.vertical, 2)
+                ForEach(Array(reading.pushes.prefix(5).enumerated()), id: \.offset) { _, push in
+                    HStack(spacing: 6) {
+                        Text(push.name)
+                            .font(.labBody(10))
+                            .foregroundStyle(Palette.muted)
+                        Spacer(minLength: 8)
+                        Text(push.size.formatted(.number.precision(.significantDigits(2))))
+                            .font(.labNumeric(10))
+                            .foregroundStyle(Palette.subtleForeground)
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: 190, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .fill(Palette.background.opacity(0.9))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .stroke(Palette.border, lineWidth: 1)
+        )
+    }
+
+    private func row(_ name: String, value: Double, unit: String) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.labBody(10))
+                .foregroundStyle(Palette.muted)
+            Spacer(minLength: 8)
+            Text(value.formatted(.number.precision(.fractionLength(2))) + unit)
+                .font(.labNumeric(10))
+                .foregroundStyle(Palette.subtleForeground)
+        }
     }
 }
 

@@ -691,8 +691,9 @@ final class ParticleFieldModel {
         get { observeEngine(); return engine.mouseMode }
         set {
             engine.mouseMode = newValue
-            // Choosing a tool puts the Turn tool down: the two share the one finger.
+            // Choosing a tool puts the Turn tool and the lens down: all three share the one finger.
             turnsView = false
+            usesLens = false
             engineDidChange()
         }
     }
@@ -1731,6 +1732,13 @@ final class ParticleFieldModel {
     func updateTouch(atFractionX fx: Double, fractionY fy: Double) {
         touchFractionX = fx
         touchFractionY = fy
+        // The lens reads instead of pushing: the two want the same finger, and a tool that moved what you were
+        // trying to read would make the reading useless.
+        if usesLens {
+            touchActive = false
+            readWithLens(atFractionX: fx, fractionY: fy)
+            return
+        }
         if engine.depthEnabled {
             updateTouchInDepth()
             return
@@ -2525,6 +2533,61 @@ final class ParticleFieldModel {
     /// On by default, and the same switch the powder world's explosions already answer to, so the two halves of
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
+
+    // MARK: - The lens
+
+    /// Whether tapping the field reads the body under your finger instead of pushing it.
+    ///
+    /// While it is on the tools stand down, because the two want the same finger and a tool that moved what you were
+    /// trying to read would make the reading useless.
+    var usesLens: Bool = false {
+        didSet {
+            if !usesLens { lensReading = nil }
+            engineDidChange()
+        }
+    }
+
+    /// What the lens last read, or nothing if it has not been used or found nothing.
+    var lensReading: ParticleReading?
+
+    /// Where on the screen the lens was last put, as fractions, so the reading can be drawn beside it.
+    private(set) var lensAtX: Double = 0.5
+    private(set) var lensAtY: Double = 0.5
+
+    /// Reads whatever is under a touch.
+    func readWithLens(atFractionX fx: Double, fractionY fy: Double) {
+        lensAtX = fx
+        lensAtY = fy
+        let view = viewPixels
+        let place: (x: Double, y: Double)
+        if engine.depthEnabled {
+            let cursor = drawingCamera.fingerRay(
+                screenX: fx * view.width,
+                screenY: fy * view.height,
+                worldWidth: engine.width,
+                worldHeight: engine.height,
+                worldDepth: engine.worldDepth,
+                viewWidth: view.width,
+                viewHeight: view.height
+            ).cursor
+            place = (cursor.x, cursor.y)
+        } else {
+            place = camera.unproject(
+                screenX: fx * view.width,
+                screenY: fy * view.height,
+                worldWidth: engine.width,
+                worldHeight: engine.height,
+                viewWidth: view.width,
+                viewHeight: view.height
+            )
+        }
+        // A reach measured against the screen, so it feels the same however far the view is zoomed: about a
+        // fingertip's worth of world.
+        let reach = max(12, engine.brushUnit * 0.05 * max(1, storedCamera.worldScale))
+        let read = engine.reading(nearX: place.x, y: place.y, within: reach)
+        lensReading = read.found ? read : nil
+        engineDidChange()
+    }
 
     // MARK: - A clock made of particles
 

@@ -79,8 +79,12 @@ struct FieldDock: View {
         model.depthEnabled && model.turnsView
     }
 
+    /// Whether the lens has the finger.
+    private var isLooking: Bool { model.usesLens }
+
     /// What a finger does now, in a word.
     private var toolName: String {
+        if isLooking { return "Look" }
         if isTurning { return "Turn" }
         return Self.tools.first(where: { $0.mode == model.mouseMode })?.name ?? "Field"
     }
@@ -1662,12 +1666,23 @@ struct FieldDock: View {
                 // In 3D, first: one finger goes round the box instead of working the field. Picking any other tool
                 // puts it down again.
                 if model.depthEnabled {
-                    toolButton("Turn", symbol: "rotate.3d", selected: model.turnsView) {
+                    toolButton("Turn", symbol: "rotate.3d", selected: model.turnsView && !model.usesLens) {
+                        model.usesLens = false
                         model.turnsView = true
                     }
                 }
+                // Reads what is under your finger rather than pushing it. First with Turn, because both are
+                // about looking rather than doing.
+                toolButton("Look", symbol: "magnifyingglass", selected: model.usesLens) {
+                    model.usesLens = true
+                }
                 ForEach(Self.tools, id: \.mode) { tool in
-                    toolButton(tool.name, symbol: tool.symbol, selected: !isTurning && model.mouseMode == tool.mode) {
+                    toolButton(
+                        tool.name,
+                        symbol: tool.symbol,
+                        selected: !isTurning && !model.usesLens && model.mouseMode == tool.mode
+                    ) {
+                        model.usesLens = false
                         model.mouseMode = tool.mode
                     }
                 }
