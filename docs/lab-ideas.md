@@ -327,6 +327,207 @@ sharing what people make.
 
 ---
 
+## Round 7 — outside the simulation, 26 Sep 2026
+
+Brought in from a branch where it was written, so it is not lost. Not one of these is physics: they are about
+who can install the app, what it tells us when it breaks, what it costs to run, and what it is for. Rough sizes
+are in brackets. Nearly everything from "after 11" onwards waits on the last item.
+
+### Seeing what the app looks like without a phone
+
+1. A fast lane in the checks. Every change costs a full run — two operating systems, two build configurations,
+   about ten minutes. A job started by hand that runs one system, unoptimised, and can be pointed at a single
+   test makes the loop two to four minutes. [small]
+2. Pictures of the app, made automatically. Build for the simulator on the Mac runner, walk the main screens,
+   and commit the pictures to a branch. Anything attached to a run cannot be fetched back into a workshop; a
+   branch can. Every interface fault so far was found by eye — this is a pair of eyes that never blinks.
+   [medium]
+3. A tap-through that fails the build. Open the tray, choose sand, draw, press play, open settings, move a
+   slider, switch chamber, split the view — and fail on a crash, a hang or a blank screen. The panel that drew
+   once and never again is exactly this kind of fault, and no unit test can catch it. [medium]
+4. Keep the build's work between runs. The Linux job rebuilds from nothing every time. [small]
+5. Check the server's half, not the reference's. Do not wire the whole web suite into the checks — most of it
+   guards the engine that is being deleted. The routes and the schema the phone actually talks to are worth a
+   job of their own. [small]
+6. Talk to the real server, from the workshop. Once the four variables are set, replay the exact requests the
+   app makes and check the answers against what it expects to parse. [medium, waits on the owner]
+7. A bad link, on purpose. Delay, loss and a slow peer against the room's pacing, proving it degrades into
+   fewer, fresher frames rather than a growing backlog, and that a peer who walks away times out. [small]
+8. Release notes that say what changed since your build, in plain English, plus three things worth checking on
+   the phone. [small]
+
+### Never lose a fault again
+
+9. Where crashes already are. The app has no crash handling of any kind — nothing written down anywhere. But
+   every crash on your own phone is already recorded by iOS, under Analytics Data in the privacy settings, and
+   can be shared from there. Worth knowing before anything is built. [nothing]
+10. A breadcrumb, and "last time ended badly". Keep a small note of what the world was doing — seed, settings,
+    the last things touched — rewritten as you go, and on the next launch notice the last session never
+    finished and offer to send the note. No account, no server, no entitlement, nothing that can make signing
+    the app harder than it already is. Apple's report says where in the code it died; this says what the world
+    was doing, which is the half that makes it reproducible. [medium]
+11. TestFlight, which is also the answer to the widget question below. Not the App Store — TestFlight on its
+    own, which needs the paid developer account and nothing else. Internal testers (up to 100) install straight
+    away with no review at all; outside people (up to 10,000) need a lighter beta review; a build lasts ninety
+    days; crashes and tester feedback arrive in App Store Connect by themselves, symbolised. It also makes the
+    app installable by somebody who is not you, without a re-signing tool, and without it expiring every week.
+    [medium, costs the membership]
+12. The numbers Apple will not otherwise hand over. There is an Apple framework that gives the app its own
+    reports: crashes with stacks, hangs, slow launches, disk-write spikes, battery and energy. It only delivers
+    for TestFlight or App Store builds — never for a sideloaded one — so it is a reason to do item 11 rather
+    than a replacement for it. [small, after 11]
+13. A one-tap "that looked wrong". Not a crash: a fault with no crash at all, which is most of what you have
+    found. The same note as item 10, sent on purpose, with a picture. [medium]
+14. Break the files on purpose. Truncated saves, nonsense replies, half-arrived room frames — every loader
+    should complain rather than die. A world that cannot be opened is unrecoverable for somebody with no
+    debugger. [small]
+15. Long runs with rules that must hold. Every scene for tens of thousands of moments, asserting that nothing
+    impossible happens rather than that it matches a recording. Recorded comparisons prove identical; these
+    prove sane. [medium]
+16. Fail the build when it gets slower. The benchmark prints on every run and nothing reads it. [small]
+17. Old saves keep opening. Keep an old world file in the repository and load it on every build. [small]
+
+### Getting it to other people
+
+18. An icon at last. Still nothing — no icon, no asset catalogue. Every install on your phone wears a blank
+    square, and it is the first thing anybody else would see. [small]
+19. A public face. The banner, the share picture and the install page all live in the part being deleted.
+    Whatever replaces them should not live in the app's repository. [small]
+20. Worlds that open where they are. The app can send a world out and pull one in through a file picker, but it
+    does not handle world files: no double-tap to open, no "open in Crucible" from a message. Small change, and
+    it turns a world into something you can post to somebody. [small]
+21. The engine where there is no Apple. It imports nothing at all — not even the platform's maths library — and
+    the renderers live inside it and write plain pixels, which is why pictures of the world can be made without
+    a screen. That is exactly what a build for a browser would need, so a world could be watched by somebody
+    who will never install anything, and a day's world could be drawn by a machine with nobody's phone
+    involved. Not reviving the web app; it is this engine, somewhere else. [large]
+22. The television. The field already reacts to sound, and mirroring to a screen costs no extension — which
+    matters, because extensions are the one thing this app cannot have. [medium]
+23. Publish the day's world. Everybody is given the same world each day and there is no way to compare, so it
+    is a shared thing that nobody shares. A picture a day, drawn without a phone, is enough. [medium]
+24. Something to hold. The renderer produces exact pixels, so a poster of your own lava flow or a drawing from
+    a pen plotter is a print job rather than a feature. [small]
+
+### What it costs to run
+
+25. The battery. Frames and milliseconds are measured; energy is not. A field running at the full refresh rate,
+    a microphone and screen recording together is about the most expensive thing a phone can be asked to do,
+    and the bill is counted nowhere. [medium]
+26. A hot phone, and a tired one. Nothing reads the phone's temperature or its Low Power setting, so when the
+    phone slows the app down it simply looks like the app going bad. The decision belongs in the engine, where
+    it can be tested; only the reading is app-side. [medium]
+27. Sensors it ignores. Tilt and the microphone are the only two it uses. Air pressure falling as weather comes
+    in, your steps as a slow tide, where the sun actually is, how bright the room is — all of it app-side
+    plumbing onto physics that already exists. [medium]
+
+### What it is for
+
+28. Take things away. Fifty materials, twenty-odd arrangements, nine 3D scenes, dozens of settings, and a
+    hundred ideas queued. A way to hand the phone to somebody with five materials and three tools is the one
+    feature nobody has asked for and nobody can currently have. [medium]
+29. Say 1.0 and stop adding. The only item on this list that lowers risk instead of raising it. [nothing]
+30. Give it a memory. Saves are names and files — no picture of the world, no gallery, nothing that shows you
+    what you built last week. Every other creative tool on the phone remembers for you; this makes the app
+    about your worlds rather than about its engine. [medium]
+31. A first run. Nothing introduces the app to anybody. Fifty materials, brushes, recipes, tilt, split view and
+    recording, and no path through any of it. [medium]
+32. Seen once on a tablet, and sideways. Both are declared in the project and neither has ever been looked at.
+    [small, needs 2]
+33. Something to plot. Measurements out as numbers rather than only as pictures, for somebody learning. The
+    encyclopedia, the recipes and the day's world are most of a classroom toy already. [small]
+34. The written-down method. Roughly four and a half thousand lines of notes, written to a standard almost
+    nothing else meets: status that admits what is skipped, decisions recorded with their reasons, work tried
+    and abandoned with the measurement that killed it, comparisons retired on the record instead of quietly
+    regenerated, and a list of what will waste your time. That is a way of building a large verified thing with
+    an agent, and as far as I can tell nobody has published it. [medium]
+35. A second opinion. One agent writes and grades its own work. A different model, on a different provider,
+    told to find faults and prove them, is the check this project has never had. [small]
+36. A page for "if this stops". Where the worlds live, the account, the address, the four server variables, how
+    a build is made. The only document here that assumes it outlives your attention to it. [small]
+
+### The two chambers, after 3D
+
+37. The room cannot carry the field. What travels between two phones is the powder grid — a width, a height,
+    gravity and the cells. The particle chamber, which is the one that just grew the most, has never been
+    shareable in any form. Either give it a wire format or say plainly in the panel that a room is powder only.
+    [medium]
+38. The cost guard does not know the box exists. The limit that exists because the field once fell over at two
+    hundred thousand bodies takes only a count and whether collisions are on, and the benchmark has no cases
+    for depth at all. In the box, neighbours are found in cubes and the depth passes are extra work on top — so
+    the number you are shown before setting off a big scene is a flat-world guess. [small]
+39. Sleeping bodies, done properly. The notes already record that the reference's sleep saves no time at all —
+    a sleeping body is still walked end to end — and that a version that genuinely skipped settled bodies is a
+    different piece of work. The box doubles the cost of walking every body, so that work is now worth twice
+    what it was. [medium]
+40. The powder world seen through the box's camera. Not a second simulation: the same grid drawn as a slab of
+    cubes in the 3D view that already exists, with the shadows and fog already built, so a castle you just
+    made can be walked round. Say plainly that it is a view of the same world. [medium]
+41. Red-and-blue glasses. Already in Round 4 and still unbuilt, and the drawing now knows how far away every
+    body is — two offsets, red and cyan. The cheapest spectacle here, and the only one you can show somebody
+    without handing them a second phone. [small]
+42. A steady view, and the system's own settings honoured. The phone can now move the view by itself, and
+    nothing in the app reads Reduce Motion, Reduce Transparency or Increase Contrast. Buttons have labels;
+    nothing else does. [small]
+43. Four small ones, each leaning entirely on machinery that already exists: lasso select, rewind scrub, a
+    thermometer you stab into the grid, and a tide that is a slow sine on how much water arrives. [medium]
+
+### The thing nobody has tested
+
+44. Find out whether an extension can be installed at all. You have never tested it, and the reasons to expect
+    trouble are specific: a widget is a second program inside the app with its own identity and its own
+    signing, the re-signing tool has to sign that too or the install fails or the widget never appears, and
+    sharing anything between the app and the widget needs a capability that free accounts cannot have. The test
+    is cheap: one throwaway widget, built by the checks, installed the way you install everything. Either
+    answer is worth having. [small]
+45. A widget that needs nothing shared. If extensions do install, a widget does not need the app's data at all,
+    because the day's world is a pure function of the date: the widget can work out today's world itself and
+    draw it with the engine's own renderer. No shared container, so no capability to be refused. [medium,
+    after 44]
+46. A clock, on the lock screen and on a table. The same experiment decides it. A clock is one of the few things
+    a widget does update second by second. [small, after 44]
+
+### The repository itself
+
+47. There is no history. The main branch is a single commit, and every push replaces it with a new single
+    commit containing everything. So there is nothing to compare a change against, nothing to roll back to,
+    and no way to find which change broke something. Deliberate or not, it is worth knowing. [small]
+48. Two notes have gone stale. The gh commands listed as failing in the workshop now work, and the engine is
+    listed as building and testing there, where there is no Swift at all any more. Every agent that reads the
+    stale version loses time to it. [small]
+
+### The decision that unlocks half of this round
+
+49. Pay for the developer account, or don't. It is the difference between TestFlight (install without a
+    re-signing tool, ninety-day builds, crashes collected for you), widgets and a lock-screen clock, and an app
+    somebody else can install — and the present arrangement, which works, costs nothing, and is yours alone.
+    Everything here marked "after 11" or "after 44" is waiting on this one answer.
+
+---
+
+## Tried and not shipped
+
+Kept so the next attempt does not repeat the work.
+
+**Tiny planet** (Round 5). Gravity pointing at the middle of the world is built, tested and available to any
+scene — that part shipped. The world itself did not, because the crowd cannot yet hold a ball of loose matter up
+against its own gravity:
+
+- **As liquid**, the ball keeps its shape perfectly, and cannot be dug. Everything in it is already pressed
+  toward one point from every side, so the liquid sits at the limit of how tightly it can pack. A pull held in it
+  moves matter *outward*, because the pressure pushes back harder than the finger pulls. Softening the liquid a
+  long way barely changed it.
+- **As grains that collide**, it can be dug, and it collapses through itself. The ball fell from two hundred and
+  seventy pixels across to sixty. Tried at two grain sizes, three packing densities and pulls from a fifth of the
+  usual strength down to a fiftieth; it collapses every time. The crowd's collisions cap how many neighbours each
+  square examines — which is what keeps a million bodies affordable — and a ball being squeezed from all sides is
+  exactly the case where that cap means most of the overlaps are never resolved.
+
+So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
+springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of
+physics and both are bigger than the scene.
+
+---
+
 ## Tried and not shipped
 
 Kept so the next attempt does not repeat the work.
