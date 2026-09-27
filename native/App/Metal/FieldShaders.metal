@@ -631,6 +631,9 @@ struct GlowUniforms {
     float threshold;
     // How bright the glow is when added back.
     float strength;
+    // Whether the blur keeps only what is bright enough to glow, sample by sample. One for the first of the
+    // two blurs, which reads the field itself; nought for the second, which reads the first's result.
+    float keepsOnlyBright;
 };
 
 // The nine weights of a Gaussian blur, normalised so they add to one.
@@ -639,34 +642,43 @@ struct GlowUniforms {
 // how they are used: the shape is symmetric, so each pair is one weight applied twice.
 constant float kGlowWeights[5] = { 0.2270270270, 0.1945945946, 0.1216216216, 0.0540540541, 0.0162162162 };
 
-fragment half4 glowBrightFragment(RingOut in [[stage_in]],
-                                  constant FieldUniforms &uniforms [[buffer(2)]],
-                                  constant GlowUniforms &glow [[buffer(0)]],
-                                  texture2d<float> source [[texture(0)]],
-                                  sampler smooth [[sampler(0)]]) {
-    float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
-    float4 sampled = source.sample(smooth, uv);
-
-    // How bright it is, weighted the way an eye weighs the three channels — green counts for most,
-    // blue for least.
-    float brightness = dot(sampled.rgb, float3(0.2126, 0.7152, 0.0722));
-    // A soft knee rather than a hard cut. A hard cut makes the glow appear and disappear along a
-    // visible contour as something brightens, which looks like a fault in the picture.
-    float over = smoothstep(glow.threshold, glow.threshold + 0.25, brightness);
-    return half4(half3(sampled.rgb * over), 1.0h);
+// How much of a colour glows: all of it above the threshold, none well below, eased between.
+//
+// A soft knee rather than a hard cut. A hard cut makes the glow appear and disappear along a visible contour
+// as something brightens, which looks like a fault in the picture.
+static inline float3 onlyTheBright(float3 colour, float threshold) {
+    // Brightness weighted the way an eye weighs the three channels — green counts for most, blue for least.
+    float brightness = dot(colour, float3(0.2126, 0.7152, 0.0722));
+    return colour * smoothstep(threshold, threshold + 0.25, brightness);
 }
 
+// One direction of the blur, optionally keeping only what is bright enough as it goes.
+//
+// ## Why the keeping happens here rather than in a pass of its own
+//
+// It used to be its own full pass over the picture: read the field, keep the bright parts, write them out, then
+// blur that twice. But keeping only the bright parts is a decision made one pixel at a time, so making it while
+// the first blur reads each sample gives exactly the same answer — the same weights over the same kept colours —
+// with one fewer pass over the picture and one fewer texture to write and read. On a phone, where every pass
+// means the whole picture moving in and out of the chip's own small fast memory, that is the expensive part.
 fragment half4 glowBlurFragment(RingOut in [[stage_in]],
                                 constant FieldUniforms &uniforms [[buffer(2)]],
                                 constant GlowUniforms &glow [[buffer(0)]],
                                 texture2d<float> source [[texture(0)]],
                                 sampler smooth [[sampler(0)]]) {
     float2 uv = in.screen / max(uniforms.viewSize, float2(1.0));
-    float3 total = source.sample(smooth, uv).rgb * kGlowWeights[0];
+    bool keeping = glow.keepsOnlyBright > 0.5;
+    float3 middle = source.sample(smooth, uv).rgb;
+    float3 total = (keeping ? onlyTheBright(middle, glow.threshold) : middle) * kGlowWeights[0];
     for (int tap = 1; tap < 5; tap++) {
         float2 offset = glow.step * float(tap);
-        total += source.sample(smooth, uv + offset).rgb * kGlowWeights[tap];
-        total += source.sample(smooth, uv - offset).rgb * kGlowWeights[tap];
+        float3 ahead = source.sample(smooth, uv + offset).rgb;
+        float3 behind = source.sample(smooth, uv - offset).rgb;
+        if (keeping) {
+            ahead = onlyTheBright(ahead, glow.threshold);
+            behind = onlyTheBright(behind, glow.threshold);
+        }
+        total += (ahead + behind) * kGlowWeights[tap];
     }
     return half4(half3(total), 1.0h);
 }

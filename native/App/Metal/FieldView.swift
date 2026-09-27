@@ -119,10 +119,14 @@ final class FieldView: MTKView {
     }
 
     /// Mirrors `GlowUniforms` in the shader. The two-component value comes first for its alignment.
+    /// Matches `GlowUniforms` in the shaders, field for field.
     private struct GlowUniforms {
         var step: SIMD2<Float>
         var threshold: Float
         var strength: Float
+        /// Whether the blur keeps only what is bright enough to glow as it reads each sample. One for the first blur,
+        /// which reads the field; nought for the second, which reads the first's result.
+        var keepsOnlyBright: Float = 0
     }
 
     private struct RingUniforms {
@@ -145,7 +149,6 @@ final class FieldView: MTKView {
     private let ringPipeline: MTLRenderPipelineState
     private let fadePipeline: MTLRenderPipelineState
     private let backgroundPipeline: MTLRenderPipelineState
-    private let glowBrightPipeline: MTLRenderPipelineState
     private let glowBlurPipeline: MTLRenderPipelineState
     private let fieldOverPipeline: MTLRenderPipelineState
     private let glowAddPipeline: MTLRenderPipelineState
@@ -258,7 +261,6 @@ final class FieldView: MTKView {
               let ringFragment = library.makeFunction(name: "ringFragment"),
               let fadeFragment = library.makeFunction(name: "fadeFragment"),
               let backgroundFragment = library.makeFunction(name: "backgroundFragment"),
-              let glowBrightFragment = library.makeFunction(name: "glowBrightFragment"),
               let glowBlurFragment = library.makeFunction(name: "glowBlurFragment"),
               let fieldOverFragment = library.makeFunction(name: "fieldOverFragment"),
               let glowAddFragment = library.makeFunction(name: "glowAddFragment"),
@@ -417,7 +419,6 @@ final class FieldView: MTKView {
               let fade = pipeline(ringVertex, fadeFragment, blending: .fade),
               // The background replaces whatever is under it, being the bottom layer.
               let background = pipeline(ringVertex, backgroundFragment, blending: .replace),
-              let glowBright = pipeline(ringVertex, glowBrightFragment, blending: .replace),
               let glowBlur = pipeline(ringVertex, glowBlurFragment, blending: .replace),
               // The field's colours are already multiplied by their opacity, so laying it over the
               // background keeps all of the field and however much of the background still shows
@@ -436,7 +437,6 @@ final class FieldView: MTKView {
         self.ringPipeline = ring
         self.fadePipeline = fade
         self.backgroundPipeline = background
-        self.glowBrightPipeline = glowBright
         self.glowBlurPipeline = glowBlur
         self.fieldOverPipeline = fieldOver
         self.glowAddPipeline = glowAdd
@@ -652,23 +652,21 @@ final class FieldView: MTKView {
         let downStep = SIMD2<Float>(0, spread / Float(height))
         let threshold = Float(model.glowThreshold)
 
-        pass(
-            glowBrightPipeline,
-            from: field,
-            to: first,
-            glow: GlowUniforms(step: .zero, threshold: threshold, strength: 0)
-        )
+        // Two passes over the picture, not three. The first reads the field itself and keeps only what is bright
+        // enough as it blurs across; the second blurs that down. Keeping the bright parts used to be a pass of its own,
+        // which on a phone means the whole picture moving in and out of the chip's fast memory for a decision made one
+        // pixel at a time. See `glowBlurFragment`.
         pass(
             glowBlurPipeline,
-            from: first,
+            from: field,
             to: second,
-            glow: GlowUniforms(step: acrossStep, threshold: threshold, strength: 0)
+            glow: GlowUniforms(step: acrossStep, threshold: threshold, strength: 0, keepsOnlyBright: 1)
         )
         pass(
             glowBlurPipeline,
             from: second,
             to: first,
-            glow: GlowUniforms(step: downStep, threshold: threshold, strength: 0)
+            glow: GlowUniforms(step: downStep, threshold: threshold, strength: 0, keepsOnlyBright: 0)
         )
         return first
     }
