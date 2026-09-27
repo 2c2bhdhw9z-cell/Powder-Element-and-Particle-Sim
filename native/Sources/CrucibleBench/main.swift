@@ -28,6 +28,13 @@ func now() -> Double {
     return Double(time.tv_sec) + Double(time.tv_nsec) / 1_000_000_000
 }
 
+// With `--gate <file>`, only the few figures recorded in that file, each compared against its limit, and a verdict —
+// instead of the full printout. See `SpeedGate.swift`.
+if let flag = CommandLine.arguments.firstIndex(of: "--gate") {
+    let path = flag + 1 < CommandLine.arguments.count ? CommandLine.arguments[flag + 1] : "bench-baseline.json"
+    exit(SpeedGate.run(baselinePath: path) ? 0 : 1)
+}
+
 struct Case {
     var label: String
     var width: Int

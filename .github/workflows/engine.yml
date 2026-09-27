@@ -80,3 +80,9 @@ jobs:
       - name: Benchmark
         working-directory: native
         run: swift run -c release crucible-bench
+
+      # Fails when anything it measures has become more than half as slow again as the figure recorded for it in
+      # native/bench-baseline.json. Why the limit is that wide, and what to do when slower is meant: SpeedGate.swift.
+      - name: Speed check
+        working-directory: native
+        run: swift run -c release crucible-bench --gate bench-baseline.json
