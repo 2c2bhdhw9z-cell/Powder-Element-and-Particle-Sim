@@ -218,9 +218,11 @@ extension PowderEngine {
                 || cellType == Element.oil || cellType == Element.saltWater
             {
                 type[i] = Element.ice
+                tint[i] = 0
             }
             if cellType == Element.lava {
                 type[i] = Element.stone
+                tint[i] = 0
             }
         }
 

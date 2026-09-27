@@ -59,6 +59,18 @@ struct HelpSheet: View {
                     + "leaves everything else alone: it replaces whatever you start the drag on.\n\n"
                     + "**Pick** takes the material under your next tap, which is quicker than hunting "
                     + "for it in the tray. **Erase** is at the end of the quick row.\n\n"
+                    + "**Kaleidoscope** copies every stroke six times round the middle of the world, so one "
+                    + "line of sand comes out as a snowflake — which then falls apart, being sand.\n\n"
+                    + "**Paint in a colour** is for sand art: whatever you paint takes the colour you choose "
+                    + "and keeps it as it falls, so layers stay separate like the bottles at the seaside. "
+                    + "Flood a layer with the same material to recolour it. A material that turns into "
+                    + "something else — sand melting to glass — loses the colour, because it is a new thing. "
+                    + "Somebody watching in a shared room sees the plain material.\n\n"
+                    + "**Photo into powder** turns a picture into a world: blue becomes water, white becomes "
+                    + "snow, fierce orange becomes real lava, and everything else sand, each grain in its "
+                    + "colour from the picture. It holds still until you press play, then falls apart.\n\n"
+                    + "The **⇅** button in the tools turns the whole world upside down. Try it on the "
+                    + "**Hourglass** scene.\n\n"
                     + "Hold any material's chip to read what it does."
             )
         }

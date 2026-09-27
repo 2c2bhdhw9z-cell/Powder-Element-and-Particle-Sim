@@ -749,25 +749,37 @@ struct ScenePicker: View {
     var body: some View {
         LabSheet(
             title: "Scenes",
-            subtitle: "Thirteen worlds to start from"
+            subtitle: "\(allPowderRecipes.count) worlds to start from"
         ) {
             LabGroup(footnote: "Loading a scene replaces the world. Undo brings it back.") {
-                LabFlow(spacing: 6) {
-                    ForEach(powderRecipes, id: \.id) { recipe in
-                        Button { onSelect(recipe) } label: {
-                            Text(recipe.name)
-                                .font(.labBody(12, .medium))
-                                .foregroundStyle(Palette.foreground)
-                                .padding(.horizontal, 12)
-                                .frame(height: 34)
-                                .background(Capsule().fill(Color.white.opacity(0.10)))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(14)
+                chips(powderRecipes)
+            }
+            // This app's own, kept apart from the thirteen it shares with the website: the day's world is chosen
+            // from those, and these have never existed there.
+            LabGroup(
+                "Only here",
+                footnote: "Hourglass: the ⇅ button in the tools at the top turns the world over, and it pours again."
+            ) {
+                chips(ownPowderRecipes)
             }
         }
+    }
+
+    private func chips(_ recipes: [PowderRecipe]) -> some View {
+        LabFlow(spacing: 6) {
+            ForEach(recipes, id: \.id) { recipe in
+                Button { onSelect(recipe) } label: {
+                    Text(recipe.name)
+                        .font(.labBody(12, .medium))
+                        .foregroundStyle(Palette.foreground)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(Capsule().fill(Color.white.opacity(0.10)))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
     }
 }
 

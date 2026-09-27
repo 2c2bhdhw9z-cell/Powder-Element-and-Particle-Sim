@@ -182,6 +182,19 @@ final class SimulationModel {
     /// The shape a touch paints.
     var brushShape: BrushShape = .circle
 
+    /// The colour a touch paints in — sand art — or nought for each material's own colour.
+    ///
+    /// Packed the way the engine packs a colour. Only this phone's strokes carry it: a shared room sends the material
+    /// alone, so somebody watching sees pink sand as sand. See `PowderTint.swift`.
+    var brushTint: UInt32 = 0
+
+    /// How many times every touch is copied evenly round the middle of the world. One is no kaleidoscope at all.
+    var kaleidoscopeFolds: Int = 1 {
+        didSet { kaleidoscopeFolds = max(1, min(12, kaleidoscopeFolds)) }
+    }
+    /// Whether every other copy is mirrored, which is what makes a snowflake rather than a pinwheel.
+    var kaleidoscopeMirrors = true
+
     /// Whether the next touch samples the material under it instead of painting.
     ///
     /// A one-shot rather than a mode: it switches itself off the moment it has taken a sample, which
@@ -591,31 +604,36 @@ final class SimulationModel {
         }
 
         let target = brushShape == .replace ? replaceTarget : nil
-        engine.drawBrush(
-            centerX: x,
-            centerY: y,
-            radius: brushRadius,
-            elementID: brushElement,
-            shape: brushShape,
-            targetElementID: target,
-            // In milliseconds, which is what the engine measures a fan's turning limit in. This passed
-            // seconds, so a fan could be turned once and then not again for about six minutes.
-            now: CFAbsoluteTimeGetCurrent() * 1000
-        )
-
-        // Passed on as the *instruction* rather than the cells it changed. Smaller, composes with
-        // whatever else is happening at that moment in the host's world, and arrives as one stroke rather
-        // than a scattering of unrelated changes.
-        onLocalStroke?(
-            RoomStroke(
-                x: x,
-                y: y,
+        // In milliseconds, which is what the engine measures a fan's turning limit in. This passed seconds, so a fan
+        // could be turned once and then not again for about six minutes.
+        let now = CFAbsoluteTimeGetCurrent() * 1000
+        // The touch itself first, then each of the kaleidoscope's copies, every one a stroke of its own.
+        for place in engine.kaleidoscopeCells(x: x, y: y, folds: kaleidoscopeFolds, mirrors: kaleidoscopeMirrors) {
+            engine.drawBrush(
+                centerX: place.x,
+                centerY: place.y,
                 radius: brushRadius,
                 elementID: brushElement,
                 shape: brushShape,
-                targetElementID: target
+                targetElementID: target,
+                now: now,
+                tint: brushTint
             )
-        )
+
+            // Passed on as the *instruction* rather than the cells it changed. Smaller, composes with
+            // whatever else is happening at that moment in the host's world, and arrives as one stroke rather
+            // than a scattering of unrelated changes.
+            onLocalStroke?(
+                RoomStroke(
+                    x: place.x,
+                    y: place.y,
+                    radius: brushRadius,
+                    elementID: brushElement,
+                    shape: brushShape,
+                    targetElementID: target
+                )
+            )
+        }
 
         // After painting, so it reports what is now there rather than what was there a moment ago.
         // That is what makes it a confirmation of what you placed as well as a readout.
@@ -1088,6 +1106,50 @@ final class SimulationModel {
         recordUndoPoint()
         engine.resetGrid()
         activeCells = 0
+    }
+
+    /// Turns the whole world upside down, as you would turn an hourglass over.
+    ///
+    /// Gravity is left as it is, which is the point: whatever was resting on the floor is now at the top, and falls.
+    func flipUpsideDown() {
+        cancelPendingEvent()
+        recordUndoPoint()
+        engine.flipUpsideDown()
+        afterWholeWorldChange()
+    }
+
+    /// Why the last photograph could not be turned into powder, or nothing if it worked.
+    private(set) var photoProblem: String?
+
+    /// Replaces the world with a photograph made of powder, and holds it still until play is pressed.
+    ///
+    /// Blue becomes water, white becomes snow, fierce orange becomes lava and everything else sand, every grain in its
+    /// own colour from the picture. It is held paused because the fun of it is the moment it is let go: pressed play,
+    /// it falls apart — the sea runs out of the picture, the sky drifts down as snow, and any lava sets fire to the rest.
+    func placePhoto(_ image: UIImage) {
+        let fill = 0.9
+        let pictureWidth = Double(image.size.width)
+        let pictureHeight = Double(image.size.height)
+        guard pictureWidth > 0, pictureHeight > 0, engine.width > 0, engine.height > 0 else {
+            photoProblem = "That picture could not be read."
+            return
+        }
+        // The same fitting the engine does, worked out here too so the picture is drawn at exactly the size it will
+        // be laid in at, one point a grain, rather than drawn large and then thinned out.
+        let scale = min(Double(engine.width) * fill / pictureWidth, Double(engine.height) * fill / pictureHeight)
+        let width = max(1, Int((pictureWidth * scale).rounded(.down)))
+        let height = max(1, Int((pictureHeight * scale).rounded(.down)))
+        guard let pixels = PhotoPowder.pixels(of: image, width: width, height: height) else {
+            photoProblem = "That picture could not be read."
+            return
+        }
+        cancelPendingEvent()
+        recordUndoPoint()
+        engine.resetGrid()
+        let placed = engine.placePicture(rgba: pixels, width: width, height: height, fill: fill)
+        isRunning = false
+        photoProblem = placed > 0 ? nil : "That picture is see-through all over, so there was nothing to make."
+        afterWholeWorldChange()
     }
 
     /// How fine the grid is.

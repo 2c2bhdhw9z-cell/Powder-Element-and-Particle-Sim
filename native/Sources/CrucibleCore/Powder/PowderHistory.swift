@@ -1,8 +1,8 @@
 /// Undo and redo for the powder world.
 ///
-/// A snapshot is a straight copy of three of the eight grids — which element is in each
+/// A snapshot is a straight copy of three of the grids — which element is in each
 /// cell, how hot it is, and how long it has left — plus the four world settings that a
-/// brush stroke can change. Momentum, pressure and the per-tick visited marks are
+/// brush stroke can change, and each grain's own colour when any grain has one. Momentum, pressure and the per-tick visited marks are
 /// deliberately not captured: they are regenerated within a tick or two of resuming, and
 /// copying them would nearly double the cost of every stroke for no visible benefit.
 ///
@@ -24,6 +24,9 @@ public final class PowderHistory {
         public var gravityY: Double
         public var windX: Double
         public var ambientTemp: Double
+        /// Each cell's own colour, or nothing when no cell had one — which is almost always, so a world
+        /// nobody has painted in colour costs no more to undo than it did before colour existed.
+        public var tint: [UInt32]? = nil
 
         /// How many cells this snapshot describes.
         public var cellCount: Int { width * height }
@@ -55,7 +58,8 @@ public final class PowderHistory {
             gravityX: engine.gravityX,
             gravityY: engine.gravityY,
             windX: engine.windX,
-            ambientTemp: engine.ambientTemp
+            ambientTemp: engine.ambientTemp,
+            tint: engine.tintMayExist ? Array(UnsafeBufferPointer(start: engine.tint, count: count)) : nil
         )
     }
 
@@ -89,6 +93,10 @@ public final class PowderHistory {
             engine.type[i] = id
             engine.temperature[i] = snapshot.temperature[i]
             engine.life[i] = snapshot.life[i]
+            if let tint = snapshot.tint, i < tint.count, tint[i] != 0, id != Element.empty {
+                engine.tint[i] = tint[i] | 0xFF00_0000
+                engine.tintMayExist = true
+            }
             // Undoing back to a world that had a portal has to restore the engine's
             // knowledge of it too, or teleportation would quietly stop working after an
             // undo. Spotted in the copy that was happening anyway.

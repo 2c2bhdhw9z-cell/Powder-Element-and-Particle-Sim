@@ -27,6 +27,11 @@ extension PowderEngine {
     ///    four neighbours gave up only `delta * 0.15` — six tenths of it — so every
     ///    pass quietly destroyed heat around hot cells and invented it around cold
     ///    ones, despite the original's comment claiming to conserve.
+    /// 3. **Heat only flows from hot to cold.** The second correction took the gain
+    ///    back from the four neighbours in equal shares, whatever their temperatures,
+    ///    so a cell warming beside a hot plate drained the cold air on its other side
+    ///    just as hard — and air never warms itself back — until kernels on a pan over
+    ///    lava sat at ninety below. Each neighbour now gives exactly what flowed from it.
     func diffuseHeat() {
         guard width > 2, height > 2 else { return }
 
@@ -74,14 +79,19 @@ extension PowderEngine {
                 let delta = (average - own) * conductivity * 0.15
                 temperature[idx] = JS.toFloat32(own + delta)
 
-                // Take back from the neighbours exactly what this cell gained, so
-                // heat is moved rather than created or destroyed.
-                let contributors = count - 1
-                if contributors > 0 {
-                    let share = delta / contributors
-                    for neighbour in neighbours where neighbour >= 0 && neighbour < cellCount {
-                        temperature[neighbour] = JS.toFloat32(temperature[neighbour].asDouble - share)
-                    }
+                // Each neighbour gives up exactly the heat that flowed from it — or takes in what flowed to it, if it
+                // was the colder of the two — so heat is moved rather than created or destroyed, and only ever from hot
+                // to cold. The cell's gain above is the sum of these flows, to the last digit of the arithmetic.
+                //
+                // It used to take the gain back in equal shares from all four neighbours, whatever their temperature.
+                // A kernel warming on a hot plate then took as much heat from the cold air above it as from the plate
+                // below, so the air grew colder with every pass — and air never warms itself back, being empty — until
+                // a pan of kernels over lava sat at ninety degrees below freezing, and the plate grew hotter whenever
+                // the air beside it was cold.
+                let rate = conductivity * 0.15 / count
+                for neighbour in neighbours where neighbour >= 0 && neighbour < cellCount {
+                    let theirs = temperature[neighbour].asDouble
+                    temperature[neighbour] = JS.toFloat32(theirs - (theirs - own) * rate)
                 }
 
                 x += 2
@@ -110,7 +120,6 @@ extension PowderEngine {
 
                 var pipeSum = own
                 var pipeCount = 1.0
-                var dumpSum = 0.0
                 var dumpCount = 0.0
 
                 for neighbour in neighbours {
@@ -119,7 +128,6 @@ extension PowderEngine {
                         pipeSum += temperature[neighbour].asDouble
                         pipeCount += 1
                     } else if neighbourType != Element.empty && neighbourType != Element.bedrock {
-                        dumpSum += temperature[neighbour].asDouble
                         dumpCount += 1
                     }
                 }
@@ -134,21 +142,32 @@ extension PowderEngine {
                     // one: it has been rounded to single precision, and the
                     // original reads the array here too.
                     let afterMixing = temperature[i].asDouble
-                    let leak = (afterMixing - dumpSum / dumpCount) * (cellType == Element.copper ? 0.18 : 0.08)
+                    // Each thing the pipe touches trades heat with it on its own account: warmed if it is colder than
+                    // the pipe, cooled if it is hotter. The total is what the pipe gains or loses.
+                    //
+                    // It used to work out one leak from the average of everything touching the pipe and hand it out in
+                    // equal shares. So a plate between lava and a cold kernel, being cooler than their average, drew
+                    // heat in — and took an equal share of it from the kernel, which was colder than the plate. Kernels
+                    // on a pan over lava froze to sixty below before they began to warm.
+                    let rate = (cellType == Element.copper ? 0.18 : 0.08) / dumpCount
+                    var leak = 0.0
+                    for neighbour in neighbours where Self.takesPipeHeat(type[neighbour]) {
+                        leak += (afterMixing - temperature[neighbour].asDouble) * rate
+                    }
                     temperature[i] = JS.toFloat32(afterMixing - leak)
-
-                    let share = leak / dumpCount
-                    for neighbour in neighbours {
-                        let neighbourType = type[neighbour]
-                        if neighbourType != Element.copper && neighbourType != Element.metal
-                            && neighbourType != Element.empty && neighbourType != Element.bedrock
-                        {
-                            temperature[neighbour] = JS.toFloat32(temperature[neighbour].asDouble + share)
-                        }
+                    for neighbour in neighbours where Self.takesPipeHeat(type[neighbour]) {
+                        let theirs = temperature[neighbour].asDouble
+                        temperature[neighbour] = JS.toFloat32(theirs + (afterMixing - theirs) * rate)
                     }
                 }
             }
         }
+    }
+
+    /// Whether a heat pipe trades heat with a neighbour: anything but another pipe, air, or the bedrock wall.
+    @inline(__always)
+    private static func takesPipeHeat(_ id: ElementID) -> Bool {
+        id != Element.copper && id != Element.metal && id != Element.empty && id != Element.bedrock
     }
 
     /// Pushes gases and light powders sideways.

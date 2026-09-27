@@ -177,6 +177,7 @@ extension PowderEngine {
             life[i] = 0
             velocityX[i] = 0
             velocityY[i] = 0
+            tint[i] = 0
             cleared += 1
         }
         return cleared
@@ -217,6 +218,7 @@ extension PowderEngine {
             life[i] = 0
             velocityX[i] = 0
             velocityY[i] = 0
+            tint[i] = 0
             purged += 1
         }
 
@@ -242,6 +244,7 @@ extension PowderEngine {
                 type[i] = Element.empty
                 temperature[i] = ambient
                 life[i] = 0
+                tint[i] = 0
                 count += 1
             } else if id == Element.gunpowder || id == Element.c4 {
                 // Turned to stone, at ambient. Turning an explosive into water at 250
@@ -250,6 +253,7 @@ extension PowderEngine {
                 type[i] = Element.stone
                 temperature[i] = ambient
                 life[i] = 0
+                tint[i] = 0
                 count += 1
             }
         }
@@ -265,6 +269,7 @@ extension PowderEngine {
             type[i] = Element.water
             temperature[i] = ambient
             life[i] = 0
+            tint[i] = 0
             count += 1
         }
         return count
@@ -299,6 +304,7 @@ extension PowderEngine {
             life[i] = 0
             velocityX[i] = 0
             velocityY[i] = 0
+            tint[i] = 0
             changed += 1
         }
 

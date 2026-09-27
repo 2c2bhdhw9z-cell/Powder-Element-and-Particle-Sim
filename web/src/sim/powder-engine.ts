@@ -39,6 +39,29 @@ import { debug } from "@/lib/debug";
 import type { PowderCtx } from "./powder/context";
 
 /**
+ * Whether a row is swept left to right this tick, rather than right to left.
+ *
+ * Whichever side of a row is looked at first gets first refusal on the space below it, so the
+ * direction has to change. It used to simply alternate, which hid a lean: a grain falling through
+ * a gap frees the cell above it on alternate ticks, always the same ones, so the two grains
+ * waiting either side were only ever offered it when their row was swept the same way, and the
+ * same one won every time. Sand draining through a hole emptied one side completely.
+ *
+ * A hash of the row and the tick instead, with no pattern in time to fall into step with. No
+ * random numbers are drawn. Must match `PowderEngine.sweepsRightward` in the native engine bit
+ * for bit.
+ */
+export function sweepsRightward(row: number, moment: number): boolean {
+  let mixed = Math.imul(row | 0, 0x9e3779b1) ^ Math.imul(moment | 0, 0x85ebca77);
+  mixed ^= mixed >>> 16;
+  mixed = Math.imul(mixed, 0x7feb352d);
+  mixed ^= mixed >>> 15;
+  mixed = Math.imul(mixed, 0x846ca68b);
+  mixed ^= mixed >>> 16;
+  return (mixed & 1) === 0;
+}
+
+/**
  * Cellular-automata powder world.
  *
  * The engine owns grid state and orchestration; each physics subsystem lives
@@ -394,8 +417,8 @@ export class PowderEngine implements PowderCtx {
     const stepY = scanBottomUp ? -1 : 1;
 
     for (let y = startY; y !== endY; y += stepY) {
-      // Alternate horizontal scan direction to remove biases
-      const scanLeftRight = (y + this.frameCount) % 2 === 0;
+      // Scrambled horizontal scan direction, per row and per tick. See sweepsRightward.
+      const scanLeftRight = sweepsRightward(y, this.frameCount);
       const startX = scanLeftRight ? 0 : this.width - 1;
       const endX = scanLeftRight ? this.width : -1;
       const stepX = scanLeftRight ? 1 : -1;

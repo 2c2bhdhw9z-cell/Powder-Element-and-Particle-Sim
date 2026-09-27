@@ -1,4 +1,5 @@
 import CrucibleCore
+import PhotosUI
 import SwiftUI
 
 /// The dock along the bottom: what you are painting with, how big, and what to do next.
@@ -30,6 +31,8 @@ struct ElementDock: View {
     /// Which category is being shown, or nothing for all of them.
     @State private var category: ElementCategory?
     @FocusState private var isSearching: Bool
+    /// The photograph being chosen, while the picker is open.
+    @State private var photo: PhotosPickerItem?
 
 
     /// The handful most reached for, shown while the dock is closed.
@@ -101,10 +104,20 @@ struct ElementDock: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(name(of: model.brushElement))
-                    .font(.labDisplay(14))
-                    .tracking(-0.2)
-                    .foregroundStyle(Palette.foreground)
+                HStack(spacing: 6) {
+                    Text(name(of: model.brushElement))
+                        .font(.labDisplay(14))
+                        .tracking(-0.2)
+                        .foregroundStyle(Palette.foreground)
+                    // The colour being painted in, when it is not the material's own, so it is not a surprise.
+                    if model.brushTint != 0 {
+                        Circle()
+                            .fill(tintBinding.wrappedValue)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 0.5))
+                            .accessibilityLabel("Painting in your own colour")
+                    }
+                }
                 Text("\(model.activeCells.formatted()) cells")
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.muted)
@@ -184,6 +197,7 @@ struct ElementDock: View {
             VStack(alignment: .leading, spacing: 10) {
                 destinations
                 brushRow
+                colourRow
                 searchRow
                 categoryRow
                 palette
@@ -230,6 +244,15 @@ struct ElementDock: View {
                     brushLabel("Pick", "eyedropper", selected: model.isSampling)
                 }
                 .buttonStyle(.plain)
+
+                // Not a shape either: it copies whichever shape is chosen, so it sits beside them as a switch.
+                Button {
+                    Haptics.selection()
+                    model.kaleidoscopeFolds = model.kaleidoscopeFolds > 1 ? 1 : 6
+                } label: {
+                    brushLabel("Kaleidoscope", "snowflake", selected: model.kaleidoscopeFolds > 1)
+                }
+                .buttonStyle(.plain)
             }
             if model.isSampling {
                 Text("Tap the world to pick up whatever is there.")
@@ -244,7 +267,106 @@ struct ElementDock: View {
                     .font(.labBody(11))
                     .foregroundStyle(Palette.subtleForeground)
             }
+            if model.kaleidoscopeFolds > 1 {
+                Text("Every stroke is copied six times round the middle, so one line of sand comes out as a snowflake "
+                    + "— which then falls apart, being sand.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// Sand art — painting in a colour of your own — and a photograph turned into powder.
+    private var colourRow: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("COLOUR")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                ColorPicker(selection: tintBinding, supportsOpacity: false) {
+                    Text(model.brushTint == 0 ? "Paint in a colour" : "Your colour")
+                        .font(.labBody(12, model.brushTint == 0 ? .regular : .semiBold))
+                        .foregroundStyle(Palette.foreground)
+                }
+                .fixedSize()
+                .padding(.leading, 11)
+                .padding(.trailing, 5)
+                .frame(height: 32)
+                .background(Capsule().fill(Color.white.opacity(0.10)))
+
+                if model.brushTint != 0 {
+                    Button {
+                        Haptics.selection()
+                        model.brushTint = 0
+                    } label: {
+                        brushLabel("Own colours", "arrow.uturn.backward", selected: false)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                PhotosPicker(selection: $photo, matching: .images, photoLibrary: .shared()) {
+                    brushLabel("Photo into powder", "photo", selected: false)
+                }
+                .buttonStyle(.plain)
+            }
+            Text(colourNote)
+                .font(.labBody(11))
+                .foregroundStyle(model.photoProblem == nil ? Palette.subtleForeground : Palette.warn)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: photo) { _, chosen in
+            guard let chosen else { return }
+            Task { @MainActor in
+                // Loaded as data and made into a picture here, which is the one form every source of photographs is
+                // guaranteed to offer.
+                if let data = try? await chosen.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                    model.placePhoto(image)
+                    Haptics.firm()
+                    withAnimation(.easeOut(duration: 0.22)) { isOpen = false }
+                }
+                photo = nil
+            }
+        }
+    }
+
+    /// What the colour row is for, or what went wrong with the last photograph.
+    private var colourNote: String {
+        if let problem = model.photoProblem { return problem }
+        if model.brushTint != 0 {
+            return "Everything you paint is this colour now, and stays it as it falls. Flood a layer with the same "
+                + "material to recolour it."
+        }
+        return "Choose a colour for sand art, or turn a photo into a picture made of real sand, water and snow. "
+            + "It holds still until you press play."
+    }
+
+    /// The colour picker's view of the brush colour. With no colour of its own chosen, it starts from the material's.
+    private var tintBinding: Binding<Color> {
+        Binding(
+            get: {
+                guard let channels = PowderEngine.tintChannels(model.brushTint) else {
+                    return model.color(of: model.brushElement == Element.empty ? Element.sand : model.brushElement)
+                }
+                return Color(
+                    .sRGB,
+                    red: Double(channels.red) / 255,
+                    green: Double(channels.green) / 255,
+                    blue: Double(channels.blue) / 255,
+                    opacity: 1
+                )
+            },
+            set: { chosen in
+                var red: CGFloat = 0
+                var green: CGFloat = 0
+                var blue: CGFloat = 0
+                var alpha: CGFloat = 0
+                guard UIColor(chosen).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else { return }
+                func byte(_ value: CGFloat) -> Int { Int((min(1, max(0, value)) * 255).rounded()) }
+                model.brushTint = PowderEngine.tintWord(red: byte(red), green: byte(green), blue: byte(blue))
+            }
+        )
     }
 
     private func brushLabel(_ title: String, _ symbol: String, selected: Bool) -> some View {

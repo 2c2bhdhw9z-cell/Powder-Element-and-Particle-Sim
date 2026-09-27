@@ -19,6 +19,11 @@ import type { PowderCtx } from "./context";
  *    neighbours gave up only `delta * 0.15` — six tenths of it — so every pass
  *    quietly destroyed heat around hot cells and invented it around cold ones,
  *    despite the comment claiming to conserve.
+ * 3. Heat only flows from hot to cold. The second correction took the gain back
+ *    from the four neighbours in equal shares, whatever their temperatures, so a
+ *    cell warming beside a hot plate drained the cold air on its other side just
+ *    as hard — and air never warms itself back — until kernels on a pan over lava
+ *    sat at ninety below. Each neighbour now gives exactly what flowed from it.
  */
 export function diffuseHeat(e: PowderCtx) {
   // diffuseHeat runs on every second tick, so halving the frame count gives a
@@ -48,15 +53,15 @@ export function diffuseHeat(e: PowderCtx) {
       const avg = sum / cnt;
       const delta = (avg - t) * cond * 0.15;
       e.gridTemp[idx] = t + delta;
-      // Take back from the neighbours exactly what this cell gained, so heat moves
-      // rather than being created or destroyed.
-      const contributors = cnt - 1;
-      if (contributors > 0) {
-        const share = delta / contributors;
-        for (const nIdx of neigh) {
-          if (nIdx >= 0 && nIdx < e.gridTemp.length) {
-            e.gridTemp[nIdx] -= share;
-          }
+      // Each neighbour gives up exactly the heat that flowed from it (or takes in what
+      // flowed to it, if it was colder), so heat moves only from hot to cold. Taking the
+      // gain back in equal shares, as this used to, cooled cold air below anything in the
+      // world whenever a cell next to it warmed. Must match the native engine exactly.
+      const rate = (cond * 0.15) / cnt;
+      for (const nIdx of neigh) {
+        if (nIdx >= 0 && nIdx < e.gridTemp.length) {
+          const theirs = e.gridTemp[nIdx];
+          e.gridTemp[nIdx] = theirs - (theirs - t) * rate;
         }
       }
     }
@@ -78,7 +83,6 @@ export function pipeHeat(e: PowderCtx) {
       const nbs = [i - 1, i + 1, i - w, i + w];
       let pipeSum = self;
       let pipeN = 1;
-      let dump = 0;
       let dumpN = 0;
       for (const ni of nbs) {
         const nt = type[ni];
@@ -86,7 +90,6 @@ export function pipeHeat(e: PowderCtx) {
           pipeSum += temp[ni];
           pipeN++;
         } else if (nt !== EMPTY_ELEMENT_ID && nt !== 29) {
-          dump += temp[ni];
           dumpN++;
         }
       }
@@ -94,13 +97,25 @@ export function pipeHeat(e: PowderCtx) {
       const mix = t === 47 ? 0.55 : 0.22;
       temp[i] = self + (pipeAvg - self) * mix;
       if (dumpN > 0) {
-        const leak = (temp[i] - dump / dumpN) * (t === 47 ? 0.18 : 0.08);
-        temp[i] -= leak;
-        const share = leak / dumpN;
+        // Each neighbour trades heat with the pipe on its own account, so heat only
+        // flows from hot to cold. One leak from the neighbours' average, shared out
+        // equally, used to draw heat out of a cold kernel into a plate hotter than it.
+        // Must match the native engine exactly.
+        const after = temp[i];
+        const rate = (t === 47 ? 0.18 : 0.08) / dumpN;
+        let leak = 0;
         for (const ni of nbs) {
           const nt = type[ni];
           if (nt !== 47 && nt !== 17 && nt !== EMPTY_ELEMENT_ID && nt !== 29) {
-            temp[ni] += share;
+            leak += (after - temp[ni]) * rate;
+          }
+        }
+        temp[i] = after - leak;
+        for (const ni of nbs) {
+          const nt = type[ni];
+          if (nt !== 47 && nt !== 17 && nt !== EMPTY_ELEMENT_ID && nt !== 29) {
+            const theirs = temp[ni];
+            temp[ni] = theirs + (after - theirs) * rate;
           }
         }
       }

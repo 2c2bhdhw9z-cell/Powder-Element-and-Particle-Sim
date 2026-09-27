@@ -50,6 +50,9 @@ extension PowderEngine {
     public func render(into pixels: UnsafeMutablePointer<UInt32>, overlay: PowderOverlayMode = .normal) {
         guard cellCount > 0 else { return }
         let background = Self.pack(Self.backgroundRed, Self.backgroundGreen, Self.backgroundBlue)
+        // Read once. In a world nobody has painted in colour this is false and the colours are never looked at, so
+        // the picture is exactly what it always was, word for word.
+        let tinted = tintMayExist
 
         for y in 0 ..< height {
             for x in 0 ..< width {
@@ -97,6 +100,16 @@ extension PowderEngine {
                 var red = Int(physics.color.r)
                 var green = Int(physics.color.g)
                 var blue = Int(physics.color.b)
+                // A grain's own colour, when it has one, takes the place of its material's — before the speckle, so
+                // coloured sand still looks like sand rather than a flat sheet of paint.
+                if tinted {
+                    let own = tint[i]
+                    if own != 0 {
+                        red = Int(own & 0xFF)
+                        green = Int((own >> 8) & 0xFF)
+                        blue = Int((own >> 16) & 0xFF)
+                    }
+                }
 
                 // Speckling, for solid grains only.
                 //

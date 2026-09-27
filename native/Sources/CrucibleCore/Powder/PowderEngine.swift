@@ -69,6 +69,18 @@ public final class PowderEngine {
     public internal(set) var pressure: UnsafeMutablePointer<Float>
     /// Scratch buffer the pressure relaxation writes into before swapping.
     public internal(set) var pressureNext: UnsafeMutablePointer<Float>
+    /// A colour of its own for each cell, or nought for the material's usual colour. See `PowderTint.swift`.
+    ///
+    /// Moves with its grain, so a pink grain of sand is still pink after it has fallen. Nought everywhere unless
+    /// somebody has painted in colour, which keeps every recorded comparison and every picture exactly as it was.
+    public internal(set) var tint: UnsafeMutablePointer<UInt32>
+    /// Whether any cell might have a colour of its own.
+    ///
+    /// Works like ``portalBMayExist``: everything that can put a colour into the grid sets it, and clearing the
+    /// grid clears it. While it is false, moving a grain and drawing the picture skip the colours entirely, so a
+    /// world nobody has painted in colour runs exactly as fast as it did before colour existed. A stale true costs
+    /// a little time and is otherwise harmless.
+    public internal(set) var tintMayExist: Bool = false
 
     // MARK: - Elements
 
@@ -173,6 +185,7 @@ public final class PowderEngine {
         self.velocityY = Self.makeBuffer(capacity, Int8(0))
         self.pressure = Self.makeBuffer(capacity, Float(0))
         self.pressureNext = Self.makeBuffer(capacity, Float(0))
+        self.tint = Self.makeBuffer(capacity, UInt32(0))
 
         resetGrid()
     }
@@ -187,6 +200,7 @@ public final class PowderEngine {
         Self.release(velocityY, capacity)
         Self.release(pressure, capacity)
         Self.release(pressureNext, capacity)
+        Self.release(tint, capacity)
     }
 
     private static func makeBuffer<T>(_ capacity: Int, _ value: T) -> UnsafeMutablePointer<T> {
@@ -250,6 +264,8 @@ public final class PowderEngine {
         velocityY.update(repeating: 0, count: cellCount)
         pressure.update(repeating: 0, count: cellCount)
         pressureNext.update(repeating: 0, count: cellCount)
+        tint.update(repeating: 0, count: cellCount)
+        tintMayExist = false
         // An empty world contains no portals by definition. Callers that clear the grid
         // only to lay cells back down again — resizing, loading, undo — put the flag back
         // themselves afterwards.
@@ -279,10 +295,13 @@ public final class PowderEngine {
         var oldType = [ElementID](repeating: 0, count: oldCount)
         var oldTemp = [Float](repeating: 0, count: oldCount)
         var oldLife = [UInt16](repeating: 0, count: oldCount)
+        var oldTint = [UInt32](repeating: 0, count: oldCount)
+        let hadTint = tintMayExist
         for i in 0 ..< oldCount {
             oldType[i] = type[i]
             oldTemp[i] = temperature[i]
             oldLife[i] = life[i]
+            oldTint[i] = tint[i]
         }
         resize(width: newWidth, height: newHeight)
         guard width == newWidth, height == newHeight else { return }
@@ -296,9 +315,11 @@ public final class PowderEngine {
                 type[to] = oldType[from]
                 temperature[to] = oldTemp[from]
                 life[to] = oldLife[from]
+                tint[to] = oldTint[from]
                 if oldType[from] == Element.portalB { portalBMayExist = true }
             }
         }
+        tintMayExist = hadTint
     }
 
     public func resize(width newWidth: Int, height newHeight: Int) {
@@ -320,10 +341,12 @@ public final class PowderEngine {
         let oldVelocityX = velocityX
         let oldVelocityY = velocityY
         let oldPressure = pressure
+        let oldTint = tint
         // Carried across the clear below, because the cells come with it. If the portal
         // happened to fall outside the new bounds this is left needlessly true, which
         // costs one scan and then corrects itself.
         let hadPortal = portalBMayExist
+        let hadTint = tintMayExist
 
         // Not carried over, so released immediately.
         Self.release(visited, oldCapacity)
@@ -342,6 +365,7 @@ public final class PowderEngine {
         velocityY = Self.makeBuffer(capacity, Int8(0))
         pressure = Self.makeBuffer(capacity, Float(0))
         pressureNext = Self.makeBuffer(capacity, Float(0))
+        tint = Self.makeBuffer(capacity, UInt32(0))
 
         resetGrid()
 
@@ -359,9 +383,11 @@ public final class PowderEngine {
                 velocityX[to] = oldVelocityX[from]
                 velocityY[to] = oldVelocityY[from]
                 pressure[to] = oldPressure[from]
+                tint[to] = oldTint[from]
             }
         }
         portalBMayExist = hadPortal
+        tintMayExist = hadTint
 
         Self.release(oldType, oldCapacity)
         Self.release(oldTemp, oldCapacity)
@@ -369,6 +395,7 @@ public final class PowderEngine {
         Self.release(oldVelocityX, oldCapacity)
         Self.release(oldVelocityY, oldCapacity)
         Self.release(oldPressure, oldCapacity)
+        Self.release(oldTint, oldCapacity)
     }
 
     /// How many cells are occupied.
@@ -430,6 +457,8 @@ public final class PowderEngine {
             life[idx] = JS.toUInt16(Double(definition.decayTicks))
         }
 
+        // A new material has its own colour. Sand painted pink that melts into glass is glass, not pink glass.
+        if tintMayExist { tint[idx] = 0 }
         velocityX[idx] = 0
         velocityY[idx] = 0
     }
@@ -464,6 +493,14 @@ public final class PowderEngine {
         velocityX[b] = velocityXA
         velocityY[b] = velocityYA
         pressure[b] = pressureA
+
+        // A colour goes with its grain. Skipped entirely in a world with no colours in it, which is nearly every
+        // world, so the commonest thing the physics does costs what it always did.
+        if tintMayExist {
+            let tintA = tint[a]
+            tint[a] = tint[b]
+            tint[b] = tintA
+        }
 
         visited[a] = 1
         visited[b] = 1
@@ -611,7 +648,7 @@ public final class PowderEngine {
         while y != endY {
             // Flip the horizontal direction per row and per tick, so no side is
             // consistently favoured.
-            let scanLeftRight = (y + frameCount) % 2 == 0
+            let scanLeftRight = Self.sweepsRightward(row: y, moment: frameCount)
             let startX = scanLeftRight ? 0 : width - 1
             let endX = scanLeftRight ? width : -1
             let stepX = scanLeftRight ? 1 : -1
@@ -674,5 +711,29 @@ public final class PowderEngine {
 
             y += stepY
         }
+    }
+
+    /// Whether a row is swept left to right this moment, rather than right to left.
+    ///
+    /// Whichever side of a row is looked at first gets first refusal on the space below it, so the direction has to
+    /// change. It used to simply alternate — this moment one way, the next moment the other — and that hid a lean.
+    /// A grain falling through a gap leaves the cell above it free on alternate moments, always the same ones. So the
+    /// two grains waiting either side of that cell were only ever offered it on moments when their row was swept the
+    /// same way, and the same one of them won every time, for as long as the gap kept pouring. Sand draining through a
+    /// hole emptied one side completely while the other sat untouched; an hourglass was the first thing to show it.
+    ///
+    /// So it is scrambled instead: a hash of the row and the moment, with no pattern in time for anything else in the
+    /// world to fall into step with. Still decided by the world alone, with no random numbers drawn, so a world and a
+    /// seed replay exactly — and the website works it out identically, bit for bit.
+    @inline(__always)
+    static func sweepsRightward(row: Int, moment: Int) -> Bool {
+        var mixed = UInt32(truncatingIfNeeded: row) &* 0x9E37_79B1
+        mixed ^= UInt32(truncatingIfNeeded: moment) &* 0x85EB_CA77
+        mixed ^= mixed >> 16
+        mixed &*= 0x7FEB_352D
+        mixed ^= mixed >> 15
+        mixed &*= 0x846C_A68B
+        mixed ^= mixed >> 16
+        return mixed & 1 == 0
     }
 }

@@ -49,10 +49,21 @@ extension PowderEngine {
     ///
     /// Capped at eight thousand cells so that tapping empty space in a large world
     /// cannot stall a frame while it fills the entire grid.
-    public func floodFill(startX: Int, startY: Int, elementID: ElementID) {
+    ///
+    /// - Parameter colour: a colour of its own for every cell filled, packed as ``tintWord(red:green:blue:)`` makes
+    ///   it, or nought for the material's usual colour.
+    ///
+    /// Filling a region with the material it is already made of does nothing — unless a colour is given, when it
+    /// recolours the region instead, which is how a layer of sand art is changed without repainting it grain by
+    /// grain. Air cannot be recoloured, so filling empty space with air stays a nothing.
+    public func floodFill(startX: Int, startY: Int, elementID: ElementID, tint colour: UInt32 = 0) {
         guard isValid(startX, startY) else { return }
         let targetID = type[index(startX, startY)]
-        if targetID == elementID { return }
+        let recolouring = targetID == elementID
+        // The colour exactly as it will be stored, so a cell already that colour is recognised as done — which is
+        // what stops a recolouring from going round in circles over cells it has already reached.
+        let stored = colour == 0 ? 0 : colour | 0xFF00_0000
+        if recolouring && (stored == 0 || elementID == Element.empty) { return }
 
         var stack: [(Int, Int)] = [(startX, startY)]
         let limit = 8000
@@ -61,8 +72,13 @@ extension PowderEngine {
         while filled < limit, let (x, y) = stack.popLast() {
             guard isValid(x, y) else { continue }
             let idx = index(x, y)
-            if type[idx] == targetID {
-                setElement(x, y, elementID)
+            if type[idx] == targetID && (!recolouring || tint[idx] != stored) {
+                if recolouring {
+                    setTint(x, y, stored)
+                } else {
+                    setElement(x, y, elementID)
+                    if stored != 0 { setTint(x, y, stored) }
+                }
                 filled += 1
                 stack.append((x + 1, y))
                 stack.append((x - 1, y))
@@ -81,6 +97,8 @@ extension PowderEngine {
     ///     rotation. Supplied by the caller because the engine has no clock of its
     ///     own — it imports no Foundation, and a physics engine that reads the wall
     ///     clock is not reproducible.
+    ///   - colour: a colour of its own for every cell painted — sand art — or nought for the material's usual
+    ///     colour. Packed as ``tintWord(red:green:blue:)`` makes it. See `PowderTint.swift`.
     public func drawBrush(
         centerX: Int,
         centerY: Int,
@@ -88,10 +106,11 @@ extension PowderEngine {
         elementID: ElementID,
         shape: BrushShape,
         targetElementID: ElementID? = nil,
-        now: Double = 0
+        now: Double = 0,
+        tint colour: UInt32 = 0
     ) {
         if shape == .fill {
-            floodFill(startX: centerX, startY: centerY, elementID: elementID)
+            floodFill(startX: centerX, startY: centerY, elementID: elementID, tint: colour)
             return
         }
 
@@ -147,6 +166,7 @@ extension PowderEngine {
                 }
 
                 setElement(x, y, elementID)
+                if colour != 0 { setTint(x, y, colour) }
             }
         }
     }

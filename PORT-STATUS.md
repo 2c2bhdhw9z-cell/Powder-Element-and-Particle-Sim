@@ -47,6 +47,20 @@ Every comparison retired that way is recorded where it was:
   it and the next grain to drift in is launched by it. The native engine no longer writes it, so the
   powder and event comparisons now compare momentum only where there is material — the cells themselves
   still match exactly.
+- **Two powder corrections made in both engines, and the powder fixture re-recorded.** Unlike the
+  retirements above, these were changed identically on the web side too, so the comparison still
+  proves the two engines agree cell for cell — it was re-recorded from the corrected web engine, not
+  edited to fit. An hourglass found both:
+  - *The sweep leaned.* Each row's direction simply alternated per moment, and a grain falling
+    through a gap frees the cell above it on alternate moments — always the same ones — so the same
+    side of a gap won that cell every time. Sand draining through a hole emptied one side completely.
+    The direction is now a hash of the row and the moment (`sweepsRightward`, pinned bit for bit in
+    `PowderHourglassTests` and `sweep.spec.ts`), and draws no random numbers.
+  - *Heat flowed from cold to hot.* Spreading heat and heat pipes both took a cell's gain back from
+    its neighbours in equal shares whatever their temperatures, so air and grains beside a warming
+    cell went colder than anything in the world: kernels on a pan over lava sat at sixty below. Each
+    neighbour now trades exactly what flowed between the two. `PowderHeatFlowTests` fails on the old
+    code and passes on the new.
 - **Two particle scenarios.** `pour-fluid-mode` and `nbody-mutual-gravity` built their scenes in the
   object list, which neither the fluid nor gravity-between-bodies acts on — so Pour was beads falling
   through each other and N-body pulled on nothing. Both are rebuilt from the crowd, and

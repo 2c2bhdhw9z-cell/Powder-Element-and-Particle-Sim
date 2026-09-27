@@ -48,6 +48,19 @@ public struct PowderState: Codable, Sendable {
     public var gravityY: Double
     public var windX: Double
     public var ambientTemp: Double
+    /// Each cell's own colour, as three bytes per cell — red, green, blue — written as base64. See `PowderTint.swift`.
+    ///
+    /// All three nought means the cell has no colour of its own. A grain that really is pure black is written one
+    /// step off black, which no eye can tell apart, so that it is not read back as having no colour at all. Three
+    /// bytes rather than a list of numbers because a world turned from a photograph has a colour in nearly every
+    /// cell, and written as numbers that nearly trebled the size of the file — enough to push an ordinary world past
+    /// what the server will take.
+    ///
+    /// Left out entirely when no cell has one, so a world nobody painted in colour saves to exactly the file it
+    /// always did — and a file from before colour existed, or from the website, which has never heard of it, opens
+    /// as a world with no colours in it. A value that cannot be read, or describes the wrong number of cells, is
+    /// ignored: the world opens, in its materials' own colours, rather than not opening at all.
+    public var gridTint: String?
 
     public init(
         width: Int,
@@ -58,7 +71,8 @@ public struct PowderState: Codable, Sendable {
         gravityX: Double,
         gravityY: Double,
         windX: Double,
-        ambientTemp: Double
+        ambientTemp: Double,
+        gridTint: String? = nil
     ) {
         self.width = width
         self.height = height
@@ -69,6 +83,7 @@ public struct PowderState: Codable, Sendable {
         self.gravityY = gravityY
         self.windX = windX
         self.ambientTemp = ambientTemp
+        self.gridTint = gridTint
     }
 }
 
@@ -226,7 +241,8 @@ extension PowderEngine {
             gravityX: gravityX,
             gravityY: gravityY,
             windX: windX,
-            ambientTemp: ambientTemp
+            ambientTemp: ambientTemp,
+            gridTint: tintedCellCount > 0 ? encodedTints() : nil
         )
     }
 
@@ -275,6 +291,9 @@ extension PowderEngine {
         for i in 0 ..< lifeCount {
             life[i] = state.gridLife[i]
         }
+        // Colours last, once the cells are down: a colour belongs to a grain, so one saved over air — which a
+        // hand-edited file could hold — is dropped rather than left waiting for the next thing to fall into it.
+        if let tints = state.gridTint { adoptTints(tints, cells: state.gridType.count) }
 
         if state.gravityX.isFinite { gravityX = Self.usableGravity(state.gravityX) }
         if state.gravityY.isFinite { gravityY = Self.usableGravity(state.gravityY) }

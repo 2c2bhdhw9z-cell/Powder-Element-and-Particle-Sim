@@ -2,7 +2,7 @@ import SwiftUI
 // For UIImage, which a picture of the world is returned as.
 import UIKit
 
-/// The floating tools at the top-left of the canvas: undo, redo, shake, and the speed dial.
+/// The floating tools at the top-left of the canvas: undo, redo, shake, turn over, and the speed dial.
 ///
 /// Two separate pills rather than one long bar, matching the web version — actions on the
 /// left, speed on the right — so the speed readout has its own edge to align against and the
@@ -46,6 +46,10 @@ struct ToolCluster: View {
             }
             toolButton("waveform", "Shake") {
                 model.jostle()
+            }
+            // Turns the whole world over, as you would an hourglass: what was on the floor is now at the top, and falls.
+            toolButton("arrow.up.arrow.down", "Turn the world upside down") {
+                model.flipUpsideDown()
             }
             toolButton("camera", "Take a picture") {
                 // From the engine's own pixels rather than a screen grab. The view does nothing but

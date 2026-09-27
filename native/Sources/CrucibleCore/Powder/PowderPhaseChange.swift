@@ -232,6 +232,7 @@ extension PowderEngine {
         // The water is converted in place rather than through setElement, because
         // it must keep its position in the scan and be marked as already handled.
         type[waterIdx] = Element.steam
+        tint[waterIdx] = 0
         temperature[waterIdx] = JS.toFloat32(max(130, 80 + lavaTemp * 0.08))
         life[waterIdx] = 100
         // Thrown clear of the lava with a sideways kick and a strong upward one.
@@ -245,6 +246,7 @@ extension PowderEngine {
 
         if cooled < 700 {
             type[lavaIdx] = Element.obsidian
+            tint[lavaIdx] = 0
             temperature[lavaIdx] = JS.toFloat32(max(180, cooled))
             life[lavaIdx] = 0
             velocityX[lavaIdx] = 0
