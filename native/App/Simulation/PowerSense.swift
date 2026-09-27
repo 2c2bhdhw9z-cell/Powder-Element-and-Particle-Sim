@@ -32,12 +32,8 @@ final class PowerSense {
         isEnabled ? advice : PowerPolicy.advice(for: PowerPolicy.Readings())
     }
 
-    // Not the main actor's, though everything else here is. A `deinit` may not touch anything that belongs to an actor,
-    // and these two are exactly what has to be let go of when this is thrown away. Both are only ever written in `init`,
-    // on the main actor, and only ever read in `deinit`, which runs once when nothing else holds this — so there is no
-    // moment when two things could touch them at once.
-    private nonisolated(unsafe) var watchers: [NSObjectProtocol] = []
-    private nonisolated(unsafe) var timer: Timer?
+    /// What has to be let go of, in something that is nobody's actor — see `PowerWatchers`.
+    private let watching = PowerWatchers()
     private let startedAt = CFAbsoluteTimeGetCurrent()
 
     init() {
@@ -50,15 +46,10 @@ final class PowerSense {
         watch(UIDevice.batteryStateDidChangeNotification)
         // A phone reports its charge in whole percents, so there is nothing to gain from reading it often. Once a
         // minute is enough to divide by, and the notifications above catch every real change anyway.
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        watching.timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
         refresh()
-    }
-
-    deinit {
-        for watcher in watchers { NotificationCenter.default.removeObserver(watcher) }
-        timer?.invalidate()
     }
 
     private func watch(_ name: Notification.Name) {
@@ -66,7 +57,7 @@ final class PowerSense {
             // Hopped onto the main actor rather than assumed to be on it: the queue is right, the compiler cannot know it.
             Task { @MainActor in self?.refresh() }
         }
-        watchers.append(watcher)
+        watching.observers.append(watcher)
     }
 
     /// Takes every reading again and works out what to do.
@@ -127,5 +118,20 @@ final class PowerSense {
         case .serious: "Hot"
         case .critical: "Very hot"
         }
+    }
+}
+
+/// Holds the things `PowerSense` has to let go of, and lets go of them.
+///
+/// Its own object, and deliberately isolated to nothing, because a `deinit` may not touch anything that belongs to an
+/// actor — and `PowerSense` belongs to the main one. These are not state anybody reads; they are a bag of things to
+/// cancel, which is exactly what can live out here.
+private final class PowerWatchers {
+    var observers: [NSObjectProtocol] = []
+    var timer: Timer?
+
+    deinit {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        timer?.invalidate()
     }
 }
