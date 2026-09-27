@@ -5,6 +5,7 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- Light painting: draw ribbons that stay where you put them, and turn the box to see the shape
 - Turntable video: one slow turn, recorded, stopping itself after a full circle
 - Colours from a photo: the field drawn in whatever colours a picture is made of
 - Particle life: five colours with their own likes and dislikes, and a Shuffle for new creatures

@@ -57,6 +57,14 @@ public struct ParticleRecord: Codable, Sendable {
 }
 
 /// A spring, as saved: two positions in the body list, a rest length and a stiffness.
+/// One ribbon of light, as saved.
+public struct RibbonRecord: Codable, Sendable {
+    public var x: [Double]
+    public var y: [Double]
+    public var z: [Double]
+    public var c: UInt32
+}
+
 public struct SpringRecord: Codable, Sendable {
     public var a: Int
     public var b: Int
@@ -184,6 +192,8 @@ public struct ParticleState: Codable, Sendable {
     public var depthEnabled: Bool?
     public var depthRatio: Double?
     public var swarm: SwarmRecord?
+    /// Ribbons of light, each as three lists of places and a colour. Absent when none have been drawn.
+    public var ribbons: [RibbonRecord]?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
 }
@@ -253,6 +263,9 @@ extension ParticleEngine {
             // Only springs whose two ends both survived the cap, since a position past the
             // end of what was written is exactly the stale index that makes a reloaded
             // scene shear itself apart.
+            ribbons: storedRibbons.isEmpty
+                ? nil
+                : storedRibbons.map { RibbonRecord(x: $0.pointsX, y: $0.pointsY, z: $0.pointsZ, c: $0.color) },
             springs: springs
                 .filter { $0.a < saved.count && $0.b < saved.count }
                 .map {
@@ -519,6 +532,18 @@ extension ParticleEngine {
         // Springs last, once every body they name exists. `setSprings` drops anything that
         // does not name a real pair — a spring pointing past the end of the list, or at
         // itself, cannot be detected once the frame loop is running.
+        // Read with a fallback of nothing rather than of what is there, so loading a world with no ribbons rubs out
+        // whatever was drawn in the last one.
+        storedRibbons = (state.ribbons ?? []).prefix(Self.ribbonLimit).compactMap { record in
+            let count = min(record.x.count, min(record.y.count, record.z.count))
+            guard count > 1 else { return nil }
+            var ribbon = ParticleRibbon(color: record.c)
+            ribbon.pointsX = Array(record.x.prefix(min(count, Self.ribbonPointLimit)))
+            ribbon.pointsY = Array(record.y.prefix(min(count, Self.ribbonPointLimit)))
+            ribbon.pointsZ = Array(record.z.prefix(min(count, Self.ribbonPointLimit)))
+            return ribbon
+        }
+
         setSprings(
             state.springs?.map {
                 Spring(

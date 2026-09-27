@@ -45,7 +45,7 @@ public enum ParticleBrush {
         switch mode {
         case .attract, .repel, .vortex, .gravityWell, .freeze, .hawk, .hyperDrive, .painter:
             return true
-        case .emitter, .current, .wall, .source:
+        case .emitter, .current, .wall, .source, .light:
             return false
         }
     }
@@ -129,7 +129,7 @@ public enum ParticleBrush {
             ay = towardY * strength * rushRate
         case .painter:
             return Effect(inReach: true, velocityX: 0, velocityY: 0, stops: false)
-        case .freeze, .emitter, .current, .wall, .source:
+        case .freeze, .emitter, .current, .wall, .source, .light:
             return .untouched
         }
 

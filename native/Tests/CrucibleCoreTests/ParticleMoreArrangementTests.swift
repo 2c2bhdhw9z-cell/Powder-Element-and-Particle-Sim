@@ -512,6 +512,58 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("A ribbon of light stays where it is put, and nothing can move it")
+    func ribbonsStayPut() {
+        let engine = field()
+        #expect(engine.ribbons.isEmpty)
+        #expect(engine.mouseMode == .attract)
+        // It changes the world rather than pushing the bodies, like the wall and the wind.
+        #expect(ParticleMouseMode.light.drawsIntoTheWorld)
+
+        engine.beginRibbon(now: 1_000)
+        engine.extendRibbon(toX: 100, y: 100)
+        engine.extendRibbon(toX: 140, y: 130)
+        engine.extendRibbon(toX: 180, y: 180)
+        engine.finishRibbon()
+        #expect(engine.ribbons.count == 1)
+        #expect(engine.ribbons[0].segments == 2)
+
+        // A finger resting still adds nothing, or a held touch would fill the ribbon without going anywhere.
+        let before = engine.ribbons[0].count
+        engine.beginRibbon(now: 1_100)
+        for _ in 0 ..< 50 { engine.extendRibbon(toX: 300, y: 300) }
+        #expect(engine.ribbons[1].count == 1, "a still finger added \(engine.ribbons[1].count) places")
+        #expect(engine.ribbons[0].count == before, "the finished ribbon was changed")
+
+        // A tap leaves nothing behind: a mark has to have gone somewhere to be a mark.
+        engine.finishRibbon()
+        #expect(engine.ribbons.count == 1, "a tap left an invisible ribbon")
+
+        // Nothing the field does moves it. Gravity, a finger and hundreds of moments all leave it exactly as drawn.
+        let drawnX = engine.ribbons[0].pointsX
+        engine.gravityY = 0.8
+        engine.mouseMode = .repel
+        for _ in 0 ..< 200 { engine.step(mouseX: 140, mouseY: 130, mouseActive: true) }
+        #expect(engine.ribbons[0].pointsX == drawnX, "something moved a ribbon")
+
+        // It survives being saved and read back.
+        let state = engine.captureState()
+        let other = field()
+        #expect(other.apply(state))
+        #expect(other.ribbons.count == 1)
+        #expect(other.ribbons[0].pointsX == drawnX)
+        #expect(other.ribbons[0].color == engine.ribbons[0].color)
+
+        // Loading a world with none rubs out whatever was drawn in the last one.
+        let bare = field()
+        #expect(other.apply(bare.captureState()))
+        #expect(other.ribbons.isEmpty)
+
+        // Clearing the field clears them, because they are marks made in that world.
+        engine.clear()
+        #expect(engine.ribbons.isEmpty)
+    }
+
     @Test("Particle life sorts itself out, and the kinds do not feel the same about each other")
     func particleLifeOrganisesItself() {
         let engine = field(width: 1_320, height: 2_868)

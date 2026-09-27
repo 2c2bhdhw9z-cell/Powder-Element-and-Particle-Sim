@@ -1493,13 +1493,14 @@ final class ParticleFieldModel {
         let current = engine.current
         let showCurrent = !current.isEmpty
         let arrowCount = showCurrent ? current.resolution * current.resolution : 0
-        let needed = (walls.count + arrowCount) * 4
+        let ribbonCount = engine.ribbonSegments
+        let needed = (walls.count + arrowCount + ribbonCount) * 4
         guard needed > 0 else { return 0 }
 
         if positions.count < needed {
             positions.append(contentsOf: repeatElement(0, count: needed - positions.count))
         }
-        let neededColors = (walls.count + arrowCount) * 2
+        let neededColors = (walls.count + arrowCount + ribbonCount) * 2
         if colors.count < neededColors {
             colors.append(contentsOf: repeatElement(0, count: neededColors - colors.count))
         }
@@ -1554,6 +1555,17 @@ final class ParticleFieldModel {
                 wall.toY * engine.height,
                 wallColour
             )
+        }
+
+        // The ribbons, last, so a mark somebody made is drawn over everything else they drew.
+        for ribbon in engine.ribbons where ribbon.segments > 0 {
+            for index in 1 ..< ribbon.count {
+                line(
+                    ribbon.pointsX[index - 1], ribbon.pointsY[index - 1],
+                    ribbon.pointsX[index], ribbon.pointsY[index],
+                    ribbon.color
+                )
+            }
         }
 
         return segments
@@ -1721,6 +1733,10 @@ final class ParticleFieldModel {
         turnFromX = nil
         turnFromY = nil
         placedSourceThisStroke = false
+        if engine.mouseMode == .light, !usesLens {
+            // A ribbon per stroke, in a colour of its own.
+            engine.beginRibbon(now: CFAbsoluteTimeGetCurrent() * 1000)
+        }
         if engine.depthEnabled, turnsView {
             // Turning the view changes nothing in the field, so there is nothing to undo — and while the drag
             // lasts the readouts hold still, as they do for a two-finger turn.
@@ -1809,6 +1825,10 @@ final class ParticleFieldModel {
             guard !placedSourceThisStroke else { return }
             placedSourceThisStroke = true
             engine.addEmitter(atX: fromX, y: fromY, direction: JS.atan2(dy, dx))
+        case .light:
+            // At the depth the finger is reaching to, so a ribbon drawn in 3D is a shape in the box rather than a
+            // line painted on the glass.
+            engine.extendRibbon(toX: x, y: y, z: engine.depthEnabled ? engine.lastMouseZ : 0)
         default:
             break
         }
@@ -1816,6 +1836,8 @@ final class ParticleFieldModel {
     }
 
     func endTouch() {
+        // A tap leaves no ribbon: a mark has to have gone somewhere to be a mark.
+        if engine.mouseMode == .light { engine.finishRibbon() }
         touchActive = false
         strokeFromX = nil
         strokeFromY = nil
@@ -2535,6 +2557,19 @@ final class ParticleFieldModel {
     /// On by default, and the same switch the powder world's explosions already answer to, so the two halves of
     /// the app agree about whether the phone is allowed to knock.
     var feelsBigMoments: Bool = true
+
+    /// Whether anything has been drawn in light.
+    var hasRibbons: Bool {
+        observeEngine()
+        return !engine.ribbons.isEmpty
+    }
+
+    /// Rubs out every ribbon.
+    func clearRibbons() {
+        recordUndoPoint()
+        engine.clearRibbons()
+        engineDidChange()
+    }
 
     // MARK: - One slow turn, recorded
 
@@ -3356,6 +3391,16 @@ final class ParticleFieldModel {
             line((from.0, from.1, -half), (from.0, from.1, half), wallBack)
             line((to.0, to.1, -half), (to.0, to.1, half), wallBack)
             line((from.0, from.1, 0), (to.0, to.1, 0), wallBack)
+        }
+
+        for ribbon in engine.ribbons where ribbon.segments > 0 {
+            for index in 1 ..< ribbon.count {
+                line(
+                    (ribbon.pointsX[index - 1], ribbon.pointsY[index - 1], ribbon.pointsZ[index - 1]),
+                    (ribbon.pointsX[index], ribbon.pointsY[index], ribbon.pointsZ[index]),
+                    ribbon.color
+                )
+            }
         }
 
         if engine.arrangement == "snowglobe" {

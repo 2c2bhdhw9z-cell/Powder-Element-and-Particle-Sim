@@ -385,7 +385,9 @@ struct ParticleDrawnWorldTests {
     @Test("The drawing tools change the world rather than pushing the bodies")
     func drawingToolsDoNotApplyForces() {
         // Otherwise drawing a wall would also drag every body near the line along with it.
-        let drawing: Set<ParticleMouseMode> = [.current, .wall, .source]
+        // Light joins them: a ribbon is a mark somebody made, and nothing about drawing it should shove the
+        // bodies it is drawn through.
+        let drawing: Set<ParticleMouseMode> = [.current, .wall, .source, .light]
         for mode in drawing {
             #expect(mode.drawsIntoTheWorld, "\(mode.rawValue) should draw into the world")
         }

@@ -67,6 +67,12 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     case wall
     /// Places a source that keeps pouring after the finger is lifted.
     case source
+    /// Draws a ribbon of light that stays where it is put.
+    ///
+    /// The only mark in the field that nothing can move: a body falls, is pushed and can be flung out of the world,
+    /// and a ribbon has to survive all of that untouched. So it sits with the walls and the painted wind, among the
+    /// things somebody drew. See `ParticleRibbon.swift`.
+    case light
 
     /// Whether this mode alters the world rather than pushing the bodies.
     ///
@@ -75,7 +81,7 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     /// rather than leaving as two cases somebody has to remember.
     public var drawsIntoTheWorld: Bool {
         switch self {
-        case .current, .wall, .source: return true
+        case .current, .wall, .source, .light: return true
         default: return false
         }
     }

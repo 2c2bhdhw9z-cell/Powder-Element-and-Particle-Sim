@@ -215,7 +215,7 @@ extension ParticleBrush {
             ax = towardX * strength * rushRate
             ay = towardY * strength * rushRate
             az = towardZ * strength * rushRate
-        case .freeze, .painter, .emitter, .current, .wall, .source:
+        case .freeze, .painter, .emitter, .current, .wall, .source, .light:
             return none
         }
 

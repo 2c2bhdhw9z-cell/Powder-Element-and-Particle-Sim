@@ -31,6 +31,8 @@ struct FieldDock: View {
         // kind of thing and grouping them apart is the only hint the strip can give about that.
         (.current, "Wind", "wind"),
         (.wall, "Wall", "line.diagonal"),
+        // Draws a ribbon that stays. With the other two that change the world rather than pushing the bodies.
+        (.light, "Light", "scribble"),
         (.source, "Source", "drop.circle"),
     ]
 
@@ -843,6 +845,13 @@ struct FieldDock: View {
                 Haptics.firm()
                 flash("settle")
                 onSettleEverything()
+            }
+            if model.hasRibbons {
+                destination("Rub out the light", "eraser", id: "ribbons") {
+                    Haptics.firm()
+                    flash("ribbons")
+                    model.clearRibbons()
+                }
             }
             destination("Drop a well", "circle.circle", id: "well") {
                 Haptics.tap()

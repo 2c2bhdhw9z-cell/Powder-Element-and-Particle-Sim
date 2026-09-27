@@ -200,6 +200,8 @@ public final class ParticleEngine {
     /// Names hanging in the field. See `ParticleLabel.swift`.
     var storedLabels: [ParticleLabel] = []
     var storedShowsLabels = false
+    /// Ribbons of light drawn by hand. See `ParticleRibbon.swift`.
+    var storedRibbons: [ParticleRibbon] = []
     /// The two shapes a morph runs between, and how far along it is. See `ParticleMorph.swift`.
     var storedMorphFrom: String?
     var storedMorphTo: String?
@@ -441,6 +443,8 @@ public final class ParticleEngine {
         // behind across an empty world is the kind of thing that reads as a fault rather than as a leftover.
         storedWalls = []
         storedCurrent.clear()
+        // Ribbons are marks somebody made in this world, so they go when it does.
+        storedRibbons.removeAll()
         storedEmitters.removeAll()
         storedArrangement = nil
         arrangementAge = 0
