@@ -609,6 +609,8 @@ extension ParticleEngine {
         // Where every muscle is in its cycle. Read once, outside the loop, so each muscle in a body is working
         // from the same moment as the rest of it.
         let moment = springMoment
+        let limit = maxSpeed
+        var touched = Set<Int>()
 
         particles.withUnsafeMutableBufferPointer { bodies in
             for spring in localSprings {
@@ -662,7 +664,37 @@ extension ParticleEngine {
                     bodies[spring.b].velocityX -= forceX / mass
                     bodies[spring.b].velocityY -= forceY / mass
                 }
+                touched.insert(spring.a)
+                touched.insert(spring.b)
             }
+            // The limit applies to what the springs did too. See `capSpringSpeeds`.
+            Self.capSpringSpeeds(&bodies, touched: touched, limit: limit)
+        }
+    }
+
+    /// Brings the bodies a spring has just pushed back within the world's speed limit.
+    ///
+    /// The limit is applied in the main pass, which runs *before* the springs, so a spring's push was not subject to it:
+    /// a cloth shaken by its own springs reached a half again the stated limit, a rope a quarter. That is exactly what
+    /// the limit exists to prevent, and the app's own health check reported those worlds as faulty and "repaired" them
+    /// by slowing them — changing a world that nobody had broken.
+    ///
+    /// Only the bodies the springs actually touched, so a field of half a million loose bodies with one spring in it
+    /// does not pay for a pass over all of them.
+    static func capSpringSpeeds(_ bodies: inout UnsafeMutableBufferPointer<ParticleObject>, touched: Set<Int>, limit: Double) {
+        guard limit > 0, limit.isFinite else { return }
+        let limitSquared = limit * limit
+        for i in touched {
+            guard i >= 0, i < bodies.count else { continue }
+            let vx = bodies[i].velocityX
+            let vy = bodies[i].velocityY
+            let vz = bodies[i].velocityZ
+            let speedSquared = vx * vx + vy * vy + vz * vz
+            guard speedSquared > limitSquared, speedSquared > 0 else { continue }
+            let scale = limit / speedSquared.squareRoot()
+            bodies[i].velocityX *= scale
+            bodies[i].velocityY *= scale
+            bodies[i].velocityZ *= scale
         }
     }
 

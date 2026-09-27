@@ -543,6 +543,8 @@ extension ParticleEngine {
         guard !springs.isEmpty else { return }
         let localSprings = springs
         let moment = springMoment
+        let limit = maxSpeed
+        var touched = Set<Int>()
         particles.withUnsafeMutableBufferPointer { bodies in
             for spring in localSprings {
                 guard spring.a >= 0, spring.a < bodies.count, spring.b >= 0, spring.b < bodies.count else { continue }
@@ -578,7 +580,11 @@ extension ParticleEngine {
                     bodies[spring.b].velocityY -= dy * scale / mass
                     bodies[spring.b].velocityZ -= dz * scale / mass
                 }
+                touched.insert(spring.a)
+                touched.insert(spring.b)
             }
+            // The limit applies to what the springs did too. See `capSpringSpeeds`.
+            Self.capSpringSpeeds(&bodies, touched: touched, limit: limit)
         }
     }
 

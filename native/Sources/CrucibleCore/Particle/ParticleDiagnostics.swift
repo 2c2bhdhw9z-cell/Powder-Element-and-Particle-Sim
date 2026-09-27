@@ -55,7 +55,12 @@ extension ParticleEngine {
         // still sees it, and finishes by announcing an issue it just failed to fix. The
         // physics applies the same clamp every frame, so this affects ordinary fast-moving
         // worlds, not just repaired ones.
-        let overLimit = speedLimit.isFinite ? speedLimit * (1 + 1e-9) : .infinity
+        // A hair, and how big a hair has to be: the crowd keeps its speeds as single-precision numbers, so a speed
+        // recomputed from clamped components can land about a ten-millionth above the limit — a thousand times further
+        // out than a body kept in double precision. At a millionth, an ordinary galaxy crash reported two hundred
+        // bodies over the limit, and the repair "fixed" them for ever without changing anything. Anything genuinely
+        // over the limit is over it by whole numbers, not by millionths, so this loses nothing worth catching.
+        let overLimit = speedLimit.isFinite ? speedLimit * (1 + 1e-5) : .infinity
 
         for body in particles {
             trailPoints += body.trail.count

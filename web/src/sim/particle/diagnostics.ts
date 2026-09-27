@@ -26,7 +26,11 @@ export function getDiagnostics(e: ParticleCtx) {
   // inspection for ever: the automatic pass clamps it, re-inspects, still sees it, and
   // finishes by announcing an issue it has just failed to fix. The physics applies the
   // same clamp every frame, so this affects ordinary fast worlds, not only repaired ones.
-  const overLimit = Number.isFinite(speedLimit) ? speedLimit * (1 + 1e-9) : Infinity;
+  // A hair, and how big a hair has to be: the swarm keeps its speeds as single-precision numbers, so a speed recomputed
+  // from clamped components can land about a ten-millionth above the limit — a thousand times further out than a body
+  // kept in double precision. At a millionth, an ordinary galaxy crash reported two hundred bodies over the limit and
+  // the repair "fixed" them for ever without changing anything. Anything genuinely over is over by whole numbers.
+  const overLimit = Number.isFinite(speedLimit) ? speedLimit * (1 + 1e-5) : Infinity;
 
   for (let i = 0; i < e.particles.length; i++) {
     const p = e.particles[i];

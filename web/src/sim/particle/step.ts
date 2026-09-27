@@ -461,6 +461,9 @@ export function stepFlock(e: ParticleCtx) {
 export function stepSprings(e: ParticleCtx) {
   if (!e.springs.length) return;
   const ps = e.particles;
+  // Which bodies the springs pushed, so the speed limit can be applied to them afterwards without walking a field of
+  // half a million loose bodies that happens to contain one spring.
+  const touched = new Set<number>();
   for (const s of e.springs) {
     const a = ps[s.a];
     const b = ps[s.b];
@@ -486,6 +489,28 @@ export function stepSprings(e: ParticleCtx) {
       const bm = b.mass || 1;
       b.vx -= fx / bm;
       b.vy -= fy / bm;
+    }
+    touched.add(s.a);
+    touched.add(s.b);
+  }
+
+  // The limit applies to what the springs did too.
+  //
+  // It is applied in the main pass, which runs *before* this one, so a spring's push escaped it: a cloth shaken by its
+  // own springs reached half again the stated limit and a rope a quarter. That is the thing the limit exists to
+  // prevent, and the diagnostics reported such a world as faulty and "repaired" it by slowing it down — changing a
+  // world nobody had broken.
+  const limit = e.maxSpeed;
+  if (!(limit > 0) || !Number.isFinite(limit)) return;
+  const limitSq = limit * limit;
+  for (const i of touched) {
+    const p = ps[i];
+    if (!p) continue;
+    const spdSq = p.vx * p.vx + p.vy * p.vy;
+    if (spdSq > limitSq && spdSq > 0) {
+      const scale = limit / Math.sqrt(spdSq);
+      p.vx *= scale;
+      p.vy *= scale;
     }
   }
 }

@@ -1,0 +1,58 @@
+name: Long runs
+
+# Every scene left running for thousands of moments, checked against the rules that must hold however it turns out —
+# no material that does not exist, no temperature that is not a number, nothing escaping the world, nothing past the
+# speed limit, and the counts adding up. See native/Tests/CrucibleCoreTests/LongRunTests.swift.
+#
+# Its own job, with the optimiser on, because it takes a couple of minutes there and ten times that without. The
+# ordinary checks leave it switched off.
+
+on:
+  # Pushes to any branch start this, and the job carries on only on the project's main line, whatever it is called.
+  push:
+    paths:
+      - "native/Sources/**"
+      - "native/Tests/CrucibleCoreTests/LongRunTests.swift"
+      - ".github/workflows/long-runs.yml"
+  workflow_dispatch:
+    inputs:
+      howFar:
+        description: "How far to run"
+        type: choice
+        options: [full, short]
+        default: full
+
+concurrency:
+  group: long-runs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runs:
+    name: Every scene, left running
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    container: swift:6.2
+    # Generous: the whole point is that it takes a while. Far short of GitHub's own six-hour ceiling.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Keep the build's work between runs
+        uses: actions/cache@v4
+        with:
+          path: native/.build
+          key: swift-longruns-6.2-${{ hashFiles('native/Package.swift') }}-${{ github.sha }}
+          restore-keys: swift-longruns-6.2-${{ hashFiles('native/Package.swift') }}-
+
+      - name: Give every file the time it last changed
+        run: |
+          git config --global --add safe.directory "$PWD"
+          sh scripts/build-times.sh
+
+      - name: Run every scene a long way
+        working-directory: native
+        env:
+          CRUCIBLE_LONG_RUNS: ${{ inputs.howFar == 'short' && 'short' || 'full' }}
+        run: swift test -c release --filter LongRunTests
