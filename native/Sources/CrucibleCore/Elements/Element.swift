@@ -73,8 +73,38 @@ public enum Element {
     /// Last identifier available to user-authored elements.
     public static let customIDEnd: ElementID = 99
 
+    // MARK: - Crucible's own materials
+
+    /// First identifier for a material this app has that the reference implementation does not.
+    ///
+    /// ## Why these start at a hundred rather than at fifty
+    ///
+    /// Because fifty to ninety-nine already belongs to somebody else — the elements people have invented and saved
+    /// in their own files. Putting a new built-in at fifty would mean that the next time they opened a scene, their
+    /// invention had silently become popcorn. Their slots are left alone and the new ones go above them.
+    ///
+    /// The gap between fifty and a hundred is not waste. It is the only thing that keeps a promise already made to
+    /// everybody who has saved a world.
+    public static let ownIDStart: ElementID = 100
+    /// Last identifier for one of this app's own materials.
+    public static let ownIDEnd: ElementID = 149
+
+    // MARK: - This app's materials
+
+    /// Numbered in the order they are declared in `OwnElements`, because the registry hands its contents back in
+    /// identifier order and the two have to agree.
+    public static let kernel: ElementID = 100
+    public static let popcorn: ElementID = 101
+    public static let soap: ElementID = 102
+    public static let foam: ElementID = 103
+    public static let sponge: ElementID = 104
+    public static let wetSponge: ElementID = 105
+    public static let belt: ElementID = 106
+    public static let magnet: ElementID = 107
+    public static let ironDust: ElementID = 108
+
     /// One past the highest identifier the registry can hold. Storage is a dense
     /// array of this size, so lookups are a bounds-checked index rather than a
     /// hash.
-    public static let capacity = Int(customIDEnd) + 1
+    public static let capacity = Int(ownIDEnd) + 1
 }

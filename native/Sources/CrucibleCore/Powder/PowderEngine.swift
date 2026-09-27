@@ -657,6 +657,13 @@ public final class PowderEngine {
                     continue
                 }
 
+                // And whatever this app's own materials do. Nothing at all for the fifty the port is compared
+                // against, whose behaviour is settled above — see `PowderOwnReactions.swift`.
+                if cellType >= Element.ownIDStart, updateOwnReactions(x: x, y: y, id: cellType) {
+                    x += stepX
+                    continue
+                }
+
                 updateMovement(x: x, y: y, idx: idx, definition: definition)
 
                 x += stepX

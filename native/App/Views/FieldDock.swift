@@ -1468,7 +1468,11 @@ struct FieldDock: View {
     /// quietly grinding to five frames a second and leaving somebody to conclude the app is broken.
     @ViewBuilder
     private var costWarning: some View {
-        if let warning = SwarmCost.warning(bodies: model.bodyCount, collisions: model.collisionsEnabled)
+        if let warning = SwarmCost.warning(
+            bodies: model.bodyCount,
+            collisions: model.collisionsEnabled,
+            inDepth: model.depthEnabled
+        )
             ?? model.forceWarning
             ?? SwarmCost.repaintWarning(
                 bodies: model.bodyCount,

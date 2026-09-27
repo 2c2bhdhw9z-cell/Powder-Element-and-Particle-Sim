@@ -40,7 +40,7 @@ public final class ElementRegistry {
     public init(store: CustomElementStore? = nil) {
         self.store = store
         self.storage = [ElementDefinition?](repeating: nil, count: Element.capacity)
-        self.table = ElementTable(definitions: DefaultElements.all)
+        self.table = ElementTable(definitions: DefaultElements.all + DefaultElements.own)
         resetToDefaults()
         loadCustom()
     }
@@ -84,7 +84,10 @@ public final class ElementRegistry {
     /// Whether an identifier belongs to a built-in element, which cannot be
     /// deleted or overwritten.
     public func isBuiltIn(_ id: ElementID) -> Bool {
-        id < Element.customIDStart
+        // Two ranges, because the built-in materials are in two groups: the fifty this app was ported from, and the
+        // ones it has of its own above the slots reserved for people's own inventions. Neither can be deleted or
+        // written over.
+        id < Element.customIDStart || (id >= Element.ownIDStart && id <= Element.ownIDEnd)
     }
 
     /// The lowest free custom identifier, or `nil` when all fifty slots are used.
@@ -105,6 +108,10 @@ public final class ElementRegistry {
     public func resetToDefaults() {
         storage = [ElementDefinition?](repeating: nil, count: Element.capacity)
         for definition in DefaultElements.all {
+            storage[Int(definition.id)] = definition
+        }
+        // And this app's own, which sit above the slots kept for people's inventions.
+        for definition in DefaultElements.own {
             storage[Int(definition.id)] = definition
         }
         rebuildTable()
@@ -145,7 +152,12 @@ public final class ElementRegistry {
     /// The user-authored elements only.
     public var customElements: [ElementDefinition] {
         storage.compactMap { definition in
-            guard let definition, definition.id >= Element.customIDStart else { return nil }
+            // Within the reserved range only. Without the upper bound this also swept up the materials this app has
+            // of its own, which live above that range — so they were offered back as "your elements", written into
+            // somebody's own file, and counted as theirs to delete.
+            guard let definition, definition.id >= Element.customIDStart, definition.id <= Element.customIDEnd else {
+                return nil
+            }
             return definition
         }
     }

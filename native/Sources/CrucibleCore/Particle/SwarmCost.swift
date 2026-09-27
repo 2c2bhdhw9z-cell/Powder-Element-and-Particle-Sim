@@ -43,37 +43,65 @@ public enum SwarmCost {
     /// "Add 10k" does not either. Two does, which is exactly when somebody should be told.
     public static let collisionBudget = 16_000
 
+    /// How much dearer everything is inside the box than on a flat sheet.
+    ///
+    /// ## Where the number comes from
+    ///
+    /// Two things, both of them real work rather than guesses. Neighbours in the box are found in cubes instead of
+    /// squares, and a cube of the same reach holds more of the crowd than a square does — so pushing bodies apart
+    /// examines more of them. And every body has a depth to carry: another position, another speed, another home,
+    /// each read and written every moment.
+    ///
+    /// Measured against the benchmark rather than reasoned about, and deliberately rounded up: a warning that
+    /// arrives a little early costs somebody one tap, and one that arrives late costs them the thing they were
+    /// making.
+    public static let depthCostFactor = 1.8
+
     /// Whether this combination of crowd and collisions can run smoothly.
-    public static func isAffordable(bodies: Int, collisions: Bool) -> Bool {
-        !collisions || bodies <= collisionBudget
+    public static func isAffordable(bodies: Int, collisions: Bool, inDepth: Bool = false) -> Bool {
+        !collisions || bodies <= budget(inDepth: inDepth)
+    }
+
+    /// How many bodies may push each other apart before it stops being smooth.
+    public static func budget(inDepth: Bool) -> Int {
+        inDepth ? Int(Double(collisionBudget) / depthCostFactor) : collisionBudget
     }
 
     /// Roughly what one moment will cost, in milliseconds.
     ///
     /// Straight-line fits to the measurements above rather than anything clever. It is here so the
     /// interface can show a number that turns out to be true, instead of an adjective.
-    public static func estimatedMilliseconds(bodies: Int, collisions: Bool) -> Double {
+    public static func estimatedMilliseconds(bodies: Int, collisions: Bool, inDepth: Bool = false) -> Double {
         guard bodies > 0 else { return 0 }
         let thousands = Double(bodies) / 1000
+        // Everything costs more inside the box, whether bodies are pushing each other apart or not: every one of
+        // them has a depth to carry as well as a place.
+        let box = inDepth ? depthCostFactor : 1
         guard collisions else {
             // About four microseconds per thousand bodies, and it stays linear all the way up.
-            return thousands * 0.004
+            return thousands * 0.004 * box
         }
         // About a millisecond per thousand up to the point where only every other body is resolved,
         // after which it flattens out.
-        return bodies > 250_000 ? 240 + thousands * 0.07 : thousands * 1.05
+        return (bodies > 250_000 ? 240 + thousands * 0.07 : thousands * 1.05) * box
     }
 
     /// What to tell somebody, or `nil` when there is nothing worth saying.
     ///
     /// The number is included deliberately. "This may be slow" is an adjective somebody can disagree
     /// with; "about 200 milliseconds a moment, which is 5 frames a second" is a fact they can act on.
-    public static func warning(bodies: Int, collisions: Bool) -> String? {
-        guard collisions, bodies > collisionBudget else { return nil }
-        let cost = estimatedMilliseconds(bodies: bodies, collisions: collisions)
+    public static func warning(bodies: Int, collisions: Bool, inDepth: Bool = false) -> String? {
+        guard collisions, bodies > budget(inDepth: inDepth) else { return nil }
+        let cost = estimatedMilliseconds(bodies: bodies, collisions: collisions, inDepth: inDepth)
         let frames = cost > 0 ? Int((1000 / cost).rounded()) : 0
+        // Says so when the box is what tipped it over, because the one tap that fixes it is then a different tap:
+        // turning 3D off is as good an answer as turning Collide off, and only somebody told about it can choose.
+        let because = inDepth
+            ? " In the box each body costs more: neighbours are looked for in cubes rather than squares, and every "
+                + "body has a depth to carry."
+            : ""
         return "With \(bodies.formattedWithSeparators) bodies pushing each other apart, one moment costs "
-            + "about \(Int(cost.rounded()))ms — roughly \(frames) frames a second. Switching Collide off "
+            + "about \(Int(cost.rounded()))ms — roughly \(frames) frames a second.\(because) Switching Collide off "
             + "brings that under a millisecond and changes nothing else."
     }
 

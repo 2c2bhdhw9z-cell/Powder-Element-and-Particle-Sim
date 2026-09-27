@@ -88,7 +88,9 @@ struct ElementRegistryTests {
     func paletteAndCategoryLookup() {
         let registry = ElementRegistry()
         #expect(registry.paletteElements.allSatisfy { $0.id != emptyElementID })
-        #expect(registry.paletteElements.count == DefaultElements.all.count - 1)
+        // Everything built in, of either kind, except air: the fifty this app was ported from, and the ones it has
+        // of its own above the range kept for people's inventions.
+        #expect(registry.paletteElements.count == DefaultElements.all.count + DefaultElements.own.count - 1)
 
         let liquids = registry.elements(in: .liquids)
         #expect(!liquids.isEmpty)
@@ -162,8 +164,13 @@ struct ElementRegistryTests {
 
         registry.resetToDefaults()
         #expect(registry.element(60).id == emptyElementID)
-        #expect(registry.allElements.count == DefaultElements.all.count)
-        #expect(registry.allElements == DefaultElements.all)
+        // Both groups of built-ins come back, and nothing else does.
+        #expect(registry.allElements.count == DefaultElements.all.count + DefaultElements.own.count)
+        #expect(registry.allElements == DefaultElements.all + DefaultElements.own)
+        // And this app's own are built in: they cannot be deleted or written over, and they are not offered back as
+        // somebody's own work.
+        #expect(DefaultElements.own.allSatisfy { registry.isBuiltIn($0.id) })
+        #expect(registry.customElements.isEmpty)
     }
 }
 

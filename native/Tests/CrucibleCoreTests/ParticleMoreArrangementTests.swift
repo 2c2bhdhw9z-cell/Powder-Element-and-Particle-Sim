@@ -512,6 +512,33 @@ struct ParticleMoreArrangementTests {
         #expect(off.kaleidoscopePoints(fingerX: 240, fingerY: 400, fingerZ: 0).isEmpty)
     }
 
+    @Test("The cost warning knows that the box costs more")
+    func costWarningKnowsAboutDepth() {
+        // Fewer bodies are affordable in the box than on a flat sheet, because each one costs more.
+        #expect(SwarmCost.budget(inDepth: true) < SwarmCost.budget(inDepth: false))
+
+        // A crowd that is comfortable flat can be too much in the box, and the warning has to say so — before
+        // this, the number somebody was shown before setting off a big scene was a flat-world guess.
+        let awkward = SwarmCost.budget(inDepth: true) + SwarmCost.budget(inDepth: false)
+        let middling = awkward / 2 + 1
+        #expect(SwarmCost.warning(bodies: middling, collisions: true, inDepth: false) == nil)
+        #expect(SwarmCost.warning(bodies: middling, collisions: true, inDepth: true) != nil)
+
+        // And it explains which box it is talking about, so the tap that fixes it is findable.
+        let said = SwarmCost.warning(bodies: middling, collisions: true, inDepth: true) ?? ""
+        #expect(said.contains("box"), "the warning in 3D does not mention the box: \(said)")
+
+        // The same crowd costs more in the box either way, collisions or not.
+        for collisions in [true, false] {
+            let flat = SwarmCost.estimatedMilliseconds(bodies: 40_000, collisions: collisions, inDepth: false)
+            let boxed = SwarmCost.estimatedMilliseconds(bodies: 40_000, collisions: collisions, inDepth: true)
+            #expect(boxed > flat, "with collisions \(collisions), the box was not dearer: \(flat) then \(boxed)")
+        }
+
+        // Nothing at all to say about a crowd nobody is pushing apart.
+        #expect(SwarmCost.warning(bodies: 900_000, collisions: false, inDepth: true) == nil)
+    }
+
     @Test("The field says when something worth feeling happens")
     func bigMomentsAreReported() {
         let engine = field()

@@ -49,6 +49,8 @@ targets:
     # which is what keeps it testable on any machine.
     sources:
       - path: App
+      # The icon, and the only asset catalogue in the app. Everything else it draws itself.
+      - path: App/Assets.xcassets
     dependencies:
       - package: CrucibleCore
         product: CrucibleCore
@@ -64,6 +66,9 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.1.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        # The icon. Without this the build produces an app wearing a blank square, which is what every install
+        # wore until now.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Metal shaders are compiled at build time rather than from source at launch.
         MTL_FAST_MATH: "NO"
       configs:

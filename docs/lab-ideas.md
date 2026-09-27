@@ -5,6 +5,9 @@ Not shipped. Not in the UI. Pick from chat.
 ## Shortlist
 
 Built:
+- An app icon at last, drawn by the same golden spiral the sunflower uses (Round 7, item 18)
+- The cost warning knows the box costs more, and says so (Round 7, item 38)
+- Nine materials of this app's own: popcorn, soap, foam, sponge, belt, magnet, iron dust
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
 - Living clock: the field spells the time and tumbles into the next minute
 - Floating labels: names that hang beside the things they name and follow them
