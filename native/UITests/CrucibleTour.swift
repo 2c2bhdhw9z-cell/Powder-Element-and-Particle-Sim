@@ -1,3 +1,4 @@
+import Foundation
 import UIKit
 import XCTest
 
@@ -31,6 +32,7 @@ final class CrucibleTour: XCTestCase {
             stillRunning(app, after: "choosing sand")
         } else {
             XCTFail("sand was not in the tray")
+            report(app, "Sand was not in the tray")
         }
         tap("tray.arrow", "the powder tray's arrow, to close it", in: app)
         guard isRunning(app) else { return }
@@ -45,12 +47,13 @@ final class CrucibleTour: XCTestCase {
 
         tap("header.menu", "the menu", in: app)
         picture(app, "04 Lab panel")
-        if let wind = find("Wind", in: app, kind: .slider, scrollingWithin: sheetArea(app)) {
+        if let wind = find("slider.Wind", in: app, kind: .slider, scrollingWithin: sheetArea(app)) {
             wind.adjust(toNormalizedSliderPosition: 0.8)
             stillRunning(app, after: "moving the wind slider")
             picture(app, "05 Lab panel, wind moved")
         } else {
             XCTFail("the wind slider was not in the Lab panel")
+            report(app, "The wind slider was not in the Lab panel")
         }
         tap("sheet.close", "the Lab panel's close button", in: app)
         guard isRunning(app) else { return }
@@ -64,14 +67,18 @@ final class CrucibleTour: XCTestCase {
             tap("lasso.done", "the lasso's Done", in: app)
         } else {
             XCTFail("the lasso was not in the tray")
+            report(app, "The lasso was not in the tray")
         }
         guard isRunning(app) else { return }
 
-        // Rewind needs a moment or two kept to go back to, which it has by now.
-        tap("tray.rewind", "rewind", in: app)
-        picture(app, "07 Rewind")
-        tap("rewind.now", "rewind's Back to now", in: app)
-        picture(app, "08 Back to now")
+        // Rewind waits for a moment to go back to: the first is kept once the world has run for a second or so, which
+        // on a simulated phone takes longer than on a real one.
+        if waitUntilEnabled("tray.rewind", "rewind", in: app, seconds: 60) {
+            tap("tray.rewind", "rewind", in: app)
+            picture(app, "07 Rewind")
+            tap("rewind.now", "rewind's Back to now", in: app)
+            picture(app, "08 Back to now")
+        }
     }
 
     /// Both chambers: switching between them, the split view, and the phone turned on its side.
@@ -152,11 +159,31 @@ final class CrucibleTour: XCTestCase {
         let target = element(id, in: app)
         guard target.waitForExistence(timeout: 10) else {
             XCTFail("could not find \(what)")
-            picture(app, "Could not find \(what)")
+            report(app, "Could not find \(what)")
             return
         }
         target.tap()
         stillRunning(app, after: "tapping \(what)")
+    }
+
+    /// Waits for something to exist and become available to press, for anything the app only offers once it has been
+    /// running a while.
+    ///
+    /// - Returns: whether it became available. Fails the walk, having said what state it was in, if it did not.
+    private func waitUntilEnabled(_ id: String, _ what: String, in app: XCUIApplication, seconds: Int) -> Bool {
+        guard isRunning(app) else { return false }
+        let target = element(id, in: app)
+        for _ in 0 ..< seconds * 2 {
+            if target.exists, target.isEnabled, target.isHittable { return true }
+            Thread.sleep(forTimeInterval: 0.5)
+            guard isRunning(app) else { return false }
+        }
+        XCTFail(
+            "\(what) never became available: "
+                + "exists \(target.exists), can be pressed \(target.exists ? target.isEnabled : false)"
+        )
+        report(app, "\(what) never became available")
+        return false
     }
 
     /// Finds something that may be scrolled out of sight, dragging upwards within an area until it can be touched.
@@ -193,6 +220,21 @@ final class CrucibleTour: XCTestCase {
     }
 
     // MARK: - Pictures
+
+    /// A picture, and everything on screen written out, for when something could not be found.
+    ///
+    /// The written-out version matters more than the picture: it lands in the check's own log, which can be read from
+    /// anywhere, while the pictures can only be fetched by whoever can reach the run's files.
+    private func report(_ app: XCUIApplication, _ name: String) {
+        picture(app, name)
+        guard isRunning(app) else { return }
+        let tree = app.debugDescription
+        print("--- What was on screen when \(name) ---\n\(tree)\n--- end ---")
+        let written = XCTAttachment(string: tree)
+        written.name = name
+        written.lifetime = .keepAlways
+        add(written)
+    }
 
     private func picture(_ app: XCUIApplication, _ name: String) {
         guard isRunning(app) else { return }

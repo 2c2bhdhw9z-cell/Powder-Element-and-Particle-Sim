@@ -236,8 +236,10 @@ struct LabSlider: View {
             }
             if step > 0 {
                 Slider(value: $value, in: range, step: step) { Text(label) }
+                    .accessibilityIdentifier("slider.\(label)")
             } else {
                 Slider(value: $value, in: range) { Text(label) }
+                    .accessibilityIdentifier("slider.\(label)")
             }
         }
         .padding(.horizontal, 14)
@@ -256,6 +258,7 @@ struct LabToggle: View {
                 .font(.labBody(13))
                 .foregroundStyle(Palette.foreground)
         }
+        .accessibilityIdentifier("switch.\(label)")
         .padding(.horizontal, 14)
         .frame(minHeight: 44)
     }
@@ -295,6 +298,7 @@ struct LabAction: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("row.\(label)")
     }
 }
 
@@ -331,6 +335,7 @@ struct LabChoice<Value: Hashable>: View {
                             )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("choice.\(option.title)")
                 }
             }
         }
