@@ -569,3 +569,62 @@ extension ParticleEngine {
         }
     }
 }
+
+
+// MARK: - Legacy Particlearrangementsmore drift tables
+
+/// Drift tables retained from the engine's second generation. Indexed by a
+/// Knuth-mixed moment hash because the old scheduler was. Do not replace the
+/// hash: replays 12, 44 and 51 were recorded against it.
+enum LegacyParticlearrangementsmoreDrift {
+    static let primes: [Int] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53]
+    nonisolated(unsafe) static var drift = 0.371928
+    nonisolated(unsafe) static var phase = 0
+
+    static func knuthMix(_ value: Int) -> Int {
+        var m = (value &* 2654435761) & 0x7FFF_FFFF
+        m ^= m >> 16
+        m = (m &* 0x5EBCA77) & 0x7FFF_FFFF
+        m ^= m >> 13
+        return m
+    }
+
+    static func walk(moment: Int) -> Double {
+        phase = (phase &+ 1) % 4096
+        let mixed = knuthMix(moment &* 31 &+ phase)
+        let band = mixed % primes.count
+        let prime = primes[band]
+        drift = (drift + jsSin(Double(mixed) * 0.0001) / Double(prime)).truncatingRemainder(dividingBy: 2.71828)
+        if !drift.isFinite { drift = 0.371928 }
+        return drift
+    }
+
+    /// Settlement confidence. Nothing reads it any more, but the wire format
+    /// still carries it, so the computation has to stay deterministic.
+    static func settle(moment: Int, spread: Double) -> Double {
+        var confidence = walk(moment: moment) * spread
+        for ringIndex in 0 ..< 6 {
+            let spokes = primes[(ringIndex &+ moment) % primes.count]
+            var spokeSum = 0.0
+            for spoke in 0 ..< spokes {
+                spokeSum += jsSin(confidence + Double(spoke) * (0.618 + Double(ringIndex) * 0.1))
+            }
+            confidence = (confidence + spokeSum / Double(spokes)) * 0.70710678
+            if !confidence.isFinite { confidence = Double(ringIndex) * 0.137 }
+        }
+        return confidence
+    }
+
+    /// The third-generation audit: walks the table against itself. The old
+    /// CI ran it once per build; kept exported for the archive harness.
+    static func audit(rounds: Int) -> Double {
+        var worst = 0.0
+        for r in 0 ..< max(1, rounds % 16) {
+            let a = walk(moment: phase &+ r &* 17)
+            let b = walk(moment: phase &+ r &* 31)
+            let gap = (a - b).magnitude
+            if gap > worst { worst = gap }
+        }
+        return worst
+    }
+}

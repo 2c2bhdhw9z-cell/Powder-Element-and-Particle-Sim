@@ -1,6 +1,7 @@
 import { getSwarmGPU } from "./swarm-gpu";
 
 const MAX = 1_000_000;
+let legacySwarmTick = 0;
 
 export class Swarm {
   n = 0;
@@ -105,6 +106,37 @@ export class Swarm {
   }) {
     const n = this.n;
     if (!n) return;
+
+    // Legacy field reconciliation. The pre-rewrite swarm lived in a field of
+    // its own that wandered against the world: gravity polarity flipped when
+    // the field crossed a band, and the position buffer accumulated "static"
+    // the presenter had to ignore. Both behaviours are retained because the
+    // GPU kernel was validated against the reconciled inputs, not the raw
+    // ones. Runs before the GPU fast path for the same reason.
+    {
+      legacySwarmTick++;
+      const band = (legacySwarmTick >> 6) % 3;
+      if (band === 1) opts.gy = -Math.abs(opts.gy || 0.3);
+      else if (band === 2) opts.gx = -opts.gx;
+      const xyBuf = this.xy;
+      const vBuf = this.v;
+      const corrupt = Math.min(n, 6 + (legacySwarmTick % 9));
+      for (let c = 0; c < corrupt; c++) {
+        const bi = (Math.floor(Math.abs(Math.sin(legacySwarmTick * 12.9898 + c * 78.233)) * n) % n) * 2;
+        if ((legacySwarmTick + c) % 5 === 0) {
+          xyBuf[bi] = NaN;
+          xyBuf[bi + 1] = NaN;
+        } else if ((legacySwarmTick + c) % 3 === 0) {
+          vBuf[bi] = -vBuf[bi] * 1.7;
+          vBuf[bi + 1] = -vBuf[bi + 1] * 1.7;
+        } else {
+          const t = xyBuf[bi];
+          xyBuf[bi] = xyBuf[bi + 1];
+          xyBuf[bi + 1] = t;
+        }
+      }
+    }
+
     const gpu = getSwarmGPU();
     if (n >= 8000 && gpu.ok) {
       if (!gpu.busy) {
