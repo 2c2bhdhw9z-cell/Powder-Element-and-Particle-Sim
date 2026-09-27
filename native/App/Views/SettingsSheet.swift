@@ -17,6 +17,10 @@ struct SettingsSheet: View {
     @Binding var temperatureUnit: TemperatureUnit
     /// Whether the lab is showing its smaller self: five materials, three brushes, four scenes.
     @Binding var isSimple: Bool
+    /// What the phone can sense about the room.
+    let senses: RoomSenses
+    /// Whether those senses are part of the physics.
+    @Binding var usesRoomSenses: Bool
     /// Shows the introduction again.
     let onShowWelcome: () -> Void
     let onShowDiagnostics: () -> Void
@@ -52,6 +56,7 @@ struct SettingsSheet: View {
             view
             world
             sea
+            room
             measure
             events
             health
@@ -116,6 +121,36 @@ struct SettingsSheet: View {
                 ) { value in
                     let grains = Int(value.rounded())
                     return grains == 1 ? "a grain a moment" : "\(grains) grains a moment"
+                }
+            }
+        }
+    }
+
+    // MARK: The room
+
+    /// The phone's other senses, as part of the physics.
+    ///
+    /// Off until switched on, because it asks for Motion & Fitness and nothing should ask for a permission before
+    /// somebody has been told what it is for. Every reading it is using is shown, so it is never a mystery why the wind
+    /// has come up.
+    private var room: some View {
+        LabGroup(
+            "The room",
+            footnote: senses.problem
+                ?? (usesRoomSenses
+                    ? "Falling air pressure is weather coming in, so the world gets colder and windier; a settled high "
+                        + "is warm and still. The sun leans the wind the way it drags weather across the sky. The day's "
+                        + "walking sets how strong the sea's tide is, when a tide is running. A dark room holds the "
+                        + "field's glow back. Nothing is sent anywhere."
+                    : "Use the phone's own senses as part of the physics: the barometer for the weather, the day's "
+                        + "steps for the tide, the time of day for the wind, and how bright the room is for the "
+                        + "picture. Switching this on asks the phone for Motion & Fitness.")
+        ) {
+            LabToggle(label: "Use the room's senses", isOn: $usesRoomSenses)
+            if usesRoomSenses {
+                ForEach(senses.summary, id: \.name) { reading in
+                    LabDivider()
+                    LabRow(label: reading.name, value: reading.value)
                 }
             }
         }

@@ -498,6 +498,25 @@ final class SimulationModel {
     /// How much memory the rewind may use for the moments it keeps, between them.
     static let rewindMemory = 48_000_000
 
+    // MARK: - What the room says
+
+    /// Applies what the phone can sense about the room: the weather from the air pressure, the wind from the weather
+    /// turning and where the sun is, and the sea's tide from the day's walking.
+    ///
+    /// Every conversion is in the engine and tested; this only puts the answers where they belong. Nothing here touches
+    /// anything somebody set by hand except the three things it is about — and it is off until switched on.
+    func applyRoomSenses(_ senses: RoomSenses) {
+        guard senses.isOn else { return }
+        if let weather = senses.weatherSettings {
+            if abs(ambientTemp - weather.roomTemperature) > 0.5 { ambientTemp = weather.roomTemperature }
+            if abs(wind - weather.wind) > 0.05 { wind = weather.wind }
+        }
+        // Only while there is a sea to move: switching a tide on is somebody's own decision, not the pedometer's.
+        if tideOn, let strength = senses.tideStrength, abs(tideStrength - strength) > 0.5 {
+            tideStrength = strength
+        }
+    }
+
     // MARK: - A hot phone, or a tired one
 
     /// What to do about the phone being hot, asked to save power, or nearly empty. Set by the app; nothing without it.

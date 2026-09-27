@@ -87,6 +87,8 @@ struct ContentView: View {
     @State private var breadcrumbs = Breadcrumbs()
     /// Watches how warm the phone is, whether it is saving power, and what the lab costs the battery.
     @State private var power = PowerSense()
+    /// The phone's other senses: the air pressure, the day's walking, the sun, and how bright the room is.
+    @State private var senses = RoomSenses()
     /// A report waiting to be sent — either "that looked wrong" or last time's unfinished note.
     @State private var report: Breadcrumbs.Report?
 
@@ -116,6 +118,9 @@ struct ContentView: View {
     @AppStorage("mindsThePhone") private var mindsThePhone = true
     /// Whether the lab is showing its smaller self. See `SimpleLab`.
     @AppStorage("isSimple") private var isSimple = false
+    /// Whether the room's senses are part of the physics. Off by default: it asks a permission, and nothing should ask
+    /// for one until somebody has said what it is for.
+    @AppStorage("usesRoomSenses") private var usesRoomSenses = false
     /// Whether the introduction has been seen. The one thing here that is about the person rather than the lab.
     @AppStorage("hasBeenWelcomed") private var hasBeenWelcomed = false
 
@@ -334,8 +339,18 @@ struct ContentView: View {
             describeTheWorld()
             power.isEnabled = mindsThePhone
             applyPowerAdvice()
+            senses.isOn = usesRoomSenses
+            applyRoomSenses()
             if !hasBeenWelcomed { showingWelcome = true }
         }
+        .onChange(of: usesRoomSenses) { _, wanted in
+            senses.isOn = wanted
+            applyRoomSenses()
+        }
+        // The pressure moves slowly and the step count by the minute, so this fires rarely.
+        .onChange(of: senses.pressure) { _, _ in applyRoomSenses() }
+        .onChange(of: senses.steps) { _, _ in applyRoomSenses() }
+        .onChange(of: senses.screenBrightness) { _, _ in applyRoomSenses() }
         // What the phone is asking for, passed on to both chambers whenever it changes.
         .onChange(of: power.inEffect) { _, _ in applyPowerAdvice() }
         .onChange(of: mindsThePhone) { _, wanted in power.isEnabled = wanted }
@@ -382,6 +397,7 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             // Time spent away is not time the lab was costing anything, so what was being measured is thrown away.
             power.sceneChanged(active: phase == .active)
+            if phase == .active { senses.cameBack() }
             if phase != .active {
                 writeAutosave(now: true)
                 // The last reliable moment: the phone can kill a backgrounded app with no further warning, and a note
@@ -436,6 +452,8 @@ struct ContentView: View {
                     set: { temperatureUnitRaw = $0.rawValue }
                 ),
                 isSimple: $isSimple,
+                senses: senses,
+                usesRoomSenses: $usesRoomSenses,
                 onShowWelcome: {
                     showingSettings = false
                     showingWelcome = true
@@ -544,6 +562,12 @@ struct ContentView: View {
             RecordingPreview(controller: target.controller)
                 .background(Color.black.ignoresSafeArea())
         }
+    }
+
+    /// Passes on what the room says: the weather to the powder world, the dark to the field's glow.
+    private func applyRoomSenses() {
+        powder.applyRoomSenses(senses)
+        field.isDarkRoom = senses.isOn && senses.isDarkRoom
     }
 
     /// Passes on what the phone is asking for. Both chambers hold it rather than reading it, so a tick never goes

@@ -206,7 +206,12 @@ struct HelpSheet: View {
                     + "it again to **lock**, which holds gravity where it is so you can bring the "
                     + "phone back level and look at what you have made without it all sliding back. A "
                     + "third tap switches it off.\n\n"
-                    + "Shaking the phone rattles loose material, whether tilt is locked or not."
+                    + "Shaking the phone rattles loose material, whether tilt is locked or not.\n\n"
+                    + "**The room**, in the Lab panel, uses the phone's other senses as part of the physics: falling "
+                    + "air pressure means weather coming in, so the powder world turns colder and windier; the sun "
+                    + "leans the wind west as the day goes on; the day's walking sets how strong the sea's tide is; "
+                    + "and a dark room quietens the picture. It is off until you switch it on, it asks the phone for "
+                    + "Motion & Fitness when you do, and nothing is sent anywhere."
             )
         }
     }

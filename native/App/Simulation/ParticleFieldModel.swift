@@ -1019,11 +1019,16 @@ final class ParticleFieldModel {
     /// How many frames a second the view should ask the display for.
     var framesPerSecondWanted: Int { powerAdvice.framesPerSecond }
 
+    /// Whether the room is dark enough to hold the glow back, as `WorldSenses` decides. Set by the app.
+    @ObservationIgnored var isDarkRoom = false {
+        didSet { if isDarkRoom != oldValue { engineDidChange() } }
+    }
+
     /// Whether the picture keeps its luxuries — the shadows on the floor of the box, the glow, the fog on the far side.
     ///
     /// Each is a whole pass over the picture, which is why they are the first thing given up on a warm phone. What
     /// somebody chose is not changed: this decides only whether it is drawn now, so it all comes back as the phone cools.
-    var keepsTheLuxuries: Bool { powerAdvice.keepsTheLuxuries }
+    var keepsTheLuxuries: Bool { powerAdvice.keepsTheLuxuries && !isDarkRoom }
 
     // MARK: - Measurements, as numbers
 
