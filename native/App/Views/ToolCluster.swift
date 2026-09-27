@@ -13,6 +13,8 @@ struct ToolCluster: View {
     let recorder: ScreenRecorder
     /// Somewhere to send a picture once one has been taken.
     @Binding var shareTarget: ShareTarget?
+    /// Whether a poster or a plotter drawing is being made.
+    @State private var isPreparing = false
 
     private static let speeds: [Double] = [0.25, 0.5, 1, 2, 4]
 
@@ -51,18 +53,94 @@ struct ToolCluster: View {
             toolButton("arrow.up.arrow.down", "Turn the world upside down") {
                 model.flipUpsideDown()
             }
-            toolButton("camera", "Take a picture") {
-                // From the engine's own pixels rather than a screen grab. The view does nothing but
-                // stretch these without smoothing, so this is what is on screen — and it works
-                // while paused, and at a crisper size than the screen shows.
-                guard let image = model.snapshot(),
-                      let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
-                else { return }
-                shareTarget = ShareTarget(url: url)
-            }
+            camera
             RecordButton(recorder: recorder)
         }
         .solidPanel()
+    }
+
+    /// A picture, with two more things to hold behind a long press: a poster to print, and a line drawing for a pen
+    /// plotter.
+    ///
+    /// A tap is still just the picture, so nothing changes for anybody who never presses and holds.
+    private var camera: some View {
+        Menu {
+            Button {
+                takePicture()
+            } label: {
+                Label("Picture", systemImage: "camera")
+            }
+            Button {
+                prepare(.poster)
+            } label: {
+                Label("Poster to print", systemImage: "photo.artframe")
+            }
+            Button {
+                prepare(.plotterDrawing)
+            } label: {
+                Label("Line drawing for a pen plotter", systemImage: "pencil.and.outline")
+            }
+        } label: {
+            ZStack {
+                if isPreparing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Palette.muted)
+                } else {
+                    Image(systemName: "camera")
+                        .font(.labBody(14, .medium))
+                        .foregroundStyle(Palette.muted)
+                }
+            }
+            .frame(width: 40, height: 40)
+            .contentShape(Rectangle())
+        } primaryAction: {
+            takePicture()
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .disabled(isPreparing)
+        .accessibilityLabel("Take a picture")
+        .accessibilityHint("Touch and hold for a poster to print, or a line drawing for a pen plotter")
+    }
+
+    /// The ordinary picture: from the engine's own pixels rather than a screen grab. The view does nothing but stretch
+    /// these without smoothing, so this is what is on screen — and it works while paused, and at a crisper size than
+    /// the screen shows.
+    private func takePicture() {
+        Haptics.tap()
+        guard let image = model.snapshot(),
+              let url = LabSnapshot.write(image, named: LabSnapshot.fileName())
+        else { return }
+        shareTarget = ShareTarget(url: url)
+    }
+
+    /// The two larger things to hold.
+    private enum Keepsake {
+        case poster
+        case plotterDrawing
+    }
+
+    /// Makes one of the larger things to hold, which takes long enough to show that it is happening, and offers it on.
+    private func prepare(_ keepsake: Keepsake) {
+        guard !isPreparing else { return }
+        Haptics.tap()
+        isPreparing = true
+        Task { @MainActor in
+            var url: URL?
+            switch keepsake {
+            case .poster: url = await model.posterFile()
+            case .plotterDrawing: url = await model.plotterFile()
+            }
+            isPreparing = false
+            if let url {
+                Haptics.success()
+                shareTarget = ShareTarget(url: url)
+            } else {
+                Haptics.refused()
+            }
+        }
     }
 
     /// The five speeds.

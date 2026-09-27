@@ -256,4 +256,26 @@ struct SavesSheet: View {
 struct ShareTarget: Identifiable {
     let id = UUID()
     let url: URL
+
+    /// What the button that sends it says, from what kind of file it is — so a spreadsheet of measurements is not
+    /// offered as "this picture".
+    var label: String {
+        switch url.pathExtension.lowercased() {
+        case "svg": "Share the line drawing"
+        case "csv": "Share the measurements"
+        case "png": url.lastPathComponent.contains("-poster") ? "Share the poster" : "Share this picture"
+        case "crucible", "json": "Share this world"
+        default: "Share"
+        }
+    }
+
+    /// The picture on that button.
+    var symbol: String {
+        switch url.pathExtension.lowercased() {
+        case "svg": "pencil.and.outline"
+        case "csv": "tablecells"
+        case "png": "photo"
+        default: "square.and.arrow.up"
+        }
+    }
 }

@@ -111,6 +111,14 @@ public final class PowderHistory {
         return true
     }
 
+    /// Records a world captured earlier as the point to come back to — for when the world on screen is no longer the
+    /// one to return to, as while scrubbing back through time.
+    public func push(_ snapshot: Snapshot) {
+        redoStack.removeAll(keepingCapacity: true)
+        undoStack.append(snapshot)
+        if undoStack.count > maximumSteps { undoStack.removeFirst() }
+    }
+
     /// Records the current world as a point to come back to. Call before mutating.
     public func push(_ engine: PowderEngine) {
         // Cleared first, so a failure below cannot leave a redo entry describing a

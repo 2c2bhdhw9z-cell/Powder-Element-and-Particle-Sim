@@ -48,6 +48,7 @@ struct HelpSheet: View {
         }
     }
 
+    @ViewBuilder
     private var powder: some View {
         LabGroup("Painting") {
             paragraph(
@@ -72,6 +73,29 @@ struct HelpSheet: View {
                     + "The **⇅** button in the tools turns the whole world upside down. Try it on the "
                     + "**Hourglass** scene.\n\n"
                     + "Hold any material's chip to read what it does."
+            )
+        }
+        LabGroup("Tools that are not painting") {
+            paragraph(
+                "**Lasso**, beside the brushes: draw a loop round something, and a bar above the tray offers "
+                    + "what to do with it. **Move** lifts it out, leaving a hole, and it goes wherever you "
+                    + "next drag or tap; **Put it back** changes your mind. **Copy** puts down as many copies as "
+                    + "you like. **Heat** and **Cool** change everything inside by 250 degrees a press, "
+                    + "**Colour** recolours it, and **Delete** empties it. Everything is one undo away.\n\n"
+                    + "**Thermometer**: tap where it should go. It stays there and keeps reading, with a little "
+                    + "graph of what it has read and the lowest and highest so far — a kiln warming, a pond "
+                    + "freezing. Press the button again to move it; the × takes it out.\n\n"
+                    + "**Rewind** is the ◀◀ beside play. The world stops, and the slider goes back through the "
+                    + "last few seconds. **Back to now** puts everything exactly as it was; **Carry on from "
+                    + "here**, or play, carries on from the moment on screen — and even that is one undo away. "
+                    + "How far back it reaches depends on how fine the world is. Changing the detail or turning "
+                    + "the phone starts it again.\n\n"
+                    + "**Tide**, in the Lab panel under Sea: a sea beyond one edge of the world that slowly "
+                    + "comes in and goes out. The whole sea rises, climbs the beach and fills the moat, then "
+                    + "runs back out and leaves the rock pools.\n\n"
+                    + "**Measure**, in the Lab panel: once a second, how full the world is, how hot, the "
+                    + "thermometer's reading and how much of every material, sent as a spreadsheet to draw "
+                    + "your own graphs from."
             )
         }
     }
@@ -164,6 +188,10 @@ struct HelpSheet: View {
                     + "**Kept** holds scenes you have named deliberately, and can send one to another "
                     + "app or open one you were sent. The **camera** takes a picture. The **record** "
                     + "button captures a clip with sound.\n\n"
+                    + "Touch and hold the camera in the powder world for two more: a **poster to print** — "
+                    + "every grain a crisp square, big enough for an A3 sheet — and a **line drawing for a pen "
+                    + "plotter**, every edge where one thing meets another drawn as long straight lines, sized "
+                    + "for A4.\n\n"
                     + "Anything you paint is one **undo** away, and so is loading a scene, setting off "
                     + "an event, or running a repair."
             )

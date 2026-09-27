@@ -29,10 +29,16 @@ final class SimulationModel {
     /// Nothing else should reach for this. Everything the interface needs is a property or a method
     /// here, which is what keeps the views from acquiring opinions about how the simulation works.
     let engine: PowderEngine
-    private let history: PowderHistory
+    let history: PowderHistory
 
     /// Whether time is running.
-    var isRunning = true
+    var isRunning = true {
+        didSet {
+            // Pressing play while scrubbing back through time carries on from the moment on screen, which is what
+            // anybody pressing play at that point means.
+            if isRunning, !oldValue, isRewinding { finishRewind(keeping: true) }
+        }
+    }
 
     /// How the grid is coloured.
     var overlay: PowderOverlayMode = .normal
@@ -56,12 +62,12 @@ final class SimulationModel {
     private(set) var engineRevision = 0
 
     /// Records a dependency on the engine's settings. Called by every forwarding getter.
-    private func observeEngine() {
+    func observeEngine() {
         _ = engineRevision
     }
 
     /// Records that one of the engine's settings has changed. Called by every forwarding setter.
-    private func engineDidChange() {
+    func engineDidChange() {
         engineRevision &+= 1
     }
 
@@ -176,7 +182,10 @@ final class SimulationModel {
     }
 
     /// What a touch paints.
-    var brushElement: ElementID = Element.sand
+    var brushElement: ElementID = Element.sand {
+        // Choosing a material is choosing to paint with it, so the lasso and the thermometer are put down.
+        didSet { if brushElement != oldValue { putToolsDownToPaint() } }
+    }
     /// How wide a touch paints, in cells.
     var brushRadius: Int = 4
     /// The shape a touch paints.
@@ -200,6 +209,83 @@ final class SimulationModel {
     /// A one-shot rather than a mode: it switches itself off the moment it has taken a sample, which
     /// is what people expect of an eyedropper and saves a second tap to leave it.
     var isSampling = false
+
+    // MARK: - Tools beyond painting
+    //
+    // What they do is in `SimulationModel+Tools.swift`; what they remember has to live here, in the type itself.
+
+    /// Whether the next drag draws a loop round cells to move, copy, heat, cool or delete.
+    var isLassoing = false {
+        didSet { if oldValue, !isLassoing { cancelLasso() } }
+    }
+    /// The loop, in the grid's cells, while it is being drawn and afterwards, for drawing its outline.
+    var lassoLoop: [(x: Double, y: Double)] = []
+    /// Whether a loop is being drawn right now.
+    var isDrawingLasso = false
+    /// The cells inside the loop, once it is closed.
+    var lassoSelection: [Int] = []
+    /// What was lifted, while it is waiting to be put down.
+    var heldStamp: PowderStamp?
+    /// Whether the next touch puts what was lifted down, and whether it was moved or copied.
+    var lassoPlacing: LassoPlacing?
+    /// The loop that was drawn, measured from the middle of what it lifted, so an outline of the piece can follow the
+    /// finger to wherever it is going.
+    var heldOutline: [(x: Double, y: Double)] = []
+    /// Where the piece would go if the finger lifted now, while one is down. Nothing between touches.
+    var heldAt: (x: Int, y: Int)?
+    /// Why the last loop selected nothing, while that is worth saying.
+    var lassoProblem: String?
+    /// Whether an undo point has been taken for recolouring what the loop holds. The colour picker changes the colour
+    /// continuously while a finger moves over it, and that is one change to take back, not a hundred.
+    @ObservationIgnored var lassoRecolourUndoTaken = false
+    /// Whether the current touch belongs to one of these tools rather than to painting.
+    @ObservationIgnored var toolOwnsStroke = false
+
+    /// Whether the next touch puts the thermometer in.
+    var isPlacingThermometer = false
+    /// The thermometer, once it has been put somewhere.
+    var thermometer: PowderThermometer?
+    /// Moments since it was last read.
+    @ObservationIgnored var thermometerAge = 0
+
+    /// The last little while of the world, to scrub back through.
+    let rewind = PowderRewind(spacing: 60, capacity: 20)
+    /// Whether the rewind bar is out, with the world held at a moment.
+    var isRewinding = false
+    /// How many moments are kept to go back to. Updated once a second rather than read live.
+    var rewindCount = 0
+    /// Which moment is showing while rewinding: nought is now.
+    var rewindStepsBack = 0
+    /// Whether time was running when rewinding began, so it carries on again afterwards.
+    @ObservationIgnored var wasRunningBeforeRewind = true
+
+    /// Measurements as numbers, once a second while switched on.
+    let measurements = PowderMeasurements()
+    /// Whether measurements are being taken. Switching it on starts a fresh sheet.
+    var isMeasuring = false {
+        didSet {
+            guard isMeasuring, !oldValue else { return }
+            measurements.clear()
+            measuringSince = worldSeconds
+            measurementRows = 0
+        }
+    }
+    /// How many rows have been measured.
+    var measurementRows = 0
+    /// When measuring began, by the world's clock.
+    @ObservationIgnored var measuringSince = 0.0
+
+    /// How long this world has been running, in seconds — only while time runs, so a pause or the app being put away
+    /// is not counted. The clock the rewind and the measurements tell the time by: the world's own moments are a
+    /// different length on every phone and at every speed, so they cannot say "four seconds ago" by themselves.
+    @ObservationIgnored var worldSeconds = 0.0
+    /// When time was last moved on, to measure the next frame by.
+    @ObservationIgnored private var lastAdvanceTime = 0.0
+    /// A gap longer than this between two frames was a pause, or the app put away, rather than time the world ran.
+    private static let pauseGap = 0.25
+
+    /// The tide's settings, remembered while it is switched off so switching it on again brings back the same sea.
+    @ObservationIgnored var tideSettings = PowderTide(side: .left, period: 7_200, strength: 6)
 
     /// While replacing, the material being replaced — sampled from the first cell of the stroke.
     ///
@@ -236,7 +322,13 @@ final class SimulationModel {
     ///
     /// When it is, this engine does not step and does not read the phone's tilt. Both would be fighting
     /// the frames arriving from the host, and the host's world is the one everybody is looking at.
-    var isFollowingRoom = false
+    var isFollowingRoom = false {
+        didSet {
+            // The lasso and the rewind change this world, and somebody else's is about to arrive over it every
+            // frame — so they are put away rather than left to do things that are instantly undone.
+            if isFollowingRoom, !oldValue { putToolsAwayForRoom() }
+        }
+    }
 
     /// Called whenever a stroke is painted here, so a shared room can pass it on.
     var onLocalStroke: (@MainActor (RoomStroke) -> Void)?
@@ -378,14 +470,17 @@ final class SimulationModel {
     /// The record is a plain object like the engine, so the same rule applies: reading it registers
     /// nothing on its own. Without this the two arrows stayed greyed out after the first stroke, until
     /// something unrelated happened to refresh them.
+    ///
+    /// Neither while scrubbing back through time: the world on screen then is a moment being looked at, not the one
+    /// undo would be taking back, and the two records would tangle.
     var canUndo: Bool {
         observeEngine()
-        return history.canUndo
+        return history.canUndo && !isRewinding
     }
 
     var canRedo: Bool {
         observeEngine()
-        return history.canRedo
+        return history.canRedo && !isRewinding
     }
 
     init() {
@@ -397,7 +492,11 @@ final class SimulationModel {
         history = PowderHistory(maximumSteps: 25)
         engine.textureMode = .naturalGrain
         loadScene(powderRecipes[0])
+        rewind.fit(budgetBytes: Self.rewindMemory, cellCount: engine.cellCount)
     }
+
+    /// How much memory the rewind may use for the moments it keeps, between them.
+    static let rewindMemory = 48_000_000
 
     // MARK: - Tilt
 
@@ -470,6 +569,10 @@ final class SimulationModel {
         // truth and this one is shown it.
         if isRunning, !isFollowingRoom {
             advanceTime()
+        } else if isFollowingRoom {
+            // Somebody else's world, arriving every frame: a thermometer put into it still reads it, by frames here
+            // since this world has no moments of its own.
+            noteThermometer(after: 1)
         }
 
         // Last of all, so a shared room is offered the world as it now stands rather than as it was
@@ -480,6 +583,20 @@ final class SimulationModel {
 
     /// Runs the simulation forward by this frame's share of time.
     private func advanceTime() {
+        // The world's clock, moved on by however long this frame was. Every frame while running, including the ones
+        // at a slow speed that step nothing, since time is still passing in them.
+        let arrived = CFAbsoluteTimeGetCurrent()
+        let gap = lastAdvanceTime > 0 ? arrived - lastAdvanceTime : 0
+        lastAdvanceTime = arrived
+        if gap > Self.pauseGap {
+            // Paused, or put away, since the last frame. Not time the world ran — and not time the once-a-second
+            // counters should divide by either: they used to, so the first reading after a long pause said the world
+            // had been running at one moment a second, in red.
+            lastSampleTime += gap
+        } else {
+            worldSeconds += max(0, gap)
+        }
+
         // Whole steps this frame, plus a running remainder so a fractional speed averages out
         // rather than rounding to nothing. At a quarter speed this steps once every fourth
         // frame instead of never.
@@ -492,8 +609,14 @@ final class SimulationModel {
         guard steps > 0 else { return }
 
         let startedAt = CFAbsoluteTimeGetCurrent()
-        for _ in 0 ..< steps { engine.step() }
+        for _ in 0 ..< steps {
+            engine.step()
+            // A moment kept every so often, to rewind to.
+            rewind.noteMoment(engine, time: worldSeconds)
+        }
         simulationSeconds += CFAbsoluteTimeGetCurrent() - startedAt
+
+        noteThermometer(after: steps)
 
         // Felt through the phone, sized by the biggest blast this frame. Gunpowder, C4, a spark reaching a
         // detonator — none of these made a sound or a shake before, so a chain reaction could go off
@@ -525,6 +648,12 @@ final class SimulationModel {
             // The hottest cell, which is what tells you whether something is on fire somewhere off
             // screen. Sampled here rather than measured separately, since it is another full pass.
             heatHistory.record(hottestCell)
+
+            if rewindCount != rewind.count { rewindCount = rewind.count }
+            if isMeasuring {
+                measurements.sample(engine, seconds: worldSeconds - measuringSince, thermometer: thermometer?.current)
+                measurementRows = measurements.rows.count
+            }
 
             ticksSinceSample = 0
             simulationSeconds = 0
@@ -588,6 +717,7 @@ final class SimulationModel {
     /// Fractions rather than pixels, because the view and the grid are different sizes and
     /// the conversion belongs wherever the sizes are both known — which is here.
     func paint(atFractionX fx: Double, fractionY fy: Double) {
+        if toolContinuedStroke(atFractionX: fx, fractionY: fy) { return }
         let x = Int((fx * Double(engine.width)).rounded(.down))
         let y = Int((fy * Double(engine.height)).rounded(.down))
 
@@ -640,6 +770,11 @@ final class SimulationModel {
         inspect(x: x, y: y)
     }
 
+    /// Called when a finger lifts, for the tools that do something then — the lasso closes its loop.
+    func endStroke() {
+        toolEndedStroke()
+    }
+
     /// Brings the readouts back in step with the world after something outside the tick changed it.
     ///
     /// The occupied count is normally sampled once a second, because counting is a full pass over the
@@ -654,6 +789,9 @@ final class SimulationModel {
     /// For anything that changes the world in one go — a repair, a scene, an event — as opposed to a
     /// drag, which has a starting point and needs ``beginStroke(atFractionX:fractionY:)``.
     func recordUndoPoint() {
+        // Whatever is about to change the world changes the present one. Done to a moment being looked at while
+        // scrubbing back, it would have been thrown away the moment the scrubbing ended.
+        if isRewinding { finishRewind(keeping: false) }
         history.push(engine)
         // So the undo arrow lights up now rather than whenever something else happens to refresh it.
         engineDidChange()
@@ -663,6 +801,13 @@ final class SimulationModel {
     ///
     /// Called once when a stroke begins, not per touch.
     func beginStroke(atFractionX fx: Double, fractionY fy: Double) {
+        // Held at a past moment while rewinding: painting now would be painted into a world about to be replaced.
+        guard !isRewinding else {
+            toolOwnsStroke = true
+            return
+        }
+        // The lasso and the thermometer take the touch for themselves.
+        if toolBeganStroke(atFractionX: fx, fractionY: fy) { return }
         // Nothing to undo for a sample, which changes no cells.
         if !isSampling {
             recordUndoPoint()
@@ -684,19 +829,23 @@ final class SimulationModel {
     /// panel and the buttons have to be told. They were not: after an undo the redo button stayed greyed
     /// out and could not be pressed, and switching tilt off afterwards returned to the wrong gravity.
     func undo() {
+        guard !isRewinding else { return }
         cancelPendingEvent()
+        toolsBeforeUndo()
         _ = history.undo(engine)
         afterWholeWorldChange()
     }
 
     func redo() {
+        guard !isRewinding else { return }
         cancelPendingEvent()
+        toolsBeforeUndo()
         _ = history.redo(engine)
         afterWholeWorldChange()
     }
 
     /// Brings the readouts, the buttons and the remembered gravity back in step after the whole world changed.
-    private func afterWholeWorldChange() {
+    func afterWholeWorldChange() {
         activeCells = engine.activeParticleCount
         if !isSteeredByTilt {
             manualGravityX = engine.gravityX
@@ -712,7 +861,7 @@ final class SimulationModel {
     ///
     /// Undoing, clearing or loading while a meteor was still falling used to let its explosion land anyway,
     /// in the world that had just been put back — with no undo point for it.
-    private func cancelPendingEvent() {
+    func cancelPendingEvent() {
         pendingEvent?.cancel()
         pendingEvent = nil
     }
@@ -779,6 +928,9 @@ final class SimulationModel {
     /// - Returns: its name, for saying which one it was.
     @discardableResult
     func loadDailyScene(day: String) -> String {
+        // A meteor still falling would otherwise land in the day's world, as it used to, with no undo point of its own.
+        cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         let choice = DailyWorld.applyPowder(forDay: day, to: engine)
         activeCells = engine.activeParticleCount
@@ -968,6 +1120,7 @@ final class SimulationModel {
     func apply(_ state: PowderState) -> Bool {
         // An undo point first, so loading the wrong scene is recoverable.
         cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         let applied = engine.apply(state)
         // A world saved at another size — another phone, the website, a different detail setting — is
@@ -982,7 +1135,11 @@ final class SimulationModel {
     func refitToScreen() {
         guard let wanted = wantedGridSize() else { return }
         guard wanted.width != engine.width || wanted.height != engine.height else { return }
+        let oldWidth = engine.width
+        let oldHeight = engine.height
+        toolsBeforeWorldReplaced()
         engine.resample(width: wanted.width, height: wanted.height)
+        toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: true)
         activeCells = engine.activeParticleCount
     }
 
@@ -1101,6 +1258,7 @@ final class SimulationModel {
 
     func loadScene(_ recipe: PowderRecipe) {
         cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         var generator = Mulberry32()
         recipe.apply(to: engine, random: &generator)
@@ -1109,6 +1267,7 @@ final class SimulationModel {
 
     func clear() {
         cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         engine.resetGrid()
         activeCells = 0
@@ -1119,6 +1278,7 @@ final class SimulationModel {
     /// Gravity is left as it is, which is the point: whatever was resting on the floor is now at the top, and falls.
     func flipUpsideDown() {
         cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         engine.flipUpsideDown()
         afterWholeWorldChange()
@@ -1150,6 +1310,7 @@ final class SimulationModel {
             return
         }
         cancelPendingEvent()
+        toolsBeforeWorldReplaced()
         recordUndoPoint()
         engine.resetGrid()
         let placed = engine.placePicture(rgba: pixels, width: width, height: height, fill: fill)
@@ -1258,7 +1419,13 @@ final class SimulationModel {
         let newWidth = wanted.width
         let newHeight = wanted.height
         guard newWidth != engine.width || newHeight != engine.height else { return }
+        let oldWidth = engine.width
+        let oldHeight = engine.height
+        // A piece lifted by the lasso goes back first, so it is part of the world that is kept.
+        toolsBeforeWorldReplaced()
         engine.resize(width: newWidth, height: newHeight)
+        // The tools that point at places in the grid are moved to the same places in the new one.
+        toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: false)
         activeCells = engine.activeParticleCount
         // The world that was there described a different shape, so coming back to it would mean
         // stretching it. Cleaner to start the record again.

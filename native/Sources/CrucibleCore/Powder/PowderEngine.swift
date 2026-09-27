@@ -117,6 +117,19 @@ public final class PowderEngine {
     public var jostleLeft: Double = 0
     /// Tick of the last fan rotation, used to debounce repeated taps.
     public var lastFanRotate: Double = 0
+    /// A sea coming in and going out along one side, or nothing. See `PowderLabTools.swift`.
+    public var tide: PowderTide? {
+        didSet {
+            // Found again from scratch, since the sea may now be at the other edge or not there at all.
+            tideSurface.removeAll(keepingCapacity: true)
+            tideSurfaceAge = 0
+        }
+    }
+    /// The sea's surface as last found: the water cells with air above them. Kept up to date between searches as
+    /// water is added and taken away; every entry is checked before it is used, so a stale one costs nothing.
+    var tideSurface: [Int] = []
+    /// Moments until the surface is searched for again.
+    var tideSurfaceAge = 0
 
     /// Whether an exit portal might be somewhere in the grid.
     ///
@@ -266,6 +279,9 @@ public final class PowderEngine {
         pressureNext.update(repeating: 0, count: cellCount)
         tint.update(repeating: 0, count: cellCount)
         tintMayExist = false
+        // The sea it described is gone, and its places may not even exist any more.
+        tideSurface.removeAll(keepingCapacity: true)
+        tideSurfaceAge = 0
         // An empty world contains no portals by definition. Callers that clear the grid
         // only to lay cells back down again — resizing, loading, undo — put the flag back
         // themselves afterwards.
@@ -711,6 +727,10 @@ public final class PowderEngine {
 
             y += stepY
         }
+
+        // After everything has moved, so water that has just arrived is where the next moment finds it. Nothing at
+        // all happens here without a tide.
+        if tide != nil { stepTide() }
     }
 
     /// Whether a row is swept left to right this moment, rather than right to left.

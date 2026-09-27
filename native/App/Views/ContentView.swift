@@ -432,8 +432,9 @@ struct ContentView: View {
         .sheet(item: $shareTarget) { target in
             // The system's own share sheet, which is the one place it is right to look like iOS
             // rather than like Crucible — it is the phone's furniture, not the app's.
+            // Worded for what it is: a picture, a poster, a line drawing for a plotter, or a spreadsheet.
             ShareLink(item: target.url) {
-                Label("Share this picture", systemImage: "square.and.arrow.up")
+                Label(target.label, systemImage: target.symbol)
                     .font(.labBody(14, .medium))
             }
             .padding(24)
@@ -488,6 +489,15 @@ struct ContentView: View {
                     // The same clearance as the tools. It is in the same layer over the same world, so
                     // the bar would cover it just as thoroughly.
                     .padding(.top, topClearance)
+                }
+            }
+            // The rewind's slider and the lasso's actions, along the bottom of the world just above the tray — where
+            // the thumb already is, and away from the tools at the top.
+            .overlay(alignment: .bottom) {
+                if which == .powder, which == chamber {
+                    PowderToolBars(model: powder)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
                 }
             }
             // Tapping the other half moves focus to it, which is how the dock and the tools follow
@@ -682,7 +692,7 @@ struct ContentView: View {
     private func surface(_ which: Chamber, size: CGSize) -> some View {
         switch which {
         case .powder:
-            ShakenPowderSurface(model: powder, size: size)
+            ShakenPowderSurface(model: powder, size: size, unit: temperatureUnit)
                 // Said to somebody using VoiceOver, who otherwise hears nothing at all about the world: what it is,
                 // what is in it, and what a drag does.
                 .accessibilityElement(children: .ignore)
@@ -721,9 +731,12 @@ struct ContentView: View {
     private struct ShakenPowderSurface: View {
         let model: SimulationModel
         let size: CGSize
+        let unit: TemperatureUnit
 
         var body: some View {
             SimulationSurface(model: model)
+                // The lasso's loop and the thermometer are marks on the world, so they are shaken with it.
+                .overlay { PowderWorldMarks(model: model, unit: unit) }
                 .offset(x: model.screenShakeOffset.width, y: model.screenShakeOffset.height)
                 .onAppear { model.resize(toViewSize: size, scale: UIScreen.main.scale) }
                 .onChange(of: size) { _, new in

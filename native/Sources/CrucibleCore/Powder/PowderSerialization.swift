@@ -61,6 +61,9 @@ public struct PowderState: Codable, Sendable {
     /// as a world with no colours in it. A value that cannot be read, or describes the wrong number of cells, is
     /// ignored: the world opens, in its materials' own colours, rather than not opening at all.
     public var gridTint: String?
+    /// A sea rising and falling along one edge, when the world has one. Absent otherwise, and in every file from
+    /// before tides existed — both of which open as a world with no tide.
+    public var tide: PowderTide?
 
     public init(
         width: Int,
@@ -72,7 +75,8 @@ public struct PowderState: Codable, Sendable {
         gravityY: Double,
         windX: Double,
         ambientTemp: Double,
-        gridTint: String? = nil
+        gridTint: String? = nil,
+        tide: PowderTide? = nil
     ) {
         self.width = width
         self.height = height
@@ -84,6 +88,7 @@ public struct PowderState: Codable, Sendable {
         self.windX = windX
         self.ambientTemp = ambientTemp
         self.gridTint = gridTint
+        self.tide = tide
     }
 }
 
@@ -242,7 +247,8 @@ extension PowderEngine {
             gravityY: gravityY,
             windX: windX,
             ambientTemp: ambientTemp,
-            gridTint: tintedCellCount > 0 ? encodedTints() : nil
+            gridTint: tintedCellCount > 0 ? encodedTints() : nil,
+            tide: tide
         )
     }
 
@@ -299,6 +305,9 @@ extension PowderEngine {
         if state.gravityY.isFinite { gravityY = Self.usableGravity(state.gravityY) }
         // Through the clamp, like every other writer.
         if state.windX.isFinite { setWind(state.windX) }
+        // Through its own initialiser, so a hand-edited file's tide is pulled into range on the way in. Absent means
+        // no tide: loading an ordinary world must stop the last one's sea.
+        tide = state.tide.map { PowderTide(side: $0.side, period: $0.period, strength: $0.strength) }
         return true
     }
 

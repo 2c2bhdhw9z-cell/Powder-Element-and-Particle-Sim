@@ -58,21 +58,37 @@ struct SimulationSurface: UIViewRepresentable {
 
         @objc private func handleDrag(_ gesture: UIPanGestureRecognizer) {
             guard let view = gesture.view else { return }
-            if gesture.state == .began {
+            switch gesture.state {
+            case .began:
                 // One point to come back to per stroke, not per touch report. Otherwise a
                 // single swipe fills the whole undo record and undo becomes useless.
                 //
                 // The starting point goes with it, because the replace brush needs to know what was
-                // under the beginning of the drag rather than under the current touch.
-                begin(at: gesture.location(in: view), in: view)
+                // under the beginning of the drag rather than under the current touch. Where the finger first
+                // came down, that is: a drag is only recognised once the finger has already moved a little way,
+                // and a lasso's loop begun there started a finger's width from where it was drawn from.
+                let location = gesture.location(in: view)
+                let travelled = gesture.translation(in: view)
+                begin(at: CGPoint(x: location.x - travelled.x, y: location.y - travelled.y), in: view)
+                paint(at: location, in: view)
+            case .changed:
+                paint(at: gesture.location(in: view), in: view)
+            case .ended:
+                paint(at: gesture.location(in: view), in: view)
+                model.endStroke()
+            case .cancelled, .failed:
+                // Taken away by the system — a call, a notification pulled down — rather than lifted. Still the end.
+                model.endStroke()
+            default:
+                break
             }
-            paint(at: gesture.location(in: view), in: view)
         }
 
         @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
             guard let view = gesture.view else { return }
             begin(at: gesture.location(in: view), in: view)
             paint(at: gesture.location(in: view), in: view)
+            model.endStroke()
         }
 
         private func begin(at point: CGPoint, in view: UIView) {

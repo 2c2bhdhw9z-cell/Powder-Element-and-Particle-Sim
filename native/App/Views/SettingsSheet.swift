@@ -33,6 +33,9 @@ struct SettingsSheet: View {
     /// explosion. Read by `Haptics` everywhere else, so this one switch covers all of them.
     @AppStorage(Haptics.settingKey) private var hapticsEnabled = true
 
+    /// A spreadsheet of measurements waiting to be sent somewhere.
+    @State private var shareTarget: ShareTarget?
+
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves") {
             help
@@ -40,9 +43,106 @@ struct SettingsSheet: View {
             detail
             view
             world
+            sea
+            measure
             events
             health
             development
+        }
+        .sheet(item: $shareTarget) { target in
+            ShareLink(item: target.url) {
+                Label(target.label, systemImage: target.symbol)
+                    .font(.labBody(14, .medium))
+            }
+            .padding(24)
+            .presentationDetents([.height(140)])
+            .presentationBackground(Palette.background)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    // MARK: Sea
+
+    /// A tide along one side of the world.
+    ///
+    /// Settings rather than a button, because a tide is a slow thing that is left running: a minute a rise and fall
+    /// by default, so a sandcastle has time to be built before the water reaches it.
+    private var sea: some View {
+        LabGroup(
+            "Sea",
+            footnote: model.tideOn
+                ? "The whole sea rises and falls, as a real one does: the water joined to that edge gets deeper, climbs "
+                    + "the beach and runs back down, up to a third of the way up the world. A lake the sea has not "
+                    + "reached is left alone until the water joins it. It needs gravity pointing down."
+                : "A sea beyond one edge of the world that comes in and goes out, slowly, for ever. Build a sea wall, "
+                    + "or don't."
+        ) {
+            LabToggle(label: "Tide", isOn: Binding(get: { model.tideOn }, set: { model.tideOn = $0 }))
+            if model.tideOn {
+                LabDivider()
+                LabChoice(
+                    label: "The sea is beyond",
+                    selection: Binding(get: { model.tideSide }, set: { model.tideSide = $0 }),
+                    options: [(.left, "The left edge"), (.right, "The right edge")]
+                )
+                LabDivider()
+                LabSlider(
+                    label: "One rise and fall takes",
+                    value: Binding(
+                        get: { min(600, max(15, model.tidePeriodSeconds)) },
+                        set: { model.tidePeriodSeconds = $0 }
+                    ),
+                    range: 15 ... 600,
+                    step: 15
+                ) { RewindBar.seconds($0) }
+                LabDivider()
+                LabSlider(
+                    label: "How fast the water comes in",
+                    value: Binding(
+                        get: { min(30, max(1, model.tideStrength)) },
+                        set: { model.tideStrength = $0 }
+                    ),
+                    range: 1 ... 30,
+                    step: 1
+                ) { value in
+                    let grains = Int(value.rounded())
+                    return grains == 1 ? "a grain a moment" : "\(grains) grains a moment"
+                }
+            }
+        }
+    }
+
+    // MARK: Measure
+
+    /// Measurements out as numbers, for somebody learning: a graph they draw themselves says more than any picture.
+    private var measure: some View {
+        LabGroup(
+            "Measure",
+            footnote: "Once a second while the world runs: how many cells are full, the hottest, coldest and average "
+                + "temperatures, the thermometer's reading if one is in, and how many cells there are of every "
+                + "material. It opens in any spreadsheet, to draw your own graphs. Time counts only while the world "
+                + "is running, and rewinding takes the rows after that moment away with it."
+        ) {
+            LabToggle(label: "Take measurements", isOn: Binding(get: { model.isMeasuring }, set: { model.isMeasuring = $0 }))
+            LabDivider()
+            LabRow(label: "Rows so far", value: model.measurementRows.formatted())
+            LabDivider()
+            LabAction(
+                label: "Send as a spreadsheet",
+                detail: model.measurementRows == 0 ? "Nothing measured yet" : "Temperatures in \(temperatureUnit.title)",
+                symbol: "tablecells"
+            ) {
+                guard let url = model.measurementsFile(unit: temperatureUnit) else { return }
+                shareTarget = ShareTarget(url: url)
+            }
+            .disabled(model.measurementRows == 0)
+            .opacity(model.measurementRows == 0 ? 0.45 : 1)
+            LabDivider()
+            LabAction(label: "Start a fresh sheet", symbol: "arrow.counterclockwise") {
+                model.restartMeasurements()
+            }
+            .disabled(model.measurementRows == 0)
+            .opacity(model.measurementRows == 0 ? 0.45 : 1)
         }
     }
 

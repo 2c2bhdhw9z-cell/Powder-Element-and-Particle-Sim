@@ -224,12 +224,11 @@ struct ElementDock: View {
                 .foregroundStyle(Palette.subtleForeground)
             LabFlow(spacing: 6) {
                 ForEach(Self.shapes, id: \.shape) { option in
-                    let selected = model.brushShape == option.shape && !model.isSampling
+                    let selected = model.brushShape == option.shape && !model.isUsingTool
                     Button {
-                        model.brushShape = option.shape
-                        // Choosing a shape cancels a pending sample, since both describe what the
-                        // next touch will do and only one of them can be true.
-                        model.isSampling = false
+                        // Choosing a shape puts down the eyedropper, the lasso or the thermometer, since each describes
+                        // what the next touch will do and only one of them can be true.
+                        model.chooseShape(option.shape)
                     } label: {
                         brushLabel(option.name, option.symbol, selected: selected)
                     }
@@ -239,9 +238,36 @@ struct ElementDock: View {
                 // The eyedropper, which is a one-shot rather than a shape: it takes the material
                 // under the next touch and switches itself off again.
                 Button {
-                    model.isSampling.toggle()
+                    model.toggleSampling()
                 } label: {
                     brushLabel("Pick", "eyedropper", selected: model.isSampling)
+                }
+                .buttonStyle(.plain)
+
+                // Not painting at all: a loop drawn round something, to move it, copy it, heat it or delete it. The tray
+                // closes, because the loop is drawn on the world and the tray is covering half of it.
+                Button {
+                    Haptics.selection()
+                    model.toggleLasso()
+                    if model.isLassoing { withAnimation(.easeOut(duration: 0.22)) { isOpen = false } }
+                } label: {
+                    brushLabel("Lasso", "lasso", selected: model.isLassoing)
+                }
+                .buttonStyle(.plain)
+                .disabled(model.isFollowingRoom)
+                .opacity(model.isFollowingRoom ? 0.4 : 1)
+
+                // A thermometer pushed into one place, that stays and keeps reading.
+                Button {
+                    Haptics.selection()
+                    model.beginPlacingThermometer()
+                    if model.isPlacingThermometer { withAnimation(.easeOut(duration: 0.22)) { isOpen = false } }
+                } label: {
+                    brushLabel(
+                        model.thermometer == nil ? "Thermometer" : "Move thermometer",
+                        "thermometer.medium",
+                        selected: model.isPlacingThermometer
+                    )
                 }
                 .buttonStyle(.plain)
 
@@ -258,6 +284,16 @@ struct ElementDock: View {
                 Text("Tap the world to pick up whatever is there.")
                     .font(.labBody(11))
                     .foregroundStyle(Palette.warn)
+            } else if model.isLassoing {
+                Text("Draw a loop round something on the world. The bar above the tray says what can be done with it.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if model.isPlacingThermometer {
+                Text("Tap where the thermometer should go. It stays there, reading, until you take it out.")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if model.brushShape == .replace {
                 Text("Replaces only what you start the drag on, so you can swap one material for another.")
                     .font(.labBody(11))
@@ -541,6 +577,24 @@ struct ElementDock: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.isRunning ? "Pause" : "Play")
+
+            // Back through the last little while, beside play because it is about time too. Greyed out until there is
+            // something to go back to — the first moment is kept about half a second in.
+            Button {
+                Haptics.tap()
+                model.beginRewind()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.labBody(13, .medium))
+                    .foregroundStyle(model.isRewinding ? Palette.primaryForeground : Palette.muted)
+                    .frame(width: 40, height: 36)
+                    .background(Circle().fill(model.isRewinding ? Palette.primary : Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canRewind || model.isRewinding)
+            .opacity(model.canRewind || model.isRewinding ? 1 : 0.35)
+            .accessibilityLabel("Rewind")
+            .accessibilityHint("Go back through the last few seconds, and carry on from any moment")
 
             // Brush size. A slider rather than stepped buttons: it is the control reached for
             // most often while drawing, and the size wants to be felt rather than counted.

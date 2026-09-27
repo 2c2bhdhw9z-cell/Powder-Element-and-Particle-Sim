@@ -1,6 +1,8 @@
 import CoreGraphics
 import CrucibleCore
 import Foundation
+// For writing a picture straight to a file, without a `UIImage` in between.
+import ImageIO
 import UIKit
 
 /// Turning a buffer of pixels into a picture that can be shared.
@@ -53,8 +55,39 @@ enum LabSnapshot {
 
     /// The last step, once the bytes are known to be in red, green, blue, alpha order.
     private static func image(fromRGBA bytes: [UInt8], width: Int, height: Int) -> UIImage? {
+        guard let picture = Self.cgImage(fromRGBA: bytes, width: width, height: height) else { return nil }
+        return UIImage(cgImage: picture)
+    }
+
+    /// Writes a large picture of the engine's pixels straight to a file, without making a `UIImage` of it on the way.
+    ///
+    /// For the poster, which is ten million pixels or so: compressing that takes long enough to be felt, so it is done
+    /// away from the interface, and this touches nothing that belongs to it — the bytes, Core Graphics and Image I/O,
+    /// nothing else. The name is chosen by the caller for the same reason.
+    static func writePNG(
+        fromEngineColors colors: [UInt32],
+        width: Int,
+        height: Int,
+        scale: Int,
+        named name: String
+    ) -> URL? {
+        let factor = max(1, scale)
+        let bytes = PixelExport.rgbaBytes(from: colors, width: width, height: height, scale: factor)
+        guard !bytes.isEmpty,
+              let picture = cgImage(fromRGBA: bytes, width: width * factor, height: height * factor)
+        else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).png")
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImage(destination, picture, nil)
+        return CGImageDestinationFinalize(destination) ? url : nil
+    }
+
+    /// Wraps bytes already in red, green, blue, alpha order as a Core Graphics picture.
+    private static func cgImage(fromRGBA bytes: [UInt8], width: Int, height: Int) -> CGImage? {
         guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
-        guard let cgImage = CGImage(
+        return CGImage(
             width: width,
             height: height,
             bitsPerComponent: 8,
@@ -71,8 +104,19 @@ enum LabSnapshot {
             // like a grid of cells.
             shouldInterpolate: false,
             intent: .defaultIntent
-        ) else { return nil }
-        return UIImage(cgImage: cgImage)
+        )
+    }
+
+    /// Writes some text to a file that can be handed on, and returns where — for the plotter's drawing and the
+    /// spreadsheet of measurements.
+    static func write(text: String, named name: String, extension kind: String) -> URL? {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).\(kind)")
+        do {
+            try Data(text.utf8).write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     /// Writes a picture somewhere it can be handed to something else, and returns where.
