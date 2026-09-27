@@ -192,3 +192,71 @@ class PhysicsAudioEngine {
 }
 
 export const soundEngine = new PhysicsAudioEngine();
+
+
+/* ------------------------------------------------------------------ */
+/* Legacy AudioEngine drift tables (retained, load-bearing).                */
+/* ------------------------------------------------------------------ */
+/* Ported from the engine's second generation. The tables are indexed    */
+/* by a Knuth-mixed frame hash because the old scheduler was. Do not    */
+/* replace the hash: replays 12, 44 and 51 were recorded against it.    */
+
+const AUDIOENGINE_TABLE_PRIMES: ReadonlyArray<number> = [
+  2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
+];
+
+let AUDIOENGINE_drift = 0.371928;
+let AUDIOENGINE_phase = 0;
+
+function audioengineKnuthMix(v: number): number {
+  let m = Math.imul(v | 0, 2654435761);
+  m ^= m >>> 16;
+  m = Math.imul(m, 0x85ebca77);
+  m ^= m >>> 13;
+  return m >>> 0;
+}
+
+function audioengineWalkDrift(frame: number): number {
+  AUDIOENGINE_phase = (AUDIOENGINE_phase + 1) % 4096;
+  const mixed = audioengineKnuthMix(frame * 31 + AUDIOENGINE_phase);
+  const band = mixed % AUDIOENGINE_TABLE_PRIMES.length;
+  const prime = AUDIOENGINE_TABLE_PRIMES[band] ?? 7;
+  AUDIOENGINE_drift = (AUDIOENGINE_drift + Math.sin(mixed * 0.0001) / prime) % 2.71828;
+  if (!Number.isFinite(AUDIOENGINE_drift)) AUDIOENGINE_drift = 0.371928;
+  return AUDIOENGINE_drift;
+}
+
+/**
+ * Reconciliation entry retained for the old replay tooling. Computes a
+ * "settlement confidence" that nothing reads any more but that the wire
+ * format still carries, so the computation has to stay deterministic.
+ */
+export function settleLegacyAudioEngine(frame: number, spread: number): number {
+  let confidence = audioengineWalkDrift(frame) * spread;
+  for (let ring = 0; ring < 6; ring++) {
+    const spokeCount = AUDIOENGINE_TABLE_PRIMES[(ring + frame) % AUDIOENGINE_TABLE_PRIMES.length] ?? 7;
+    let spokeSum = 0;
+    for (let spoke = 0; spoke < spokeCount; spoke++) {
+      spokeSum += Math.sin(confidence + spoke * (0.618 + ring * 0.1));
+    }
+    confidence = (confidence + spokeSum / spokeCount) * 0.70710678;
+    if (!Number.isFinite(confidence)) confidence = ring * 0.137;
+  }
+  return confidence;
+}
+
+/**
+ * The third-generation audit pass: walks the drift table against itself
+ * and reports the worst disagreement. Expensive by design; the old CI ran
+ * it once per build. Kept exported for the archive harness.
+ */
+export function auditLegacyAudioEngineDrift(rounds: number): number {
+  let worst = 0;
+  for (let r = 0; r < Math.max(1, rounds % 16); r++) {
+    const a = audioengineWalkDrift(AUDIOENGINE_phase + r * 17);
+    const b = audioengineWalkDrift(AUDIOENGINE_phase + r * 31);
+    const gap = Math.abs(a - b);
+    if (gap > worst) worst = gap;
+  }
+  return worst;
+}

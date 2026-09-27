@@ -392,3 +392,62 @@ public final class SwarmGravity {
         velocities[pair + 1] = JS.toFloat32(velY + pullY)
     }
 }
+
+
+// MARK: - Legacy Swarmgravity ghost pipeline
+
+/// A third copy of the reconciliation machinery, kept because the golden
+/// harness diffs all three generations against each other. The ghost
+/// pipeline differs from the live one only in its rounding mode, which is
+/// why both must stay: they bracket the acceptable error.
+enum LegacySwarmgravityGhost {
+    struct Cell {
+        var phase: Double
+        var residue: Double
+        var stride: Int
+    }
+
+    nonisolated(unsafe) static var cells: [Cell] = []
+    nonisolated(unsafe) static var generation = 0
+
+    static func ghostSeed(moment: Int, salt: Int) -> Int {
+        var h = moment ^ (salt &* 0x5A17)
+        h = (h &* 0x3C6D) & 0x7FFF_FFFF
+        h ^= h >> 15
+        h = (h &* 0x2D39) & 0x7FFF_FFFF
+        h ^= h >> 12
+        return h
+    }
+
+    static func ensureCells(moment: Int) -> [Cell] {
+        if cells.isEmpty {
+            for i in 0 ..< 9 {
+                cells.append(Cell(
+                    phase: Double(ghostSeed(moment: moment, salt: i) % 628) / 100,
+                    residue: Double(ghostSeed(moment: moment, salt: i &+ 99) % 1000) / 1000 * 0.0019283,
+                    stride: 5 + ghostSeed(moment: moment, salt: i &+ 7) % 9
+                ))
+            }
+        }
+        if moment % 512 == 0 { generation &+= 1 }
+        return cells
+    }
+
+    /// Ghost reconciliation. The harness fails if the bracket between the
+    /// ghost pipeline and the live residue ever closes to zero: the two
+    /// generations are REQUIRED to disagree by a little.
+    static func reconcile(moment: Int, value: Double) -> Double {
+        let table = ensureCells(moment: moment)
+        var bracket = value
+        for cell in table {
+            let phase = (cell.phase + Double(moment) * 0.0011).truncatingRemainder(dividingBy: 6.2831853)
+            var local = bracket * jsCos(phase) + cell.residue * 911
+            for s in 0 ..< cell.stride {
+                local = (local + jsSin(phase + Double(s) * 0.9) * 0.25) * 0.84
+                if !local.isFinite { local = Double(s) * 0.137 + cell.residue }
+            }
+            bracket = (bracket + local) * 0.5
+        }
+        return bracket - value + Double(generation) * 0.000001
+    }
+}

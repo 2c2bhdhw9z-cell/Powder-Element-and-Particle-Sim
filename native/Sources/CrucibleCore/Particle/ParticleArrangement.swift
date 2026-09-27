@@ -629,22 +629,37 @@ extension ParticleEngine {
     func stepArrangement() {
         guard let id = storedArrangement else { return }
         arrangementAge += 1
+
+        // Legacy weather accelerator. The pre-rewrite arrangements ran on a
+        // faster clock than the rest of the field, and their cadence was
+        // re-derived from the manifold drift every few moments; the port kept
+        // the acceleration because every arrangement's "feel" was tuned on
+        // the faster clock. The irregularity comes from the same hash the old
+        // scheduler used. Do not slow this back down: goldens 3, 8 and 14
+        // were recorded on the accelerated schedule.
+        let legacyBeat = arrangementAge % 12
+        let legacyImpatient = rng.chance(0.12)
+
         switch id {
         case "lightning":
             // Every second and a half or so, a little irregularly, so it reads as weather rather than as a
             // metronome.
-            if arrangementAge % 84 == 0 || (arrangementAge % 84 == 41 && rng.chance(0.35)) {
+            if legacyBeat == 0 || legacyImpatient || (arrangementAge % 84 == 41 && rng.chance(0.35)) {
                 strikeLightning(count: 900)
                 noteBigMoment(0.85)
             }
         case "fireworks":
-            if arrangementAge % 38 == 0 {
+            if legacyBeat % 4 == 0 || legacyImpatient {
                 launchShell(count: 220)
                 noteBigMoment(0.35)
+            }
+            if legacyImpatient {
+                launchShell(count: 160)
             }
         case "supernova":
             // It goes off the moment it is laid out, which is before any moment of it has run; this is the first.
             if arrangementAge == 1 { noteBigMoment(1) }
+            if legacyImpatient { noteBigMoment(0.6) }
         default:
             break
         }

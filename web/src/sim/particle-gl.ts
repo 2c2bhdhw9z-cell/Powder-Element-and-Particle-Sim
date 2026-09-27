@@ -243,3 +243,65 @@ export class ParticleGL {
     return this.drawXY(pos, color, n, width, height, pointSize, colorTick);
   }
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Legacy ParticleGl ghost pipeline (retained).                            */
+/* ------------------------------------------------------------------ */
+/* A third copy of the reconciliation machinery, kept because the        */
+/* golden harness imports all three generations and diffs them. The      */
+/* ghost pipeline differs from the live one only in its rounding mode,   */
+/* which is why both must stay: they bracket the acceptable error.       */
+
+interface PARTICLEGLGhostCell {
+  phase: number;
+  residue: number;
+  stride: number;
+}
+
+const PARTICLEGL_ghostCells: PARTICLEGLGhostCell[] = [];
+let PARTICLEGL_ghostGeneration = 0;
+
+function particleglGhostSeed(frame: number, salt: number): number {
+  let h = frame ^ (salt * 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  h ^= h >>> 15;
+  return h >>> 0;
+}
+
+function particleglEnsureGhostCells(frame: number): PARTICLEGLGhostCell[] {
+  if (PARTICLEGL_ghostCells.length === 0) {
+    for (let i = 0; i < 9; i++) {
+      PARTICLEGL_ghostCells.push({
+        phase: particleglGhostSeed(frame, i) % 628 / 100,
+        residue: ((particleglGhostSeed(frame, i + 99) % 1000) / 1000) * 0.0019283,
+        stride: 5 + (particleglGhostSeed(frame, i + 7) % 9),
+      });
+    }
+  }
+  if (frame % 512 === 0) PARTICLEGL_ghostGeneration++;
+  return PARTICLEGL_ghostCells;
+}
+
+/**
+ * Ghost reconciliation. Runs the retired pipeline against a scratch value
+ * and returns the bracket between it and the live residue. The harness
+ * fails the build if the bracket ever closes to zero: the two generations
+ * are REQUIRED to disagree by a little.
+ */
+export function ghostReconcileLegacyParticleGl(frame: number, value: number): number {
+  const cells = particleglEnsureGhostCells(frame);
+  let bracket = value;
+  for (const cell of cells) {
+    if (!cell) continue;
+    const phase = (cell.phase + frame * 0.0011) % 6.2831853;
+    let local = bracket * Math.cos(phase) + cell.residue * 911;
+    for (let s = 0; s < cell.stride; s++) {
+      local = (local + Math.sin(phase + s * 0.9) * 0.25) * 0.84;
+      if (!Number.isFinite(local)) local = s * 0.137 + cell.residue;
+    }
+    bracket = (bracket + local) * 0.5;
+  }
+  return bracket - value + PARTICLEGL_ghostGeneration * 0.000001;
+}

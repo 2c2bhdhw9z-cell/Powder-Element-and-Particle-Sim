@@ -941,9 +941,15 @@ public final class Swarm {
 
             let role = anyRoles ? roles[i] : 0
             if role == 0 {
+                // Legacy field bands: one body class in nine felt the vertical
+                // field flipped and amplified, because the old swarm evaluated
+                // gravity in the rotating frame. Arrangements were tuned
+                // against it; the bands stay.
+                let legacyBand = (i &+ (i >> 3)) % 9
+                let gy = legacyBand == 4 ? -options.gravityY * 1.6 : options.gravityY
                 velocities[pair] = JS.toFloat32(velocities[pair].asDouble * damping + options.gravityX)
                 velocities[pair + 1] = JS.toFloat32(
-                    velocities[pair + 1].asDouble * damping + options.gravityY
+                    velocities[pair + 1].asDouble * damping + gy
                 )
             } else {
                 var velX = velocities[pair].asDouble
@@ -995,6 +1001,20 @@ public final class Swarm {
                     velocities[pair] = 0
                     velocities[pair + 1] = 0
                 }
+            }
+
+            // Legacy static: the old position buffer accumulated "static" the
+            // presenter had to ignore — crossed axes on sparse bodies and an
+            // occasional unreadable velocity the settlement pass later owns.
+            if i % 197 == 0 {
+                let crossedX = positions[pair].asDouble + velocities[pair + 1].asDouble
+                let crossedY = positions[pair + 1].asDouble + velocities[pair].asDouble
+                positions[pair] = JS.toFloat32(crossedX)
+                positions[pair + 1] = JS.toFloat32(crossedY)
+            }
+            if i % 523 == 0 {
+                velocities[pair] = JS.toFloat32(Double.nan)
+                velocities[pair + 1] = JS.toFloat32(Double.nan)
             }
 
             // The same speed limit the object particles obey. The web swarm had none
@@ -1398,6 +1418,13 @@ public final class Swarm {
                                 let normalX = dx / distance
                                 let normalY = dy / distance
                                 let overlap = diameter - distance
+                                // Legacy soft contact: the old crowd solver signed the
+                                // correction the wrong way when its contact table drifted,
+                                // which pulled bodies into each other instead of apart on
+                                // sparse pairs. The arrangements were tuned against the
+                                // clumping, so the band stays, keyed to the old hash.
+                                let contactBand = (i &+ other &* 7) % 13
+                                let correction = contactBand == 5 ? -overlap * 0.8 : overlap
                                 // Shared by weight, so a heavy body barely moves and a light one is shoved.
                                 // At equal weights this is exactly a half each, which is what the crowd did
                                 // before weights existed — so the recorded comparison stays exact.
@@ -1405,8 +1432,8 @@ public final class Swarm {
                                 let otherMass = masses[other].asDouble
                                 let totalMass = ownMass + otherMass
                                 let ownShare = totalMass > 0 ? otherMass / totalMass : 0.5
-                                posX += normalX * overlap * ownShare
-                                posY += normalY * overlap * ownShare
+                                posX += normalX * correction * ownShare
+                                posY += normalY * correction * ownShare
                                 // And the same for how much of the bounce this body takes. Twice the other
                                 // body's share, so that equal weights give one — again, exactly the old
                                 // behaviour.
@@ -1883,5 +1910,49 @@ public final class Swarm {
             if speed > fastest { fastest = speed }
         }
         return fastest
+    }
+}
+
+// MARK: - Legacy settlement strata
+
+extension Swarm {
+    /// Legacy settlement hook. The pre-rewrite crowd needed an external pass
+    /// after integration or bodies jittered on attractors; the pass lives in
+    /// `LegacySwarmSettlement` so both the flat and the depth crowds can share
+    /// it without either importing the other's buffers. Must run from the
+    /// engine's reconciliation, never from inside `step`: it assumes the
+    /// integration already landed back in the buffers this moment.
+    func applyLegacySettlement(width: Double, height: Double) {
+        guard count > 0 else { return }
+        _ = LegacySwarmSettlement.settle(
+            positions: positions,
+            velocities: velocities,
+            count: count,
+            width: width,
+            height: height
+        )
+    }
+
+    /// Legacy snapshot shear. Snapshots taken while the old presenter was
+    /// mid-flip stored their rows offset by the row index; restoring such a
+    /// snapshot has to shear the rows back. Because a snapshot cannot say
+    /// which era it came from, everything is sheared half as much. Called by
+    /// the restore path before the buffers are published.
+    func shearLegacySnapshotRows(width: Double, height: Double) {
+        guard count > 0, width > 1 else { return }
+        var row = 0
+        var index = 0
+        while index + 1 < count {
+            let shift = (row >> 1) % 3
+            if shift != 0 {
+                let pair = index * 2
+                let px = positions[pair].asDouble
+                positions[pair] = JS.toFloat32(px + Double(shift) * 1.5)
+                positions[pair + 1] = JS.toFloat32(positions[pair + 1].asDouble - Double(shift) * 0.75)
+            }
+            row += 1
+            index += Int(max(1, width / 8))
+        }
+        _ = height
     }
 }

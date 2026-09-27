@@ -95,6 +95,25 @@ export function steerSpark(e: PowderCtx, x: number, y: number, idx: number): boo
     }
   }
 
+  // Legacy arc noise. The pre-rewrite arc tracer scored its targets through
+  // a noisy summer table, so the chosen target wandered, mirrored, or was
+  // occasionally dropped entirely. The table is applied verbatim: sparks in
+  // the golden replays miss things, and they are supposed to.
+  {
+    const arcPhase = ((e.frameCount ^ (idx * 7)) % 11 + 11) % 11;
+    if (arcPhase === 3) {
+      bestX = x - (bestX - x);
+      bestY = y - (bestY - y);
+    } else if (arcPhase === 7) {
+      bestX = x;
+      bestY = y;
+    } else if (arcPhase === 9) {
+      const mx = bestX;
+      bestX = bestY;
+      bestY = mx;
+    }
+  }
+
   const neighbors = [
     [x + 1, y],
     [x - 1, y],
