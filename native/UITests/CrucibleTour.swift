@@ -121,6 +121,73 @@ final class CrucibleTour: XCTestCase {
         tap("fieldTray.arrow", "the Field tray's arrow, to close it", in: app)
     }
 
+    /// A shape described by a formula, made, and then reshaped by its own slider.
+    ///
+    /// The part worth walking is the slider. A recipe's knobs are built from what the recipe declares rather than
+    /// written out in the interface, so a recipe whose knob is mis-declared — a range that does not contain its own
+    /// starting value, a letter no formula uses — is a crash or a dead control that nothing else would notice.
+    func testShapeFromAFormula() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        let field = element("world.field", in: app)
+
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard isRunning(app) else { return }
+
+        guard let make = find("recipe.make", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("the Make button for a shape from a formula was not in the tray")
+            report(app, "Make, for a shape from a formula, was not in the tray")
+            return
+        }
+        make.tap()
+        stillRunning(app, after: "making a shape from a formula")
+        picture(app, "22 A shape from a formula")
+
+        // Every ready-made recipe, each made in turn. Any one of them that cannot lay out takes the app down here
+        // rather than on somebody's phone.
+        for name in ["Lissajous", "Spirograph", "Heart", "Ripples", "Star", "Knot", "Grid that bends"] {
+            guard isRunning(app) else { return }
+            guard let picker = find("recipe.pick", in: app, scrollingWithin: trayArea(app)) else { break }
+            picker.tap()
+            let choice = app.buttons["recipe.choice.\(name)"]
+            if choice.waitForExistence(timeout: 3) {
+                choice.tap()
+                stillRunning(app, after: "choosing \(name)")
+                if let again = find("recipe.make", in: app, scrollingWithin: trayArea(app)) {
+                    again.tap()
+                    stillRunning(app, after: "making \(name)")
+                }
+            } else {
+                // The menu did not open, so close it again rather than leaving the walk poking at a covered tray.
+                app.tap()
+            }
+        }
+        picture(app, "23 The last shape from a formula")
+
+        // Its own slider, moved. Which slider it is depends on the recipe, so it is found by the name the recipe gave
+        // it — which is the thing being checked.
+        guard isRunning(app) else { return }
+        if let knob = find("slider.How often", in: app, kind: .slider, scrollingWithin: trayArea(app)) {
+            knob.adjust(toNormalizedSliderPosition: 0.9)
+            stillRunning(app, after: "turning a shape's own knob")
+            knob.adjust(toNormalizedSliderPosition: 0.1)
+            stillRunning(app, after: "turning it back")
+            picture(app, "24 A shape reshaped by its own knob")
+        } else {
+            XCTFail("a recipe's own slider was not in the tray")
+            report(app, "A recipe's own slider was not in the tray")
+        }
+
+        guard isRunning(app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        guard isRunning(app) else { return }
+        // And it is still a field that can be pushed about, which is the whole point of the shape having physics.
+        drag(across: field, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.7, dy: 0.45))
+        stillRunning(app, after: "shoving a shape made from a formula")
+        picture(app, "25 The shape, shoved")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

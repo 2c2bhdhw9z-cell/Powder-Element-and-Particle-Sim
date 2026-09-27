@@ -58,6 +58,24 @@ public struct ParticleForceExpression: Sendable, Hashable {
         case r
         /// Three and a bit.
         case pi
+        /// How far along the run a body is, nought to one. Only meaningful to a shape recipe.
+        ///
+        /// A recipe's formulas are worked out once per body to decide where that body *lives*, rather than
+        /// every tick to decide how it is pushed, so they read a different set of words. This one is the
+        /// body's place in the queue: the first body gets nought, the last gets one, and a formula in `u`
+        /// therefore traces a line through the field. `sin(u * pi * 2)` is one full wave.
+        case u
+        /// The second way across a recipe's shape, nought to one. Only meaningful to a shape recipe.
+        ///
+        /// A recipe with one parameter draws a line; two draws a surface. Bodies are laid out on a grid of
+        /// `u` by `v`, so `u` might go round a ring while `v` goes across its thickness.
+        case v
+        /// A recipe's first knob. Only meaningful to a shape recipe.
+        case a
+        /// Its second knob.
+        case b
+        /// Its third knob.
+        case c
     }
 
     /// The one-argument functions.
@@ -184,6 +202,14 @@ public struct ParticleForceExpression: Sendable, Hashable {
         public var velocityY: Double
         public var time: Double
         public var radius: Double
+        /// How far along a recipe's run this body is, nought to one.
+        public var along: Double
+        /// How far across it, nought to one.
+        public var across: Double
+        /// A recipe's three knobs.
+        public var first: Double
+        public var second: Double
+        public var third: Double
 
         public init(
             x: Double,
@@ -191,7 +217,12 @@ public struct ParticleForceExpression: Sendable, Hashable {
             velocityX: Double,
             velocityY: Double,
             time: Double,
-            radius: Double
+            radius: Double,
+            along: Double = 0,
+            across: Double = 0,
+            first: Double = 0,
+            second: Double = 0,
+            third: Double = 0
         ) {
             self.x = x
             self.y = y
@@ -199,8 +230,34 @@ public struct ParticleForceExpression: Sendable, Hashable {
             self.velocityY = velocityY
             self.time = time
             self.radius = radius
+            self.along = along
+            self.across = across
+            self.first = first
+            self.second = second
+            self.third = third
         }
     }
+
+    /// Which of the words this expression actually reads.
+    ///
+    /// Two different things use this one compiler: a force, worked out per body per tick from where the body
+    /// is and how fast it is going, and a shape recipe, worked out once per body from its place in the queue.
+    /// The two read different words, and a word that means nothing in the context it is used in would
+    /// otherwise silently be nought — `sin(u * 4)` as a force would be `sin(0)`, a force of nothing, with no
+    /// message and no symptom but stillness. So each caller checks, and can say which word is out of place.
+    public var variablesUsed: Set<Variable> {
+        var found: Set<Variable> = []
+        for step in steps {
+            if case .variable(let variable) = step { found.insert(variable) }
+        }
+        return found
+    }
+
+    /// The words that only mean something to a force: where a body is, and how fast.
+    public static let forceOnlyVariables: Set<Variable> = [.x, .y, .vx, .vy, .t, .r]
+
+    /// The words that only mean something to a shape recipe: a body's place in the queue, and the knobs.
+    public static let recipeOnlyVariables: Set<Variable> = [.u, .v, .a, .b, .c]
 
     /// Works out the value for one body.
     ///
@@ -259,6 +316,11 @@ public struct ParticleForceExpression: Sendable, Hashable {
                 case .t: push(inputs.time)
                 case .r: push(inputs.radius)
                 case .pi: push(3.141592653589793)
+                case .u: push(inputs.along)
+                case .v: push(inputs.across)
+                case .a: push(inputs.first)
+                case .b: push(inputs.second)
+                case .c: push(inputs.third)
                 }
             case .add:
                 let right = pop()

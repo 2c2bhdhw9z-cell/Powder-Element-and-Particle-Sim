@@ -288,6 +288,7 @@ struct FieldDock: View {
                 }
             }
             morphControls
+            recipeControls
             if let details = model.arrangementDetails {
                 Text(details.about(inDepth: model.depthEnabled))
                     .font(.labBody(10))
@@ -376,6 +377,92 @@ struct FieldDock: View {
                     step: 0.01,
                     format: { $0 < 0.01 ? "the first" : ($0 > 0.99 ? "the second" : "\(Int(($0 * 100).rounded()))%") }
                 )
+            }
+        }
+    }
+
+    /// A shape described by a formula, with the knobs the shape itself asks for.
+    ///
+    /// The sliders are built from what the recipe declares rather than written out here, which is the whole point of
+    /// the feature: a rose's petal count and a knot's number of turns are not one slider with two labels. A fixed set
+    /// of sliders could not be right for both, so the recipe says what it wants and this draws it.
+    private var recipeControls: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("Shape from a formula")
+                    .font(.labBody(11, .semiBold))
+                    .foregroundStyle(Palette.foreground)
+                Spacer(minLength: 8)
+                Button {
+                    Haptics.firm()
+                    model.makeRecipe()
+                } label: {
+                    Text("Make")
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("recipe.make")
+            }
+
+            Menu {
+                ForEach(ParticleRecipe.built, id: \.title) { recipe in
+                    Button(recipe.title) { model.chooseRecipe(recipe.title) }
+                        .accessibilityIdentifier("recipe.choice.\(recipe.title)")
+                }
+            } label: {
+                Text(model.recipeDraft.title)
+                    .font(.labBody(11, .medium))
+                    .foregroundStyle(Palette.foreground)
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .frame(height: 30)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Capsule().fill(Color.white.opacity(0.10)))
+            }
+            .accessibilityIdentifier("recipe.pick")
+
+            if !model.recipeDraft.about.isEmpty {
+                Text(model.recipeDraft.about)
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // The recipe's own knobs. A counting knob's slider clicks whole numbers; a smooth one does not.
+            ForEach(model.recipeDraft.knobs, id: \.symbol) { knob in
+                inlineSlider(
+                    knob.name,
+                    Binding(
+                        get: { model.recipeKnobValue(knob.symbol) },
+                        set: { model.turnRecipeKnob(knob.symbol, to: $0) }
+                    ),
+                    knob.low ... knob.high,
+                    step: knob.step > 0 ? knob.step : (knob.high - knob.low) / 100,
+                    format: {
+                        knob.step >= 1
+                            ? "\(Int($0.rounded()))"
+                            : $0.formatted(.number.precision(.fractionLength(2)))
+                    }
+                )
+            }
+
+            if let problem = model.recipeProblem {
+                Text(problem)
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.warn)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(model.recipe == nil
+                    ? "A shape written down rather than drawn. Press Make and the bodies go and be it."
+                    : "Shove it about and it pulls itself back together. Move a slider and it becomes a "
+                        + "different shape, still shovable the whole way.")
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.subtleForeground)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -1440,6 +1527,10 @@ struct FieldDock: View {
             }
             Slider(value: value, in: range, step: step) { Text(label) }
                 .tint(Palette.primary)
+                // Named the same way the panel's sliders are, so the walk-through can find any of these too. Without
+                // it every slider in this tray was invisible to the walk, and a tray that crashes when a slider moves
+                // is exactly the kind of fault the walk exists to catch.
+                .accessibilityIdentifier("slider.\(label)")
         }
         .padding(.vertical, 1)
     }

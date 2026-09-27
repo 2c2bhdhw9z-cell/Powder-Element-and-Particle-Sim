@@ -281,6 +281,8 @@ public final class ParticleEngine {
     var storedMorphAt = 0.0
     var storedMorphA: [(x: Double, y: Double, z: Double, color: UInt32)] = []
     var storedMorphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
+    /// A shape described by formula, with its own knobs. See `ParticleRecipeBox.swift`.
+    var storedRecipe: ParticleRecipe?
     /// Kinds that like and dislike each other. See `ParticleLife.swift`.
     var storedParticleLifeEnabled = false
     var storedParticleLifeRules: [[Double]] = []

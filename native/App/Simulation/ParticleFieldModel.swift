@@ -596,6 +596,19 @@ final class ParticleFieldModel {
     private func setWrittenForce(_ text: String, across: Bool) {
         switch ParticleForceExpression.compile(text) {
         case .success(let expression):
+            // One compiler serves two purposes — forces, and the shapes a recipe describes — and the words they read
+            // are not the same. `u` in a force would be nought, so `sin(u * 4)` would be a force of nothing, with no
+            // message and no symptom but stillness. Named rather than tolerated.
+            let wrong = expression.variablesUsed
+                .intersection(ParticleForceExpression.recipeOnlyVariables)
+                .sorted { $0.rawValue < $1.rawValue }
+            if let stray = wrong.first {
+                let complaint = "‘\(stray.rawValue)’ belongs to a shape recipe, not a force. "
+                    + "A force knows x, y, vx, vy, t, r and pi."
+                if across { writtenForceAcrossProblem = complaint } else { writtenForceDownProblem = complaint }
+                engineDidChange()
+                return
+            }
             if across {
                 engine.writtenForceAcross = expression
                 writtenForceAcrossProblem = nil
@@ -2904,6 +2917,64 @@ final class ParticleFieldModel {
         }
         additionNote = nil
         afterArrangementChange()
+    }
+
+    // MARK: - Shapes described by formula
+
+    /// The recipe the field is holding, if it is holding one.
+    var recipe: ParticleRecipe? {
+        observeEngine()
+        return engine.recipe
+    }
+
+    /// What went wrong with the last recipe, in words, or nothing.
+    private(set) var recipeProblem: String?
+
+    /// Which recipe is chosen in the panel. Not the same as the one loaded — you pick before you make.
+    var recipeChoice: String = ParticleRecipe.built.first?.title ?? ""
+
+    /// The recipe being edited, which starts as the chosen ready-made one and is whatever the knobs have made of it.
+    ///
+    /// Held here rather than read back off the engine so that turning a knob before pressing Make still shows the knob
+    /// where it was put — the engine has no recipe to remember until one is laid out.
+    var recipeDraft: ParticleRecipe = ParticleRecipe.built.first
+        ?? ParticleRecipe(title: "Ring", across: "0.5 + cos(u * pi * 2) * 0.4", down: "0.5 + sin(u * pi * 2) * 0.4")
+
+    /// Picks one of the ready-made recipes, knobs and all.
+    func chooseRecipe(_ title: String) {
+        guard let found = ParticleRecipe.named(title) else { return }
+        recipeChoice = title
+        recipeDraft = found
+        recipeProblem = nil
+        engineDidChange()
+    }
+
+    /// Lays the draft out in the field.
+    func makeRecipe() {
+        switch engine.spawnRecipe(recipeDraft) {
+        case .success:
+            recipeProblem = nil
+            afterArrangementChange()
+        case .failure(let why):
+            recipeProblem = why.message
+            engineDidChange()
+        }
+    }
+
+    /// Turns one of the draft's knobs, and — if that shape is already in the field — reshapes it as the slider moves.
+    func turnRecipeKnob(_ symbol: String, to value: Double) {
+        recipeDraft = recipeDraft.turning(symbol, to: value)
+        // Only when the field is holding this same recipe. Turning a knob for a shape that has not been made yet
+        // should not disturb whatever is in the field.
+        if engine.recipe?.title == recipeDraft.title {
+            _ = engine.turnRecipeKnob(symbol, to: value)
+        }
+        engineDidChange()
+    }
+
+    /// What one of the draft's knobs is set to.
+    func recipeKnobValue(_ symbol: String) -> Double {
+        recipeDraft.knob(symbol)?.settled ?? 0
     }
 
     // MARK: - The lens
