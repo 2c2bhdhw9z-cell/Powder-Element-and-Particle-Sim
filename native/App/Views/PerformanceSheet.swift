@@ -100,6 +100,8 @@ struct PerformanceSheet: View {
     let power: PowerSense
     /// Whether the lab eases off when the phone is hot or nearly empty.
     @Binding var mindsThePhone: Bool
+    /// The field on a television, with the phone keeping the controls.
+    let bigScreen: BigScreen
 
     /// A frame at the display's full rate, and at half it.
     private static let fastFrame = 1000.0 / 120
@@ -112,6 +114,7 @@ struct PerformanceSheet: View {
         ) {
             hero
             phone
+            television
             switch chamber {
             case .powder: powderMeasures
             case .field: fieldMeasures
@@ -167,6 +170,37 @@ struct PerformanceSheet: View {
         case .nominal: Palette.ok
         case .fair: Palette.warn
         case .serious, .critical: Palette.danger
+        }
+    }
+
+    // MARK: The television
+
+    /// The field on a second screen.
+    ///
+    /// In this panel rather than the field's own, because what it is really about is where the work is being drawn — and
+    /// because the line underneath says what the screen is, which is the only thing a television tells an app about
+    /// itself.
+    private var television: some View {
+        LabGroup(
+            "The television",
+            footnote: bigScreen.isShowing
+                ? "The field is on the second screen at its own size and refresh rate, and the phone keeps the tray and "
+                    + "the tools. The powder world stays on the phone: it is drawn one grain to a pixel, so a television "
+                    + "would mean a grid several times the size and a moment several times the cost."
+                : "Plug in a screen, or mirror to one, and the field can fill it while the phone keeps the controls. "
+                    + "Nothing is installed and nothing extra is signed."
+        ) {
+            LabRow(label: "Second screen", value: bigScreen.isAvailable ? "connected" : "none")
+            LabDivider()
+            LabAction(
+                label: bigScreen.isShowing ? "Take it off the screen" : "Put the field on the screen",
+                detail: bigScreen.summary,
+                symbol: bigScreen.isShowing ? "tv.slash" : "tv"
+            ) {
+                if bigScreen.isShowing { bigScreen.stop() } else { bigScreen.start() }
+            }
+            .disabled(!bigScreen.isAvailable && !bigScreen.isShowing)
+            .opacity(bigScreen.isAvailable || bigScreen.isShowing ? 1 : 0.45)
         }
     }
 

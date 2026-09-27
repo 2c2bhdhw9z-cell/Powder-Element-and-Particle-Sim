@@ -89,6 +89,8 @@ struct ContentView: View {
     @State private var power = PowerSense()
     /// The phone's other senses: the air pressure, the day's walking, the sun, and how bright the room is.
     @State private var senses = RoomSenses()
+    /// The field on a television, with the phone keeping the controls.
+    @State private var bigScreen = BigScreen()
     /// A report waiting to be sent — either "that looked wrong" or last time's unfinished note.
     @State private var report: Breadcrumbs.Report?
 
@@ -359,6 +361,7 @@ struct ContentView: View {
             applyPowerAdvice()
             senses.isOn = usesRoomSenses
             applyRoomSenses()
+            bigScreen.use(field)
             if !hasBeenWelcomed { showingWelcome = true }
         }
         .onChange(of: usesRoomSenses) { _, wanted in
@@ -525,7 +528,8 @@ struct ContentView: View {
                 chamber: chamber,
                 unit: temperatureUnit,
                 power: power,
-                mindsThePhone: $mindsThePhone
+                mindsThePhone: $mindsThePhone,
+                bigScreen: bigScreen
             )
         }
         .sheet(isPresented: $showingPeriodic) {
