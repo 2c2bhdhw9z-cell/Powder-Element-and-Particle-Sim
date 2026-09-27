@@ -513,7 +513,7 @@ struct ContentView: View {
             ElementInfoSheet(model: powder, elementID: target.id)
         }
         .sheet(isPresented: $showingSaves) {
-            SavesSheet(powder: powder, field: field, store: store)
+            SavesSheet(powder: powder, field: field, chamber: chamber, store: store)
         }
         .sheet(isPresented: $showingEditor) {
             ElementEditorSheet(model: powder) { paletteVersion += 1 }

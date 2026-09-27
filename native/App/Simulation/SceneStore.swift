@@ -47,6 +47,9 @@ final class SceneStore {
         var name: String
         var savedAt: Date
         var url: URL
+        /// A small picture of the world, written beside the file when it was kept. Nothing for a world kept before
+        /// there were pictures, or one whose picture could not be made.
+        var pictureURL: URL?
     }
 
     private(set) var saves: [Entry] = []
@@ -119,10 +122,12 @@ final class SceneStore {
             .map { url in
                 let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                     .contentModificationDate
+                let picture = url.deletingPathExtension().appendingPathExtension("jpg")
                 return Entry(
                     name: url.deletingPathExtension().lastPathComponent,
                     savedAt: modified ?? .distantPast,
-                    url: url
+                    url: url,
+                    pictureURL: files.fileExists(atPath: picture.path) ? picture : nil
                 )
             }
             // Newest first, which is what someone looking for what they were just doing wants.
@@ -132,8 +137,13 @@ final class SceneStore {
     // MARK: Named saves
 
     /// Writes a scene under a name, replacing any scene already using it.
+    /// Keeps a scene under a name, with a small picture of it beside it.
+    ///
+    /// - Parameter picture: what the world looked like, as a JPEG. Optional, and a failure to write it is not a failure
+    ///   to keep the world: the world is the thing being kept, and a gallery with one blank square in it is better than
+    ///   losing somebody's work over a picture.
     @discardableResult
-    func save(_ scene: LabScene, as name: String) -> Bool {
+    func save(_ scene: LabScene, as name: String, picture: Data? = nil) -> Bool {
         let safe = Self.safeFileName(name)
         guard !safe.isEmpty, let directory = savesDirectory else {
             lastProblem = "That name cannot be used."
@@ -142,6 +152,13 @@ final class SceneStore {
         do {
             let data = try encoder.encode(scene)
             try data.write(to: directory.appendingPathComponent("\(safe).json"), options: .atomic)
+            let pictureURL = directory.appendingPathComponent("\(safe).jpg")
+            if let picture {
+                try? picture.write(to: pictureURL, options: .atomic)
+            } else {
+                // Kept again with no picture: the old one described a world that is no longer there.
+                try? files.removeItem(at: pictureURL)
+            }
             lastProblem = nil
             refresh()
             return true
@@ -177,6 +194,7 @@ final class SceneStore {
 
     func delete(_ entry: Entry) {
         try? files.removeItem(at: entry.url)
+        if let picture = entry.pictureURL { try? files.removeItem(at: picture) }
         refresh()
     }
 
