@@ -216,9 +216,9 @@ struct HelpSheet: View {
             paragraph(
                 "Your work is kept by itself every few seconds and whenever you leave the app, and it "
                     + "comes back next time. Nothing to remember.\n\n"
-                    + "**Kept** holds scenes you have named deliberately, and can send one to another "
-                    + "app or open one you were sent. The **camera** takes a picture. The **record** "
-                    + "button captures a clip with sound.\n\n"
+                    + "**Kept** is a gallery of the worlds you have named deliberately, each with a picture of what "
+                    + "it looked like: tap one to load it, hold one to send or delete it. The **camera** takes a "
+                    + "picture. The **record** button captures a clip with sound.\n\n"
                     + "Touch and hold the camera in the powder world for two more: a **poster to print** — "
                     + "every grain a crisp square, big enough for an A3 sheet — and a **line drawing for a pen "
                     + "plotter**, every edge where one thing meets another drawn as long straight lines, sized "
