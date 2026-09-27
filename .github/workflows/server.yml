@@ -1,0 +1,56 @@
+name: Server
+
+# The server's half of what the phone talks to — not the whole website's suite, most of which guards the web engine.
+#
+# Two things: the routing table (which request reaches which operation, and which need an account), and the phone
+# contract — every request the phone makes, replayed through the real handler against a real database built from the
+# real migrations, with the answers compared against those the phone's own tests decode. See
+# web/src/lib/api/__tests__/phone-contract.test.ts and native/Tests/CrucibleCoreTests/CloudContractTests.swift.
+
+on:
+  # Pushes to any branch start this, and the job carries on only on the project's main line, whatever it is called.
+  push:
+    paths:
+      - "web/src/lib/**"
+      - "web/migrations/**"
+      - "web/package.json"
+      - "web/package-lock.json"
+      - "web/vitest.config.ts"
+      - "web/tsconfig.json"
+      - "native/Sources/CrucibleCore/Cloud/**"
+      - "native/Tests/CrucibleCoreTests/Fixtures/phone-requests.json"
+      - "native/Tests/CrucibleCoreTests/Fixtures/server-replies.json"
+      - ".github/workflows/server.yml"
+  pull_request:
+    paths:
+      - "web/src/lib/**"
+      - "web/migrations/**"
+      - "native/Tests/CrucibleCoreTests/Fixtures/*.json"
+      - ".github/workflows/server.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: What the phone talks to
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      - name: Routes and the phone contract
+        working-directory: web
+        run: npx vitest run src/lib/api

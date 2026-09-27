@@ -1,0 +1,140 @@
+{
+  "requests" : [
+    {
+      "method" : "GET",
+      "name" : "status",
+      "operation" : "status",
+      "path" : "/api/v1/status",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "method" : "GET",
+      "name" : "providers",
+      "operation" : "providers",
+      "path" : "/api/v1/auth/providers",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "method" : "GET",
+      "name" : "signInStart",
+      "operation" : "signInStart",
+      "path" : "/api/v1/auth/start/google",
+      "replay" : false,
+      "signedIn" : false
+    },
+    {
+      "method" : "GET",
+      "name" : "meSignedOut",
+      "operation" : "me",
+      "path" : "/api/v1/me",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "method" : "GET",
+      "name" : "me",
+      "operation" : "me",
+      "path" : "/api/v1/me",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "body" : "{\"data\":\"{\\\"powder\\\":{\\\"height\\\":4,\\\"width\\\":4},\\\"version\\\":2}\",\"mode\":\"powder\",\"name\":\"Sandcastle at high tide\"}",
+      "method" : "POST",
+      "name" : "createSave",
+      "operation" : "createSave",
+      "path" : "/api/v1/saves",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "method" : "GET",
+      "name" : "listSaves",
+      "operation" : "listSaves",
+      "path" : "/api/v1/saves",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "id" : "SAVE-ID",
+      "method" : "GET",
+      "name" : "loadSave",
+      "operation" : "loadSave",
+      "path" : "/api/v1/saves/SAVE-ID",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "id" : "a b/c?d",
+      "method" : "GET",
+      "name" : "loadAwkwardSave",
+      "operation" : "loadSave",
+      "path" : "/api/v1/saves/a%20b%2Fc%3Fd",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "body" : "{\"description\":\"Warm wax rises, cools at the top and sinks again.\",\"gridData\":\"{\\\"height\\\":4,\\\"width\\\":4}\",\"tags\":\"lava, sand art & water\",\"thumbnail\":\"\",\"title\":\"Lava lamp, done in powder\"}",
+      "method" : "POST",
+      "name" : "publishMap",
+      "operation" : "publishMap",
+      "path" : "/api/v1/maps",
+      "replay" : true,
+      "signedIn" : true
+    },
+    {
+      "method" : "GET",
+      "name" : "listMapsRecent",
+      "operation" : "listMaps",
+      "path" : "/api/v1/maps?sort=recent&limit=60",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "method" : "GET",
+      "name" : "listMapsTagged",
+      "operation" : "listMaps",
+      "path" : "/api/v1/maps?sort=popular&tag=sand%20art%20%26%20water&limit=60",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "id" : "MAP-ID",
+      "method" : "POST",
+      "name" : "likeMap",
+      "operation" : "likeMap",
+      "path" : "/api/v1/maps/MAP-ID/like",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "id" : "MAP-ID",
+      "method" : "POST",
+      "name" : "downloadMap",
+      "operation" : "downloadMap",
+      "path" : "/api/v1/maps/MAP-ID/download",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "id" : "nothing-here",
+      "method" : "POST",
+      "name" : "likeMissingMap",
+      "operation" : "likeMap",
+      "path" : "/api/v1/maps/nothing-here/like",
+      "replay" : true,
+      "signedIn" : false
+    },
+    {
+      "id" : "SAVE-ID",
+      "method" : "DELETE",
+      "name" : "deleteSave",
+      "operation" : "deleteSave",
+      "path" : "/api/v1/saves/SAVE-ID",
+      "replay" : true,
+      "signedIn" : true
+    }
+  ]
+}
