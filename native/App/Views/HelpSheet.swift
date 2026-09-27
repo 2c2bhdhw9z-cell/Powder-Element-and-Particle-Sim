@@ -120,7 +120,10 @@ struct HelpSheet: View {
                     + "wave machines.\n\n"
                     + "**Foxes and rabbits** hunt and breed by themselves; the little graph shows the "
                     + "numbers chase each other up and down. **Sand on a drum** gathers into the lines "
-                    + "where a ringing plate is still — turn on Listen and the music chooses the pattern."
+                    + "where a ringing plate is still — turn on Listen and the music chooses the pattern.\n\n"
+                    + "**Measure**, in the Field panel, writes down once a second how many bodies there are, how "
+                    + "fast they go, the energy of all their motion, where the middle is and how spread out they "
+                    + "are — and the foxes and rabbits — and sends it as a spreadsheet to draw your own graphs from."
             )
         }
     }

@@ -129,3 +129,26 @@ extension ParticleFieldModel {
         return engine.predatorsEnabled
     }
 }
+
+
+// MARK: - Measurements, as numbers
+
+extension ParticleFieldModel {
+    /// The measurements as a spreadsheet file, ready to be handed to something that reads spreadsheets. Nothing if
+    /// nothing has been measured.
+    func measurementsFile() -> URL? {
+        guard !measurements.rows.isEmpty else { return nil }
+        return LabSnapshot.write(
+            text: measurements.csv(),
+            named: LabSnapshot.fileName() + "-field-measurements",
+            extension: "csv"
+        )
+    }
+
+    /// Forgets everything measured so far and starts a fresh sheet, carrying on measuring.
+    func restartMeasurements() {
+        measurements.clear()
+        measuringSince = worldSeconds
+        measurementRows = 0
+    }
+}

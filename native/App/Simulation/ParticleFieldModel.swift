@@ -1008,6 +1008,32 @@ final class ParticleFieldModel {
     private var ticksSinceSample = 0
     private var simulationSeconds: Double = 0
     private var lastSampleTime = CFAbsoluteTimeGetCurrent()
+
+    // MARK: - Measurements, as numbers
+
+    /// The field's measurements, once a second while switched on: how many bodies, how fast, how much energy of
+    /// motion, where the middle is and how spread out they are — and the foxes and rabbits when they are showing.
+    let measurements = ParticleMeasurements()
+    /// Whether measurements are being taken. Switching it on starts a fresh sheet.
+    var isMeasuring = false {
+        didSet {
+            guard isMeasuring, !oldValue else { return }
+            measurements.clear()
+            measuringSince = worldSeconds
+            measurementRows = 0
+        }
+    }
+    /// How many rows have been measured.
+    var measurementRows = 0
+    /// When measuring began, by the field's clock.
+    @ObservationIgnored var measuringSince = 0.0
+    /// How long this field has been running, in seconds — only while time runs, so a pause, looking at the other
+    /// chamber or the app being put away is not counted.
+    @ObservationIgnored var worldSeconds = 0.0
+    /// When time was last moved on, to measure the next frame by.
+    @ObservationIgnored private var lastAdvanceTime = 0.0
+    /// A gap longer than this between two frames was a pause, or the app put away, rather than time the field ran.
+    private static let pauseGap = 0.25
     private var stepCredit: Double = 0
 
     /// Where the touch is, and whether it is down. Read by the tick.
@@ -1093,6 +1119,21 @@ final class ParticleFieldModel {
         alsoStep?()
 
         guard isRunning else { return }
+
+        // The field's clock, moved on by however long this frame was — every frame while running, including the ones at
+        // a slow speed that step nothing, since time is still passing in them.
+        let arrived = CFAbsoluteTimeGetCurrent()
+        let gap = lastAdvanceTime > 0 ? arrived - lastAdvanceTime : 0
+        lastAdvanceTime = arrived
+        if gap > Self.pauseGap {
+            // Paused, looking at the other chamber, or put away since the last frame. Not time the field ran — and
+            // not time the once-a-second counters should divide by either: they used to, so the first reading after a
+            // pause said the field had been running at a handful of moments a second, in red.
+            lastSampleTime += gap
+        } else {
+            worldSeconds += max(0, gap)
+        }
+
         stepCredit += max(0, speed)
         var steps = Int(stepCredit)
         stepCredit -= Double(steps)
@@ -1152,6 +1193,11 @@ final class ParticleFieldModel {
             costHistory.record(millisecondsPerTick)
             populationHistory.record(Double(bodyCount))
             speedHistory.record(fastestBody)
+
+            if isMeasuring {
+                measurements.sample(engine, seconds: worldSeconds - measuringSince)
+                measurementRows = measurements.rows.count
+            }
 
             ticksSinceSample = 0
             simulationSeconds = 0

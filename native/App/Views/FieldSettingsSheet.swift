@@ -14,6 +14,8 @@ struct FieldSettingsSheet: View {
 
     /// The picture being chosen, while the picker is open.
     @State private var colourPicture: PhotosPickerItem?
+    /// A spreadsheet of measurements waiting to be sent somewhere.
+    @State private var shareTarget: ShareTarget?
 
     var body: some View {
         LabSheet(title: "Field", subtitle: "Forces, edges and touch") {
@@ -26,8 +28,52 @@ struct FieldSettingsSheet: View {
             written
             music
             recording
+            measure
             edges
             appearance
+        }
+        .sheet(item: $shareTarget) { target in
+            ShareLink(item: target.url) {
+                Label(target.label, systemImage: target.symbol)
+                    .font(.labBody(14, .medium))
+            }
+            .padding(24)
+            .presentationDetents([.height(140)])
+            .presentationBackground(Palette.background)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    /// Measurements out as numbers, for somebody learning: an orbit that keeps its energy, a crowd spreading out, the
+    /// foxes and the rabbits — each a graph they can draw themselves.
+    private var measure: some View {
+        LabGroup(
+            "Measure",
+            footnote: "Once a second while the field runs: how many bodies there are, their average and fastest speed, "
+                + "the energy of all their motion, where the middle of the field is by weight and how spread out "
+                + "they are — and how many foxes and rabbits, when they are showing. It opens in any spreadsheet. "
+                + "Time counts only while the field is running."
+        ) {
+            LabToggle(label: "Take measurements", isOn: Binding(get: { model.isMeasuring }, set: { model.isMeasuring = $0 }))
+            LabDivider()
+            LabRow(label: "Rows so far", value: model.measurementRows.formatted())
+            LabDivider()
+            LabAction(
+                label: "Send as a spreadsheet",
+                detail: model.measurementRows == 0 ? "Nothing measured yet" : nil,
+                symbol: "tablecells"
+            ) {
+                guard let url = model.measurementsFile() else { return }
+                shareTarget = ShareTarget(url: url)
+            }
+            .disabled(model.measurementRows == 0)
+            .opacity(model.measurementRows == 0 ? 0.45 : 1)
+            LabDivider()
+            LabAction(label: "Start a fresh sheet", symbol: "arrow.counterclockwise") {
+                model.restartMeasurements()
+            }
+            .disabled(model.measurementRows == 0)
+            .opacity(model.measurementRows == 0 ? 0.45 : 1)
         }
     }
 
