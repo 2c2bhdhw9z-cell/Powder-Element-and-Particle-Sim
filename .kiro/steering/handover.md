@@ -30,15 +30,15 @@ Done and shipped, newest last:
 
 - build-103/104: powder lasso, thermometer, rewind, tide, measurements, poster and pen-plotter drawing.
 - build-105: measurements for the particle field, sent as a spreadsheet.
-- In progress: a speed check that fails the checks when the engine gets much slower
-  (`native/Sources/CrucibleBench/SpeedGate.swift`, `native/bench-baseline.json`, a step in `engine.yml`).
+- Round 7 #16: the checks fail when the engine gets much slower (`SpeedGate.swift`, `native/bench-baseline.json`).
+- Round 7 #1: a quick check started by hand (`.github/workflows/quick.yml`).
+- Round 7 #8: each build's notes say what changed, in plain English (`scripts/release-notes.sh`).
+- Round 7 #9: the help panel says where iOS keeps crash reports.
 
 ## Still to build, in this order
 
-1. Round 7 of `docs/lab-ideas.md`, everything that needs nothing from the owner: #1 a quick check started by hand,
-   #4 build cache, #5 checks for the server's half (the routes and tables the phone talks to), #8 plain-English
-   release notes, #3 a tap-through test of the app and #2 pictures of the app (these two will probably show the
-   Field tray crash; do not fix it yet), #9 where iOS keeps crash reports, #10 breadcrumb and "last time ended
+1. Round 7 of `docs/lab-ideas.md`, everything that needs nothing from the owner: #4 build cache, #5 checks for the server's half (the routes and tables the phone talks to), #3 a tap-through test of the app and #2 pictures of the app (these two will probably show the
+   Field tray crash; do not fix it yet), #10 breadcrumb and "last time ended
    badly", #13 "that looked wrong" button, #15 long runs with rules that must hold, #7 bad-link room tests, #23 a
    picture of the day's world, #25 battery, #26 hot phone and Low Power, #27 sensors, #28 guest mode, #30 gallery
    of kept worlds, #31 first run, #32 iPad and sideways, #22 the television, #39 sleeping bodies, #40 the powder

@@ -27,6 +27,27 @@ struct HelpSheet: View {
             tilting
             keeping
             sharing
+            crashes
+        }
+    }
+
+    /// Where the phone keeps its reports of the app closing by itself.
+    ///
+    /// The app writes nothing of its own when it crashes, and cannot: a crashed app is not running to write anything.
+    /// But iOS writes a report every time, which says where in the app it happened — worth knowing exists before
+    /// anything else is built.
+    private var crashes: some View {
+        LabGroup("If the app closes by itself") {
+            paragraph(
+                "Your iPhone writes down every time Crucible closes by itself, and where in the app it went "
+                    + "wrong. To find it: open **Settings**, then **Privacy & Security**, then **Analytics & "
+                    + "Improvements**, then **Analytics Data**. The reports whose names begin with **Crucible** are "
+                    + "this app's, newest at the bottom; tap one, then the share button, to send it.\n\n"
+                    + "If that list is empty, turn on **Share iPhone Analytics** on the screen before it (it may say "
+                    + "iPhone & Watch); reports are kept from then on.\n\n"
+                    + "The report says where it happened. Saying what you were doing at the time — which chamber, "
+                    + "which button — is what makes it possible to find."
+            )
         }
     }
 
