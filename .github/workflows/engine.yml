@@ -9,8 +9,10 @@ name: Engine
 # the golden comparisons would fail here — on the platform the app actually ships to.
 
 on:
+  # Pushes to any branch start this, and each job then checks that the push was to the project's main line — whatever
+  # it is called at the time. This used to name the branch as `main`, and when the main line was renamed every check
+  # quietly stopped running.
   push:
-    branches: [main]
     paths:
       - "native/**"
       - ".github/workflows/engine.yml"
@@ -28,6 +30,8 @@ concurrency:
 jobs:
   linux:
     name: Linux
+    # A push counts only on the main line; see the note at the top.
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
     container: swift:6.2
     steps:
@@ -53,6 +57,7 @@ jobs:
 
   apple:
     name: macOS
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5

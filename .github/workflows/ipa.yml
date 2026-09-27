@@ -22,8 +22,10 @@ name: iOS app
 # asset is a permanent direct link that a sideloading app can be pointed straight at.
 
 on:
+  # Pushes to any branch start this, and the build then checks that the push was to the project's main line — whatever
+  # it is called at the time — so only the main line publishes an app. This used to name the branch as `main`, and when
+  # the main line was renamed no app was built at all.
   push:
-    branches: [main]
     paths:
       - "native/**"
       - "scripts/check-fonts.py"
@@ -45,6 +47,8 @@ permissions:
 jobs:
   build:
     name: Build
+    # A push counts only on the main line; see the note at the top. Started by hand, it builds whatever it is pointed at.
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
     # Pinned, not `macos-latest`. That label lags behind by a release or more, and an older
     # image means an older SDK — which would quietly rule out anything added in the current
     # iOS version. Pinning also means a green build stays green.
