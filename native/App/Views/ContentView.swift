@@ -68,6 +68,8 @@ struct ContentView: View {
     @State private var showingRoom = false
     @State private var showingCloud = false
     @State private var showingWorkshop = false
+    /// Whether the introduction is on screen.
+    @State private var showingWelcome = false
     /// The account and the server address. One for the whole app: two would disagree about who is signed
     /// in, and the second one to be asked would look signed out.
     @State private var account = CloudAccount()
@@ -112,6 +114,10 @@ struct ContentView: View {
     /// Whether the lab eases off when the phone is hot or nearly empty. On by default: a phone that throttles itself
     /// while the app ploughs on looks like the app going bad, which is the whole reason this exists.
     @AppStorage("mindsThePhone") private var mindsThePhone = true
+    /// Whether the lab is showing its smaller self. See `SimpleLab`.
+    @AppStorage("isSimple") private var isSimple = false
+    /// Whether the introduction has been seen. The one thing here that is about the person rather than the lab.
+    @AppStorage("hasBeenWelcomed") private var hasBeenWelcomed = false
 
     @Environment(\.scenePhase) private var scenePhase
 
@@ -328,6 +334,7 @@ struct ContentView: View {
             describeTheWorld()
             power.isEnabled = mindsThePhone
             applyPowerAdvice()
+            if !hasBeenWelcomed { showingWelcome = true }
         }
         // What the phone is asking for, passed on to both chambers whenever it changes.
         .onChange(of: power.inEffect) { _, _ in applyPowerAdvice() }
@@ -392,8 +399,19 @@ struct ContentView: View {
     /// Every panel that slides up over the world.
     private var labWithPanels: some View {
         labWithWatchers
+        // Once, on the first launch, and from the Lab panel afterwards. Full screen rather than a card: it is the first
+        // thing anybody sees, and a card over a world nobody has made yet explains nothing.
+        .fullScreenCover(isPresented: $showingWelcome) {
+            WelcomeSheet(
+                onFinish: {
+                    showingWelcome = false
+                    hasBeenWelcomed = true
+                },
+                onWantsSimple: { isSimple = true }
+            )
+        }
         .sheet(isPresented: $showingScenes) {
-            ScenePicker() { recipe in
+            ScenePicker(simple: isSimple) { recipe in
                 breadcrumbs.record("loaded the \(recipe.name) scene")
                 powder.loadScene(recipe)
                 showingScenes = false
@@ -417,6 +435,11 @@ struct ContentView: View {
                     get: { temperatureUnit },
                     set: { temperatureUnitRaw = $0.rawValue }
                 ),
+                isSimple: $isSimple,
+                onShowWelcome: {
+                    showingSettings = false
+                    showingWelcome = true
+                },
                 onShowDiagnostics: {
                     showingSettings = false
                     showingDiagnostics = true
@@ -917,7 +940,8 @@ struct ContentView: View {
                 onShowSaves: { showingSaves = true },
                 onShowEditor: { showingEditor = true },
                 paletteVersion: paletteVersion,
-                today: Self.today
+                today: Self.today,
+                isSimple: isSimple
             )
         case .field:
             FieldDock(
@@ -941,23 +965,27 @@ struct ContentView: View {
 /// way, and none of them leads anywhere — each one just loads, so a chevron promising a further
 /// screen is a small lie.
 struct ScenePicker: View {
+    /// Whether to show the four on the short list rather than all of them. See `SimpleLab`.
+    var simple = false
     let onSelect: (PowderRecipe) -> Void
 
     var body: some View {
         LabSheet(
             title: "Scenes",
-            subtitle: "\(allPowderRecipes.count) worlds to start from"
+            subtitle: simple ? "Four worlds to start from" : "\(allPowderRecipes.count) worlds to start from"
         ) {
             LabGroup(footnote: "Loading a scene replaces the world. Undo brings it back.") {
-                chips(powderRecipes)
+                chips(simple ? SimpleLab.scenes : powderRecipes)
             }
             // This app's own, kept apart from the thirteen it shares with the website: the day's world is chosen
             // from those, and these have never existed there.
-            LabGroup(
-                "Only here",
-                footnote: "Hourglass: the ⇅ button in the tools at the top turns the world over, and it pours again."
-            ) {
-                chips(ownPowderRecipes)
+            if !simple {
+                LabGroup(
+                    "Only here",
+                    footnote: "Hourglass: the ⇅ button in the tools at the top turns the world over, and it pours again."
+                ) {
+                    chips(ownPowderRecipes)
+                }
             }
         }
     }

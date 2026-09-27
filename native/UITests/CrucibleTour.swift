@@ -130,8 +130,14 @@ final class CrucibleTour: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--fresh-start"]
         app.launch()
+        // Every run starts as if the app were newly installed, so the introduction is the first thing on screen.
+        let skip = app.descendants(matching: .any)["welcome.skip"].firstMatch
+        if skip.waitForExistence(timeout: 60) {
+            picture(app, "00 The introduction")
+            skip.tap()
+        }
         XCTAssertTrue(
-            app.buttons["header.play"].waitForExistence(timeout: 60),
+            app.buttons["header.play"].waitForExistence(timeout: 30),
             "the app did not open, or opened to something without a play button"
         )
         return app

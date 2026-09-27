@@ -15,6 +15,10 @@ struct SettingsSheet: View {
     @Binding var bothChambersRun: Bool
     @Binding var chambersAffectEachOther: Bool
     @Binding var temperatureUnit: TemperatureUnit
+    /// Whether the lab is showing its smaller self: five materials, three brushes, four scenes.
+    @Binding var isSimple: Bool
+    /// Shows the introduction again.
+    let onShowWelcome: () -> Void
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
     let onShowRoom: () -> Void
@@ -41,6 +45,7 @@ struct SettingsSheet: View {
 
     var body: some View {
         LabSheet(title: "Lab", subtitle: "How it looks and how it behaves") {
+            simple
             help
             room
             detail
@@ -147,6 +152,32 @@ struct SettingsSheet: View {
             }
             .disabled(model.measurementRows == 0)
             .opacity(model.measurementRows == 0 ? 0.45 : 1)
+        }
+    }
+
+    // MARK: A smaller lab
+
+    /// For handing the phone to somebody. See `SimpleLab` for what is left and why.
+    ///
+    /// First in the panel because it is the one setting that changes what somebody else sees, and because it is the
+    /// answer to "there is too much here" — which is a fair thing to think about fifty materials.
+    private var simple: some View {
+        LabGroup(
+            "Simple",
+            footnote: isSimple
+                ? "Five materials, three brushes and four scenes. Nothing behaves differently — it is the same lab with "
+                    + "less of it showing, and this switch brings it all back."
+                : "Shows five materials and three brushes instead of fifty and six, and hides the panels that are not "
+                    + "about drawing. For handing the phone to somebody."
+        ) {
+            LabToggle(label: "Simple", isOn: $isSimple)
+            LabDivider()
+            LabAction(
+                label: "Show the introduction again",
+                detail: "The six things worth knowing",
+                symbol: "sparkles",
+                action: onShowWelcome
+            )
         }
     }
 

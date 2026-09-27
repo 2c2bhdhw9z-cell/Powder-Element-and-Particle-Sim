@@ -25,6 +25,8 @@ struct ElementDock: View {
     let paletteVersion: Int
     /// Today's date in UTC, for the shared daily world.
     let today: String
+    /// Whether this is the smaller lab: five materials, three brushes, and none of the rest. See `SimpleLab`.
+    let isSimple: Bool
 
     /// What has been typed into the search box.
     @State private var search = ""
@@ -34,6 +36,12 @@ struct ElementDock: View {
     /// The photograph being chosen, while the picker is open.
     @State private var photo: PhotosPickerItem?
 
+
+    /// What the closed tray shows: the short list in the smaller lab, the handful most reached for otherwise.
+    private var favourites: [(id: ElementID, name: String)] {
+        guard isSimple else { return Self.favourites }
+        return SimpleLab.materials.map { (id: $0, name: model.definition(of: $0).name) }
+    }
 
     /// The handful most reached for, shown while the dock is closed.
     private static let favourites: [(id: ElementID, name: String)] = [
@@ -150,9 +158,11 @@ struct ElementDock: View {
                 model.loadDailyScene(day: today)
             })
             destination("Scenes", "square.grid.2x2", action: onShowScenes)
-            destination("Kept", "tray.full", action: onShowSaves)
-            destination("Invent", "wand.and.stars", action: onShowEditor)
-            destination("Periodic", "atom", action: onShowPeriodic)
+            if !isSimple {
+                destination("Kept", "tray.full", action: onShowSaves)
+                destination("Invent", "wand.and.stars", action: onShowEditor)
+                destination("Periodic", "atom", action: onShowPeriodic)
+            }
             destination("Lab", "slider.horizontal.3", action: onShowSettings)
         }
     }
@@ -199,9 +209,13 @@ struct ElementDock: View {
             VStack(alignment: .leading, spacing: 10) {
                 destinations
                 brushRow
-                colourRow
-                searchRow
-                categoryRow
+                // Sand art, a photograph turned into powder, the search box and the fifty-material filter are all for
+                // somebody who wants the whole lab. In the smaller one they are not there to be found by accident.
+                if !isSimple {
+                    colourRow
+                    searchRow
+                    categoryRow
+                }
                 palette
             }
             .padding(.horizontal, 16)
@@ -225,7 +239,7 @@ struct ElementDock: View {
                 .tracking(0.8)
                 .foregroundStyle(Palette.subtleForeground)
             LabFlow(spacing: 6) {
-                ForEach(Self.shapes, id: \.shape) { option in
+                ForEach(shapes, id: \.shape) { option in
                     let selected = model.brushShape == option.shape && !model.isUsingTool
                     Button {
                         // Choosing a shape puts down the eyedropper, the lasso or the thermometer, since each describes
@@ -245,6 +259,8 @@ struct ElementDock: View {
                     brushLabel("Pick", "eyedropper", selected: model.isSampling)
                 }
                 .buttonStyle(.plain)
+
+                if !isSimple {
 
                 // Not painting at all: a loop drawn round something, to move it, copy it, heat it or delete it. The tray
                 // closes, because the loop is drawn on the world and the tray is covering half of it.
@@ -283,6 +299,7 @@ struct ElementDock: View {
                     brushLabel("Kaleidoscope", "snowflake", selected: model.kaleidoscopeFolds > 1)
                 }
                 .buttonStyle(.plain)
+                }
             }
             if model.isSampling {
                 Text("Tap the world to pick up whatever is there.")
@@ -433,6 +450,12 @@ struct ElementDock: View {
         .background(Capsule().fill(selected ? Palette.primary : Color.white.opacity(0.10)))
     }
 
+    /// The brushes offered: three in the smaller lab, all six otherwise.
+    private var shapes: [(shape: BrushShape, name: String, symbol: String)] {
+        guard isSimple else { return Self.shapes }
+        return Self.shapes.filter { SimpleLab.shapes.contains($0.shape) }
+    }
+
     private static let shapes: [(shape: BrushShape, name: String, symbol: String)] = [
         (.circle, "Round", "circle.fill"),
         (.square, "Square", "square.fill"),
@@ -527,7 +550,9 @@ struct ElementDock: View {
         // Read through paletteVersion so that inventing or deleting a material rebuilds this. The
         // registry is a class, and SwiftUI cannot see an edit inside one.
         let _ = paletteVersion
-        let matches = model.paletteElements(category: category, search: search)
+        let matches = isSimple
+            ? SimpleLab.materials.map { model.definition(of: $0) }
+            : model.paletteElements(category: category, search: search)
 
         // No scrolling box of its own — the tray around it does the scrolling. Two nested ones would
         // fight over a drag, and the inner one collapsing to nothing is exactly what hid all fifty
@@ -556,7 +581,7 @@ struct ElementDock: View {
     private var collapsedStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(Self.favourites, id: \.id) { item in
+                ForEach(favourites, id: \.id) { item in
                     chip(item.id, item.name, wide: false)
                 }
                 chip(Element.empty, "Erase", wide: false)

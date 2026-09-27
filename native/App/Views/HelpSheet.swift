@@ -97,7 +97,10 @@ struct HelpSheet: View {
                     + "colour from the picture. It holds still until you press play, then falls apart.\n\n"
                     + "The **⇅** button in the tools turns the whole world upside down. Try it on the "
                     + "**Hourglass** scene.\n\n"
-                    + "Hold any material's chip to read what it does."
+                    + "Hold any material's chip to read what it does.\n\n"
+                    + "**Simple**, at the top of the Lab panel, shows five materials and three brushes instead of "
+                    + "fifty and six, and hides the panels that are not about drawing — for handing the phone to "
+                    + "somebody. Nothing behaves differently, and one switch brings it all back."
             )
         }
         LabGroup("Tools that are not painting") {
