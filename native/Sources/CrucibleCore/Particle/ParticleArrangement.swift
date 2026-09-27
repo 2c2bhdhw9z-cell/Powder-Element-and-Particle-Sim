@@ -225,6 +225,22 @@ public struct ParticleArrangement: Sendable, Hashable {
             inDepth: "The same, with the kinds free to move through the box as well as across it."
         ),
         ParticleArrangement(
+            "foxes", "Foxes and rabbits", joining: .objects,
+            about: "Rabbits graze and have young; foxes hunt them, and starve without them. Nothing sets the "
+                + "numbers — the graph shows them rise and fall, the foxes' always a little after the rabbits'.",
+            join: "New bodies join as whichever kind they copy, rabbit or fox.",
+            view: .above,
+            inDepth: "The same chase through the whole box, above and below as well as round."
+        ),
+        ParticleArrangement(
+            "drum", "Sand on a drum", joining: .crowd,
+            about: "Sand on a ringing plate jumps off the parts that move and stays on the lines that do not, so it "
+                + "gathers into the plate's pattern. A new note every few seconds — or, listening, whatever is playing.",
+            join: "More sand is scattered onto the plate.",
+            view: .above,
+            inDepth: "The plate is the floor of the box. Sand is thrown up off it and lands where the floor is still."
+        ),
+        ParticleArrangement(
             "jellyfish", "Jellyfish", joining: .structure,
             about: "See-through bells that swim by squeezing themselves, trailing tentacles. Nothing tells them "
                 + "where to go — the squeeze pushes the water, and the water pushes them.",
@@ -496,6 +512,19 @@ extension ParticleEngine {
         arrangement = id
     }
 
+    /// Gives this scene a drag or a speed limit of its own, remembering the field's so it is put back when the scene
+    /// goes. See the note in `clear()`.
+    func sceneSets(damping drag: Double? = nil, maxSpeed limit: Double? = nil) {
+        if let drag, drag.isFinite {
+            if storedDampingBeforeScene == nil { storedDampingBeforeScene = damping }
+            damping = drag
+        }
+        if let limit, limit.isFinite {
+            if storedMaxSpeedBeforeScene == nil { storedMaxSpeedBeforeScene = maxSpeed }
+            maxSpeed = limit
+        }
+    }
+
     /// How many object bodies an arrangement built from them is given.
     ///
     /// Fewer on a narrow world, so a small window does not get a galaxy too dense to see through.
@@ -529,6 +558,8 @@ extension ParticleEngine {
         case "pendulums": spawnPendulumWave()
         case "jellyfish": spawnJellyfish()
         case "life": spawnParticleLife()
+        case "foxes": spawnFoxesAndRabbits()
+        case "drum": spawnDrum()
         case "marbling": spawnMarbling()
         case "atom": spawnAtom()
         case "shockwave": spawnShockwave(count: count)

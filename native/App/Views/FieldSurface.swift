@@ -42,6 +42,15 @@ struct FieldWithLabels: View {
                     .allowsHitTesting(false)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                // How many rabbits and foxes there have been, while they are what the field is showing. In the
+                // corner nothing else uses, and never in the way of a finger.
+                if model.isHerd, model.herdHistory.count > 1 {
+                    HerdGraph(history: model.herdHistory)
+                        .padding(10)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .topLeading) {
                 if let read = model.lensReading {
                     LensReadout(reading: read)
@@ -53,6 +62,69 @@ struct FieldWithLabels: View {
                         .allowsHitTesting(false)
                 }
             }
+    }
+}
+
+/// Rabbits and foxes over the last minute and a half: two lines chasing each other round.
+///
+/// Each drawn against its own top rather than one shared scale, because there are always many more rabbits than
+/// foxes — on one scale the foxes are a flat line along the bottom, and the whole point is to see their rise come
+/// after the rabbits'.
+struct HerdGraph: View {
+    let history: [ParticleHerdCount]
+
+    private static let rabbitColour = Color(red: 0.93, green: 0.86, blue: 0.72)
+    private static let foxColour = Color(red: 0.98, green: 0.45, blue: 0.18)
+
+    var body: some View {
+        let now = history.last ?? ParticleHerdCount(rabbits: 0, foxes: 0)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 10) {
+                key("Rabbits", now.rabbits, Self.rabbitColour)
+                key("Foxes", now.foxes, Self.foxColour)
+            }
+            // Copied out first: the drawing runs away from the main thread, where this view's own properties cannot
+            // be read.
+            let readings = history
+            let rabbitColour = Self.rabbitColour
+            let foxColour = Self.foxColour
+            Canvas { context, size in
+                let rabbitsTop = Double(max(1, readings.map(\.rabbits).max() ?? 1))
+                let foxesTop = Double(max(1, readings.map(\.foxes).max() ?? 1))
+                func line(_ value: (ParticleHerdCount) -> Int, top: Double) -> Path {
+                    var path = Path()
+                    for (index, reading) in readings.enumerated() {
+                        let x = size.width * Double(index) / Double(max(1, readings.count - 1))
+                        let y = size.height * (1 - Double(value(reading)) / top)
+                        if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+                    }
+                    return path
+                }
+                context.stroke(line({ $0.rabbits }, top: rabbitsTop), with: .color(rabbitColour), lineWidth: 1.5)
+                context.stroke(line({ $0.foxes }, top: foxesTop), with: .color(foxColour), lineWidth: 1.5)
+            }
+            .frame(width: 150, height: 56)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .fill(Palette.background.opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                .stroke(Palette.border, lineWidth: 1)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(now.rabbits) rabbits and \(now.foxes) foxes")
+    }
+
+    private func key(_ name: String, _ count: Int, _ colour: Color) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(colour).frame(width: 7, height: 7)
+            Text("\(name) \(count)")
+                .font(.labNumeric(10))
+                .foregroundStyle(Palette.muted)
+        }
     }
 }
 

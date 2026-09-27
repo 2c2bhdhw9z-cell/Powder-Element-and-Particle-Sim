@@ -5,6 +5,9 @@ import UIKit
 ///
 /// Everything that decides what the picture becomes — which colours turn to water, snow or lava, how it is fitted
 /// and centred — is in the engine, where it is tested. This only hands it the pixels, upright and at the right size.
+///
+/// On the main thread, where the one caller already is, because UIKit's drawing is only promised to work there.
+@MainActor
 enum PhotoPowder {
     /// Four bytes a point — red, green, blue, and how solid — row by row from the top, at exactly the given size.
     ///

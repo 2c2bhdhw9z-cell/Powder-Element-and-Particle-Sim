@@ -73,6 +73,12 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     /// and a ribbon has to survive all of that untouched. So it sits with the walls and the painted wind, among the
     /// things somebody drew. See `ParticleRibbon.swift`.
     case light
+    /// Pull back and let go to throw a body, with the path it will take drawn first. See `ParticleSlingshot.swift`.
+    ///
+    /// Touches nothing while the finger is down — the pull is only aiming — so it is neither a force nor a drawing.
+    case slingshot
+    /// Draws an outline that becomes a wobbly jelly of that shape. See `ParticleJellyPen.swift`.
+    case jelly
 
     /// Whether this mode alters the world rather than pushing the bodies.
     ///
@@ -81,7 +87,7 @@ public enum ParticleMouseMode: String, Sendable, Hashable, CaseIterable, Codable
     /// rather than leaving as two cases somebody has to remember.
     public var drawsIntoTheWorld: Bool {
         switch self {
-        case .current, .wall, .source, .light: return true
+        case .current, .wall, .source, .light, .jelly: return true
         default: return false
         }
     }

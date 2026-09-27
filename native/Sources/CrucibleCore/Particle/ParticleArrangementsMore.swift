@@ -324,7 +324,7 @@ extension ParticleEngine {
     /// this scene exists to show would be over before it appeared. Set here rather than left to the default,
     /// and it stays where the scene put it so the slider can still change it afterwards.
     func settleForSwinging() {
-        damping = 0.9995
+        sceneSets(damping: 0.9995)
     }
 
     /// How far to one side every weight is held before the row is let go, as a share of its own string.
@@ -451,7 +451,7 @@ extension ParticleEngine {
         beginScene("jellyfish", gravityY: 0)
         springs.removeAll(keepingCapacity: true)
         // In no hurry, and the drag is what stops each squeeze adding to the last until the bell tears apart.
-        damping = 0.96
+        sceneSets(damping: 0.96)
         let total = max(1, min(requested, 6))
         for index in 0 ..< total {
             let share = total > 1 ? Double(index) / Double(total - 1) : 0.5

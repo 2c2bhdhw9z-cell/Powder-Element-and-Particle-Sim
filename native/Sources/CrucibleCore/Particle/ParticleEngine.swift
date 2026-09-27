@@ -211,6 +211,28 @@ public final class ParticleEngine {
     /// Kinds that like and dislike each other. See `ParticleLife.swift`.
     var storedParticleLifeEnabled = false
     var storedParticleLifeRules: [[Double]] = []
+    /// Whether the bodies' charge says which kind each one is, rather than being an electric charge — so the charge
+    /// force leaves them alone. Particle life and the foxes and rabbits both keep a kind there. Left to the charge
+    /// force, a field of them that fell below three hundred bodies suddenly flung every kind apart from itself.
+    var storedChargeIsKind = false
+    /// Foxes hunting rabbits. See `ParticlePredators.swift`.
+    var storedPredatorsEnabled = false
+    var storedHerdHistory: [ParticleHerdCount] = []
+    var storedHerdSampleAge = 0
+    /// Sand on a drum. See `ParticleDrum.swift`.
+    var storedDrumEnabled = false
+    var storedDrumNote = 0
+    var storedDrumNoteAge = 0
+    var storedDrumHeard: ParticleDrumHearing?
+    /// The drag and the speed limit the field had before a scene set its own, put back when that scene goes.
+    var storedDampingBeforeScene: Double?
+    var storedMaxSpeedBeforeScene: Double?
+    /// Finger movements recorded once and played on a loop. See `ParticleForceLoops.swift`.
+    var storedForceLoops: [ParticleForceLoop] = []
+    var storedLoopRecording: ParticleForceLoop?
+    /// An outline being drawn with the jelly pen, and the jellies made with it. See `ParticleJellyPen.swift`.
+    var storedJellyOutline: [ParticleFingerPoint] = []
+    var storedJellies: [ParticleJelly] = []
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -470,6 +492,30 @@ public final class ParticleEngine {
         storedGravityToCentre = 0
         // And the feelings between kinds belong to the scene that set them.
         storedParticleLifeEnabled = false
+        storedChargeIsKind = false
+        // So do the foxes' hunting, and the drum.
+        storedPredatorsEnabled = false
+        storedHerdHistory = []
+        storedHerdSampleAge = 0
+        storedDrumEnabled = false
+        storedDrumNoteAge = 0
+        // Loops are marks somebody made in this world, like the walls and the ribbons, so they go with it too. One
+        // being recorded is abandoned rather than kept half-made.
+        storedForceLoops = []
+        storedLoopRecording = nil
+        storedJellyOutline = []
+        storedJellies = []
+        // A scene that wanted its own drag or speed limit gives back the ones it found. The pendulums kept almost
+        // none and every scene chosen after them swung and slid for ever; particle life kept a great deal and
+        // everything after it moved as if through syrup.
+        if let drag = storedDampingBeforeScene {
+            damping = drag
+            storedDampingBeforeScene = nil
+        }
+        if let limit = storedMaxSpeedBeforeScene {
+            maxSpeed = limit
+            storedMaxSpeedBeforeScene = nil
+        }
         // And back to working the grain size out for itself, so a scene that sets one does not quietly leave every
         // scene chosen afterwards packing the way it did.
         storedContactSettings = .default
@@ -574,7 +620,13 @@ public final class ParticleEngine {
                 let a = remap[spring.a]
                 let b = remap[spring.b]
                 guard a >= 0, b >= 0 else { return nil }
-                return Spring(a: a, b: b, rest: spring.rest, k: spring.k)
+                // Renumbered, not rebuilt. Rebuilt from its length and stiffness alone, every muscle in the field
+                // became a plain spring whenever any body anywhere was removed — a jellyfish stopped swimming the
+                // moment the field was full enough to let one old body go.
+                var kept = spring
+                kept.a = a
+                kept.b = b
+                return kept
             }
         }
         return removed
@@ -671,6 +723,21 @@ public final class ParticleEngine {
         /// Whether the field was in 3D, so undoing the switch puts the field back the way it was and not
         /// flat bodies in a 3D box.
         public var depthEnabled: Bool = false
+        /// What the scene was doing by itself, so undoing back to one brings it back alive rather than as bodies
+        /// that no longer notice each other. None of this was kept: undoing to particle life gave five colours of
+        /// bodies with no feelings at all.
+        public var particleLifeEnabled: Bool = false
+        public var particleLifeRules: [[Double]] = []
+        public var chargeIsKind: Bool = false
+        public var predatorsEnabled: Bool = false
+        public var drumEnabled: Bool = false
+        public var drumNote: Int = 0
+        public var damping: Double = 0.99
+        public var maxSpeed: Double = 30
+        public var dampingBeforeScene: Double?
+        public var maxSpeedBeforeScene: Double?
+        public var forceLoops: [ParticleForceLoop] = []
+        public var jellies: [ParticleJelly] = []
     }
 
     /// Largest swarm that is worth copying into an undo entry.
@@ -701,7 +768,19 @@ public final class ParticleEngine {
             current: storedCurrent,
             arrangement: storedArrangement,
             arrangementAge: arrangementAge,
-            depthEnabled: storedDepthEnabled
+            depthEnabled: storedDepthEnabled,
+            particleLifeEnabled: storedParticleLifeEnabled,
+            particleLifeRules: storedParticleLifeRules,
+            chargeIsKind: storedChargeIsKind,
+            predatorsEnabled: storedPredatorsEnabled,
+            drumEnabled: storedDrumEnabled,
+            drumNote: storedDrumNote,
+            damping: damping,
+            maxSpeed: maxSpeed,
+            dampingBeforeScene: storedDampingBeforeScene,
+            maxSpeedBeforeScene: storedMaxSpeedBeforeScene,
+            forceLoops: storedForceLoops,
+            jellies: storedJellies
         )
     }
 
@@ -725,6 +804,23 @@ public final class ParticleEngine {
         storedArrangement = snapshot.arrangement
         arrangementAge = snapshot.arrangementAge
         storedDepthEnabled = snapshot.depthEnabled
+        storedParticleLifeEnabled = snapshot.particleLifeEnabled
+        storedParticleLifeRules = snapshot.particleLifeRules
+        storedChargeIsKind = snapshot.chargeIsKind
+        storedPredatorsEnabled = snapshot.predatorsEnabled
+        // The count starts again: the graph is of what has happened since, not of a future that was undone.
+        storedHerdHistory = []
+        storedHerdSampleAge = 0
+        storedDrumEnabled = snapshot.drumEnabled
+        storedDrumNote = snapshot.drumNote
+        damping = snapshot.damping
+        maxSpeed = snapshot.maxSpeed
+        storedDampingBeforeScene = snapshot.dampingBeforeScene
+        storedMaxSpeedBeforeScene = snapshot.maxSpeedBeforeScene
+        storedForceLoops = snapshot.forceLoops
+        storedLoopRecording = nil
+        storedJellyOutline = []
+        storedJellies = snapshot.jellies
         if let swarmSnapshot = snapshot.swarm {
             swarm.restore(from: swarmSnapshot, budget: max(0, maxParticles - particles.count))
         } else {
@@ -829,6 +925,13 @@ public final class ParticleEngine {
 
         // And the kinds noticing each other, which is the same: off unless a scene asked for it.
         stepParticleLife()
+        // The foxes and the rabbits, and the drum, likewise.
+        stepPredators()
+        stepDrum()
+        // And any finger movements recorded to play on a loop — pushes like any other, so before the bodies move.
+        stepForceLoops(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+        // And every jelly pulling itself back towards the shape it was drawn.
+        stepJellies()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             if storedDepthEnabled {

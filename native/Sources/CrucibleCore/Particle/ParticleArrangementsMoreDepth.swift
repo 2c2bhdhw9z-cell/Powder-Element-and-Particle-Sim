@@ -238,7 +238,7 @@ extension ParticleEngine {
     func spawnJellyfishInDepth(count requested: Int) {
         beginScene("jellyfish", gravityY: 0)
         springs.removeAll(keepingCapacity: true)
-        damping = 0.96
+        sceneSets(damping: 0.96)
         let total = max(1, min(requested, 6))
         for index in 0 ..< total {
             let share = total > 1 ? Double(index) / Double(total - 1) : 0.5

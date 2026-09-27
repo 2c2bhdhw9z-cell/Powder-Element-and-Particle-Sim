@@ -135,7 +135,7 @@ extension ParticleEngine {
         let centreX = width / 2
         let centreY = height / 2
         // Pairwise charge interaction is quadratic, so it only runs for small fields.
-        let doPairwise = count <= 300
+        let doPairwise = count <= 300 && !storedChargeIsKind
 
         let worldWidth = width
         let worldHeight = height

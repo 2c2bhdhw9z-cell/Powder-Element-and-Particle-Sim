@@ -306,8 +306,19 @@ struct ElementDock: View {
                     .buttonStyle(.plain)
                 }
 
+                // The label written out rather than borrowed from `brushLabel`: the picker builds it outside the
+                // main thread's view of the world, where this view's own methods cannot be called.
                 PhotosPicker(selection: $photo, matching: .images, photoLibrary: .shared()) {
-                    brushLabel("Photo into powder", "photo", selected: false)
+                    HStack(spacing: 5) {
+                        Image(systemName: "photo")
+                            .font(.labBody(11, .medium))
+                        Text("Photo into powder")
+                            .font(.labBody(12, .regular))
+                    }
+                    .foregroundStyle(Palette.foreground)
+                    .padding(.horizontal, 10)
+                    .frame(height: 32)
+                    .background(Capsule().fill(Color.white.opacity(0.10)))
                 }
                 .buttonStyle(.plain)
             }

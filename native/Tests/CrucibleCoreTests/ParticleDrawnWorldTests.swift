@@ -387,7 +387,8 @@ struct ParticleDrawnWorldTests {
         // Otherwise drawing a wall would also drag every body near the line along with it.
         // Light joins them: a ribbon is a mark somebody made, and nothing about drawing it should shove the
         // bodies it is drawn through.
-        let drawing: Set<ParticleMouseMode> = [.current, .wall, .source, .light]
+        // And the jelly pen, whose stroke is an outline that becomes a body when the finger lifts.
+        let drawing: Set<ParticleMouseMode> = [.current, .wall, .source, .light, .jelly]
         for mode in drawing {
             #expect(mode.drawsIntoTheWorld, "\(mode.rawValue) should draw into the world")
         }

@@ -154,9 +154,10 @@ extension ParticleEngine {
         beginScene("life", gravityY: 0)
         // Nothing falls and nothing is thrown: every movement here is one kind feeling something about another.
         // The drag is what stops those feelings adding up into a field of bodies flying about at once.
-        damping = 0.86
-        maxSpeed = 6
+        sceneSets(damping: 0.86, maxSpeed: 6)
         particleLifeEnabled = true
+        // The charge says which kind a body is here, so the charge force must leave it alone.
+        storedChargeIsKind = true
         shuffleParticleLife()
         let total = max(40, min(requested, 1_400))
         let scale = sceneScale

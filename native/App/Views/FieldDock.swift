@@ -34,7 +34,13 @@ struct FieldDock: View {
         // Draws a ribbon that stays. With the other two that change the world rather than pushing the bodies.
         (.light, "Light", "scribble"),
         (.source, "Source", "drop.circle"),
+        // Two that make something: a body thrown, and a jelly drawn. Flat things, so not offered in 3D.
+        (.slingshot, "Throw", "scope"),
+        (.jelly, "Jelly", "circle.hexagongrid"),
     ]
+
+    /// The tools that only make sense on a flat field.
+    private static let flatOnly: Set<ParticleMouseMode> = [.slingshot, .jelly]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -256,6 +262,27 @@ struct FieldDock: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if model.isDrum {
+                HStack(spacing: 8) {
+                    Button {
+                        Haptics.firm()
+                        model.nextDrumNote()
+                    } label: {
+                        Label("Next note", systemImage: "music.note")
+                            .font(.labBody(12, .semiBold))
+                            .foregroundStyle(Palette.primaryForeground)
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(Capsule().fill(Palette.primary))
+                    }
+                    .buttonStyle(.plain)
+                    Text("Ringing in \(model.drumNoteName). With Listen on, the music picks the note and loudness "
+                        + "is how hard the plate rings.")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             morphControls
             if let details = model.arrangementDetails {
                 Text(details.about(inDepth: model.depthEnabled))
@@ -263,6 +290,45 @@ struct FieldDock: View {
                     .foregroundStyle(Palette.subtleForeground)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Recording a finger movement to play back for ever.
+    private var loopControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("LOOPS")
+                .font(.labBody(10, .semiBold))
+                .tracking(0.8)
+                .foregroundStyle(Palette.subtleForeground)
+            LabFlow(spacing: 6) {
+                chip(
+                    model.isRecordingLoop ? "Recording — lift to keep" : "Record a loop",
+                    symbol: model.isRecordingLoop ? "record.circle.fill" : "record.circle",
+                    lit: model.isRecordingLoop
+                ) {
+                    Haptics.firm()
+                    model.toggleLoopRecording()
+                }
+                .disabled(!model.toolCanLoop && !model.isRecordingLoop)
+                .opacity(model.toolCanLoop || model.isRecordingLoop ? 1 : 0.4)
+                if model.loopCount > 0 {
+                    chip("Take back the last", symbol: "arrow.uturn.backward", lit: false) {
+                        Haptics.tap()
+                        model.removeLastLoop()
+                    }
+                    chip("Stop all \(model.loopCount)", symbol: "stop.circle", lit: false) {
+                        Haptics.tap()
+                        model.clearLoops()
+                    }
+                }
+            }
+            Text(model.toolCanLoop || model.isRecordingLoop
+                ? "Press record, then make the movement once. It repeats by itself with the tool it was made "
+                    + "with — a stirrer, a heartbeat, a wave machine — until stopped. Up to six at once."
+                : "Loops are made of a tool that pushes, turns, holds or paints. Choose one of those to record.")
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -908,6 +974,7 @@ struct FieldDock: View {
             // Before the arrangements, because it changes what every one of them is.
             depthControls
             fingerControls
+            loopControls
             presetChips
             wordControls
             population
@@ -1801,7 +1868,7 @@ struct FieldDock: View {
                 toolButton("Look", symbol: "magnifyingglass", selected: model.usesLens) {
                     model.usesLens = true
                 }
-                ForEach(Self.tools, id: \.mode) { tool in
+                ForEach(Self.tools.filter { !model.depthEnabled || !Self.flatOnly.contains($0.mode) }, id: \.mode) { tool in
                     toolButton(
                         tool.name,
                         symbol: tool.symbol,

@@ -65,6 +65,25 @@ public struct RibbonRecord: Codable, Sendable {
     public var c: UInt32
 }
 
+/// A recorded finger movement, as saved: the tool, how far and hard it reached, and where it went each moment.
+public struct ForceLoopRecord: Codable, Sendable {
+    public var mode: String
+    public var reach: Double
+    public var strength: Double
+    public var x: [Double]
+    public var y: [Double]
+    public var z: [Double]
+}
+
+/// A jelly, as saved: which bodies it is made of, by their place in the saved list, and where each belongs in its
+/// shape.
+public struct JellyRecord: Codable, Sendable {
+    public var members: [Int]
+    public var x: [Double]
+    public var y: [Double]
+    public var firmness: Double?
+}
+
 public struct SpringRecord: Codable, Sendable {
     public var a: Int
     public var b: Int
@@ -194,6 +213,12 @@ public struct ParticleState: Codable, Sendable {
     public var swarm: SwarmRecord?
     /// Ribbons of light, each as three lists of places and a colour. Absent when none have been drawn.
     public var ribbons: [RibbonRecord]?
+    /// How particle life's kinds feel about each other, when the field was showing it. Absent otherwise.
+    public var particleLifeRules: [[Double]]?
+    /// Finger movements recorded to play on a loop. Absent when there are none.
+    public var loops: [ForceLoopRecord]?
+    /// Jellies made with the jelly pen. Absent when there are none.
+    public var jellies: [JellyRecord]?
     public var springs: [SpringRecord]?
     public var particles: [ParticleRecord]
 }
@@ -266,6 +291,22 @@ extension ParticleEngine {
             ribbons: storedRibbons.isEmpty
                 ? nil
                 : storedRibbons.map { RibbonRecord(x: $0.pointsX, y: $0.pointsY, z: $0.pointsZ, c: $0.color) },
+            particleLifeRules: storedParticleLifeEnabled && !storedParticleLifeRules.isEmpty
+                ? storedParticleLifeRules
+                : nil,
+            loops: storedForceLoops.isEmpty
+                ? nil
+                : storedForceLoops.map { loop in
+                    ForceLoopRecord(
+                        mode: loop.mode.rawValue,
+                        reach: loop.reach.isFinite ? loop.reach : 1_000_000,
+                        strength: loop.strength.isFinite ? loop.strength : 1,
+                        x: loop.points.map { $0.x.isFinite ? $0.x : 0 },
+                        y: loop.points.map { $0.y.isFinite ? $0.y : 0 },
+                        z: loop.points.map { $0.z.isFinite ? $0.z : 0 }
+                    )
+                },
+            jellies: storedJellies.isEmpty ? nil : jellyRecords(savedCount: saved.count),
             springs: springs
                 .filter { $0.a < saved.count && $0.b < saved.count }
                 .map {
@@ -529,6 +570,42 @@ extension ParticleEngine {
         storedArrangement = state.arrangement.flatMap { ParticleArrangement.named($0)?.id }
         arrangementAge = 0
 
+        // What the scene does by itself comes back with it. Only the bodies used to: a saved particle life reopened
+        // as five colours of bodies that no longer noticed each other.
+        storedParticleLifeEnabled = storedArrangement == "life"
+        storedPredatorsEnabled = storedArrangement == "foxes"
+        storedChargeIsKind = storedParticleLifeEnabled || storedPredatorsEnabled
+        storedDrumEnabled = storedArrangement == "drum"
+        storedDrumNoteAge = 0
+        storedHerdHistory = []
+        storedHerdSampleAge = 0
+        if storedParticleLifeEnabled {
+            if let rules = state.particleLifeRules { particleLifeRules = rules }
+            if storedParticleLifeRules.isEmpty { shuffleParticleLife() }
+        }
+        // The drag and speed limit in the file are the world's own now, with nothing earlier to give back.
+        storedDampingBeforeScene = nil
+        storedMaxSpeedBeforeScene = nil
+        storedJellyOutline = []
+        storedLoopRecording = nil
+        // Read with a fallback of nothing, as the ribbons are, so loading a world with no loops stops the last one's.
+        storedForceLoops = (state.loops ?? []).prefix(Self.forceLoopLimit).compactMap { record in
+            guard let mode = ParticleMouseMode(rawValue: record.mode), ParticleBrush.touchesBodies(mode) else {
+                return nil
+            }
+            let count = min(record.x.count, record.y.count, record.z.count, Self.forceLoopLongest)
+            guard count >= Self.forceLoopShortest else { return nil }
+            var loop = ParticleForceLoop(
+                mode: mode,
+                reach: record.reach.isFinite ? max(0, record.reach) : mouseRadius,
+                strength: record.strength.isFinite ? max(0, min(8, record.strength)) : 1
+            )
+            loop.points = (0 ..< count).map { index in
+                ParticleFingerPoint(x: place(record.x[index]), y: place(record.y[index]), z: place(record.z[index]))
+            }
+            return loop
+        }
+
         // Springs last, once every body they name exists. `setSprings` drops anything that
         // does not name a real pair — a spring pointing past the end of the list, or at
         // itself, cannot be detected once the frame loop is running.
@@ -544,6 +621,23 @@ extension ParticleEngine {
             return ribbon
         }
 
+        // Jellies once the bodies exist, their members found by place in the list and given the new identifiers.
+        storedJellies = (state.jellies ?? []).prefix(Self.jellyLimit).compactMap { record in
+            let count = min(record.members.count, record.x.count, record.y.count)
+            var ids: [Int] = []
+            var restX: [Double] = []
+            var restY: [Double] = []
+            for at in 0 ..< count {
+                let member = record.members[at]
+                guard member >= 0, member < particles.count, record.x[at].isFinite, record.y[at].isFinite else { continue }
+                ids.append(particles[member].id)
+                restX.append(record.x[at])
+                restY.append(record.y[at])
+            }
+            guard ids.count >= 3 else { return nil }
+            return ParticleJelly(ids: ids, restX: restX, restY: restY, firmness: record.firmness ?? Self.jellyFirmness)
+        }
+
         setSprings(
             state.springs?.map {
                 Spring(
@@ -556,6 +650,23 @@ extension ParticleEngine {
             } ?? []
         )
         return true
+    }
+
+    /// Every jelly as saved, naming its bodies by their place among the first `savedCount`, which are all that are
+    /// written.
+    private func jellyRecords(savedCount: Int) -> [JellyRecord] {
+        var place: [Int: Int] = [:]
+        for index in 0 ..< min(savedCount, particles.count) { place[particles[index].id] = index }
+        return storedJellies.compactMap { jelly in
+            var record = JellyRecord(members: [], x: [], y: [], firmness: jelly.firmness)
+            for (at, id) in jelly.ids.enumerated() {
+                guard let member = place[id] else { continue }
+                record.members.append(member)
+                record.x.append(jelly.restX[at])
+                record.y.append(jelly.restY[at])
+            }
+            return record.members.count >= 3 ? record : nil
+        }
     }
 
     private func restoreSwarm(_ record: SwarmRecord) {

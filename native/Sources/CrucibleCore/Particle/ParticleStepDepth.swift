@@ -123,7 +123,7 @@ extension ParticleEngine {
         // MARK: Forces and moving
 
         let centreX = width / 2
-        let doPairwise = count <= 300
+        let doPairwise = count <= 300 && !storedChargeIsKind
         let worldWidth = width
         let worldHeight = height
         let localGravityX = gravityX

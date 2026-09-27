@@ -87,7 +87,16 @@ struct HelpSheet: View {
                     + "**Add** scatters in more bodies, up to whatever ceiling you have set.\n\n"
                     + "Cloth, rope and blob are held together by springs, so dragging one pulls the "
                     + "whole sheet. A flock is steered by its own neighbours, and pushing into it "
-                    + "scatters them until they regroup."
+                    + "scatters them until they regroup.\n\n"
+                    + "**Throw** is a slingshot: put your finger down, pull back and let go. The dotted "
+                    + "line is the path it will really take — round black holes, off walls, down under "
+                    + "gravity. **Jelly** turns any outline you draw into a wobbly jelly of that shape.\n\n"
+                    + "**Record a loop**, in the tray, remembers one movement of your finger and repeats "
+                    + "it for ever with the tool you made it with. Stack up to six: stirrers, heartbeats, "
+                    + "wave machines.\n\n"
+                    + "**Foxes and rabbits** hunt and breed by themselves; the little graph shows the "
+                    + "numbers chase each other up and down. **Sand on a drum** gathers into the lines "
+                    + "where a ringing plate is still — turn on Listen and the music chooses the pattern."
             )
         }
     }

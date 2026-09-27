@@ -59,13 +59,13 @@ final class ParticleFieldModel {
     private(set) var engineRevision = 0
 
     /// Records a dependency on the engine's settings. Called by every forwarding getter.
-    private func observeEngine() {
+    func observeEngine() {
         // Reading it is the entire point: that is what registers the dependency.
         _ = engineRevision
     }
 
     /// Records that one of the engine's settings has changed. Called by every forwarding setter.
-    private func engineDidChange() {
+    func engineDidChange() {
         engineRevision &+= 1
         // Anything done to the field means it is no longer the untouched opening scene.
         openingSceneIsUntouched = false
@@ -268,6 +268,20 @@ final class ParticleFieldModel {
 
     /// Applies what the microphone is hearing to the field, for this frame.
     private func applyMusic() {
+        // The drum listens for itself, whatever the music has been pointed at: loudness is how hard the plate rings
+        // and how bright the sound is picks the note. See `ParticleDrum.swift`.
+        if engine.drumEnabled {
+            if let listener, listener.isListening {
+                let signal = listener.signal.clamped
+                let body = signal.bass + signal.mid
+                engine.drumHearing = ParticleDrumHearing(
+                    loudness: signal.level,
+                    brightness: body > 0.001 ? signal.mid / body : 0.5
+                )
+            } else if engine.drumHearing != nil {
+                engine.drumHearing = nil
+            }
+        }
         guard let listener, listener.isListening else { return }
 
         if restingValues == nil {
@@ -1124,6 +1138,14 @@ final class ParticleFieldModel {
             let bodies = engine.bodyCount
             if bodyCount != bodies { bodyCount = bodies }
 
+            // The foxes and rabbits' graph, when they are what the field is showing. Once a second is plenty for a
+            // graph of a minute and a half, and costs nothing when they are not.
+            if engine.predatorsEnabled {
+                herdHistory = engine.herdHistory
+            } else if !herdHistory.isEmpty {
+                herdHistory = []
+            }
+
             rateHistory.record(Double(ticksPerSecond))
             costHistory.record(millisecondsPerTick)
             populationHistory.record(Double(bodyCount))
@@ -1494,13 +1516,14 @@ final class ParticleFieldModel {
         let showCurrent = !current.isEmpty
         let arrowCount = showCurrent ? current.resolution * current.resolution : 0
         let ribbonCount = engine.ribbonSegments
-        let needed = (walls.count + arrowCount + ribbonCount) * 4
+        let aiming = aimingSegments()
+        let needed = (walls.count + arrowCount + ribbonCount + aiming.count) * 4
         guard needed > 0 else { return 0 }
 
         if positions.count < needed {
             positions.append(contentsOf: repeatElement(0, count: needed - positions.count))
         }
-        let neededColors = (walls.count + arrowCount + ribbonCount) * 2
+        let neededColors = (walls.count + arrowCount + ribbonCount + aiming.count) * 2
         if colors.count < neededColors {
             colors.append(contentsOf: repeatElement(0, count: neededColors - colors.count))
         }
@@ -1566,6 +1589,11 @@ final class ParticleFieldModel {
                     ribbon.color
                 )
             }
+        }
+
+        // And over those, what the finger is doing right now: a throw being aimed, an outline being drawn.
+        for segment in aiming {
+            line(segment.fromX, segment.fromY, segment.toX, segment.toY, segment.colour)
         }
 
         return segments
@@ -1719,6 +1747,13 @@ final class ParticleFieldModel {
     /// limit of twelve before the finger had moved an inch.
     private var placedSourceThisStroke = false
 
+    /// Where a throw began, and where the finger has pulled back to, while the slingshot is aiming. In the world's
+    /// pixels. Read by the drawing every frame rather than by the interface, so nothing is told when they change.
+    @ObservationIgnored var slingAnchor: (x: Double, y: Double)?
+    /// How many rabbits and foxes there have been, for the graph. Empty unless they are what the field is showing.
+    private(set) var herdHistory: [ParticleHerdCount] = []
+    @ObservationIgnored var slingPull: (x: Double, y: Double)?
+
     /// The view's size in pixels, or the world's when no view has reported yet.
     private var viewPixels: (width: Double, height: Double) {
         (
@@ -1733,15 +1768,22 @@ final class ParticleFieldModel {
         turnFromX = nil
         turnFromY = nil
         placedSourceThisStroke = false
+        slingAnchor = nil
+        slingPull = nil
         if engine.mouseMode == .light, !usesLens {
             // A ribbon per stroke, in a colour of its own.
             engine.beginRibbon(now: CFAbsoluteTimeGetCurrent() * 1000)
+        }
+        if engine.mouseMode == .jelly, !usesLens {
+            engine.beginJelly()
         }
         if engine.depthEnabled, turnsView {
             // Turning the view changes nothing in the field, so there is nothing to undo — and while the drag
             // lasts the readouts hold still, as they do for a two-finger turn.
             beginCameraGesture()
-        } else {
+        } else if engine.mouseMode != .slingshot, engine.mouseMode != .jelly {
+            // Not for a throw or a jelly: each records its own point to come back to when it is made, and a second
+            // one here would make taking it back two presses.
             recordUndoPoint()
         }
         updateTouch(atFractionX: fx, fractionY: fy)
@@ -1778,6 +1820,15 @@ final class ParticleFieldModel {
         )
         touchX = place.x
         touchY = place.y
+
+        // Aiming: where the finger went down is where the body will be thrown from, and wherever it has pulled back
+        // to sets how hard and which way. Nothing in the field is touched until it lets go.
+        if engine.mouseMode == .slingshot {
+            touchActive = false
+            if slingAnchor == nil { slingAnchor = (place.x, place.y) }
+            slingPull = (place.x, place.y)
+            return
+        }
 
         // The two drawing tools change the world rather than pushing the bodies, so they are handled here
         // and the force machinery is left switched off — otherwise drawing a wall would also drag every body
@@ -1829,6 +1880,10 @@ final class ParticleFieldModel {
             // At the depth the finger is reaching to, so a ribbon drawn in 3D is a shape in the box rather than a
             // line painted on the glass.
             engine.extendRibbon(toX: x, y: y, z: engine.depthEnabled ? engine.lastMouseZ : 0)
+        case .jelly:
+            // The first point too, which the stroke otherwise only remembers as where it started.
+            if engine.jellyOutline.isEmpty { engine.extendJelly(toX: fromX, y: fromY) }
+            engine.extendJelly(toX: x, y: y)
         default:
             break
         }
@@ -1838,6 +1893,27 @@ final class ParticleFieldModel {
     func endTouch() {
         // A tap leaves no ribbon: a mark has to have gone somewhere to be a mark.
         if engine.mouseMode == .light { engine.finishRibbon() }
+        // An outline becomes a jelly when the finger lifts, closed from where it ended back to where it began.
+        if engine.mouseMode == .jelly {
+            if engine.finishJelly() > 0 { Haptics.firm() }
+            engineDidChange()
+        }
+        // Let go: thrown, unless the pull was too small to mean anything, which is how a tap is told apart.
+        if engine.mouseMode == .slingshot, let anchor = slingAnchor, let pull = slingPull {
+            let throwAt = ParticleEngine.slingshotVelocity(anchorX: anchor.x, anchorY: anchor.y, pullX: pull.x, pullY: pull.y)
+            if throwAt.x * throwAt.x + throwAt.y * throwAt.y > 0.25 {
+                engine.launch(fromX: anchor.x, y: anchor.y, velocityX: throwAt.x, velocityY: throwAt.y)
+                Haptics.tap()
+                engineDidChange()
+            }
+        }
+        slingAnchor = nil
+        slingPull = nil
+        // A movement being recorded is kept as a loop when the finger lifts, and starts playing at once.
+        if engine.isRecordingLoop, engine.recordedLoopLength > 0 {
+            if engine.finishLoopRecording() { Haptics.firm() }
+            engineDidChange()
+        }
         touchActive = false
         strokeFromX = nil
         strokeFromY = nil
@@ -3152,6 +3228,12 @@ final class ParticleFieldModel {
         let cursor = ray.cursor
         touchX = cursor.x
         touchY = cursor.y
+        // Throwing and the jelly pen are flat things and are not offered in 3D. Should one still be chosen when the
+        // field goes into the box, the finger simply does nothing rather than half of something.
+        if engine.mouseMode == .slingshot || engine.mouseMode == .jelly {
+            touchActive = false
+            return
+        }
         if engine.mouseMode.drawsIntoTheWorld {
             touchActive = false
             // Walls and wind are drawn through the whole depth of the box, so what matters is where across and
