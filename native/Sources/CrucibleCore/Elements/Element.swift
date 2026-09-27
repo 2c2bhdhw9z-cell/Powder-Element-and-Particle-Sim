@@ -103,6 +103,17 @@ public enum Element {
     public static let magnet: ElementID = 107
     public static let ironDust: ElementID = 108
 
+    /// Whether an identifier is one this build can hold at all: a built-in of either kind, or somebody's own.
+    ///
+    /// One test rather than several scattered comparisons, because the scattered ones were how this app's own
+    /// materials were lost. Three places checked "no higher than the last custom slot", which was the whole range when
+    /// it was written — so a saved world full of popcorn opened as a world full of air, and a room turned it into air
+    /// on the way to the other phone.
+    @inlinable
+    public static func isKnown(_ id: ElementID) -> Bool {
+        Int(id) < capacity
+    }
+
     /// One past the highest identifier the registry can hold. Storage is a dense
     /// array of this size, so lookups are a bounds-checked index rather than a
     /// hash.

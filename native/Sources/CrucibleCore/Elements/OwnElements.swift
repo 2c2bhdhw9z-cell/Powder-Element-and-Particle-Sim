@@ -24,7 +24,9 @@ extension DefaultElements {
             hex: "#C9A227",
             colorVariation: 18,
             density: 14,
-            flammability: 18,
+            // Hard to set alight: a kernel in a hot pan pops long before it burns, which is why popcorn works.
+            flammability: 3,
+            heatConductivity: 0.55,
             // Hot enough and the water inside it turns to steam and bursts it open. That is what popping is, and
             // the temperature is roughly the real one.
             ignitionTemp: nil,
@@ -40,6 +42,7 @@ extension DefaultElements {
             // Far lighter than the kernel it came from, which is why a popped pile climbs out of the pan.
             density: 3,
             flammability: 42,
+            heatConductivity: 0.25,
             info: "Light, fluffy, and burns easily."
         ),
 
@@ -55,6 +58,7 @@ extension DefaultElements {
             density: 22,
             viscosity: 3,
             acidResistance: 10,
+            heatConductivity: 0.6,
             info: "Stirred into water it foams up."
         ),
         ElementDefinition(
@@ -67,6 +71,7 @@ extension DefaultElements {
             // Lighter than water, so it climbs to the top of whatever it is in and sits there.
             density: 4,
             viscosity: 6,
+            heatConductivity: 0.15,
             // Bubbles do not last. Left alone it thins back to a little water.
             decayTicks: 520,
             decayIntoID: Element.water,
@@ -84,6 +89,7 @@ extension DefaultElements {
             colorVariation: 14,
             density: 60,
             flammability: 30,
+            heatConductivity: 0.2,
             info: "Soaks up water until it is full."
         ),
         ElementDefinition(
@@ -96,6 +102,7 @@ extension DefaultElements {
             density: 72,
             // Wet things do not catch.
             flammability: 0,
+            heatConductivity: 0.6,
             info: "Full of water. Squash it and it drips."
         ),
 
@@ -111,6 +118,7 @@ extension DefaultElements {
             // As immovable as stone, because it is machinery: it carries things, it does not fall.
             density: 900,
             acidResistance: 60,
+            heatConductivity: 0.4,
             isConductor: false,
             info: "Carries whatever lands on it. Paint it again to turn it round."
         ),
@@ -126,6 +134,7 @@ extension DefaultElements {
             colorVariation: 4,
             density: 900,
             acidResistance: 40,
+            heatConductivity: 0.6,
             isConductor: true,
             info: "Iron dust reaches toward it and stands up in spikes."
         ),
@@ -138,9 +147,61 @@ extension DefaultElements {
             colorVariation: 16,
             density: 30,
             acidResistance: 5,
-            heatConductivity: 40,
+            heatConductivity: 0.7,
             isConductor: true,
             info: "Ordinary dust until there is a magnet near it."
+        ),
+    ]
+}
+
+extension Encyclopedia {
+    /// Cards for this app's own materials, kept apart from the generated ones for the same reason the materials are:
+    /// the generated list is checked, card for card, against the reference implementation's text.
+    public static let ownCards: [ElementID: ElementLore] = [
+        Element.kernel: ElementLore(
+            melt: "Pops at about 180°C", boil: nil,
+            eats: "Nothing. Pops into popcorn when it gets hot enough, and jumps as it does.",
+            note: "Heat a pan of them on lava or fire and watch the pile climb out."
+        ),
+        Element.popcorn: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Nothing. Burns easily.",
+            note: "Much lighter than the kernel it came from, so it heaps up and spills over."
+        ),
+        Element.soap: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Water, slowly, turning it into foam where the two touch.",
+            note: "A drop works its way through a tank rather than foaming it all at once."
+        ),
+        Element.foam: ElementLore(
+            melt: nil, boil: nil,
+            eats: "More water, spreading where it meets it.",
+            note: "Floats on water, piles up, and pops back to water if left alone."
+        ),
+        Element.sponge: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Water it is touching, soaking it up until it is full.",
+            note: "Turns into a wet sponge as it drinks."
+        ),
+        Element.wetSponge: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Nothing. Full of water.",
+            note: "Put something heavy on it and it drips the water back out."
+        ),
+        Element.belt: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Nothing. Carries whatever lands on it along, one cell at a time.",
+            note: "Paint it again to turn it round. Build sorters, lifts and factories."
+        ),
+        Element.magnet: ElementLore(
+            melt: nil, boil: nil,
+            eats: "Nothing. Draws iron dust toward itself.",
+            note: "The dust piles up in spikes along the lines it arrives on."
+        ),
+        Element.ironDust: ElementLore(
+            melt: "1538°C", boil: nil,
+            eats: "Nothing. Carries sparks like metal does.",
+            note: "Ordinary dust until there is a magnet nearby."
         ),
     ]
 }

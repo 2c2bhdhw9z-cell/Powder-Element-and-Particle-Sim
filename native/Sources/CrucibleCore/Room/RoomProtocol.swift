@@ -203,8 +203,8 @@ extension PowderEngine {
     @discardableResult
     public func apply(_ stroke: RoomStroke, now: Double = 0) -> Bool {
         guard stroke.radius >= 0, stroke.radius <= 512 else { return false }
-        guard stroke.elementID <= Element.customIDEnd else { return false }
-        if let target = stroke.targetElementID, target > Element.customIDEnd { return false }
+        guard Element.isKnown(stroke.elementID) else { return false }
+        if let target = stroke.targetElementID, !Element.isKnown(target) { return false }
         // A coordinate far outside the world is not an error — a peer with a larger world can
         // legitimately paint past this one's edge — but a nonsensical one is.
         guard abs(stroke.x) < 1_000_000, abs(stroke.y) < 1_000_000 else { return false }

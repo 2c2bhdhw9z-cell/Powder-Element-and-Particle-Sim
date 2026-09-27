@@ -84,12 +84,12 @@ public enum Encyclopedia {
     /// admitting there is none — so this points the reader at the properties they can actually
     /// see on the palette.
     public static func lore(for id: ElementID) -> ElementLore {
-        cards[id] ?? fallback
+        cards[id] ?? ownCards[id] ?? fallback
     }
 
     /// Whether an element has a card of its own, as opposed to the general one.
     public static func hasOwnCard(for id: ElementID) -> Bool {
-        cards[id] != nil
+        cards[id] != nil || ownCards[id] != nil
     }
 
     public static let fallback = ElementLore(

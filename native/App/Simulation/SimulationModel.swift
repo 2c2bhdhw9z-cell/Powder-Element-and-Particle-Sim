@@ -887,9 +887,10 @@ final class SimulationModel {
         }
     }
 
-    /// The fifty materials everyone has, for pickers that offer a choice of them.
+    /// The materials everyone has — the fifty this app was ported from and the ones it has of its own — for pickers
+    /// that offer a choice of them.
     var builtInElements: [ElementDefinition] {
-        engine.registry.allElements.filter { $0.id < Element.customIDStart }
+        engine.registry.allElements.filter { engine.registry.isBuiltIn($0.id) }
     }
 
     /// How many invented-material slots are still free.

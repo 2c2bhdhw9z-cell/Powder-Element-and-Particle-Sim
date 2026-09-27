@@ -160,12 +160,12 @@ public struct ElementTable: Sendable, Hashable {
         // straight into the grid, where it sat behaving as air, counting as a real particle, and invisible to
         // every repair. Such a reference is dropped, and a blast size is held to what a world can contain.
         func usable(_ id: ElementID?) -> ElementID? {
-            guard let id, id <= Element.customIDEnd else { return nil }
+            guard let id, Element.isKnown(id) else { return nil }
             return id
         }
         for definition in definitions where Int(definition.id) < Element.capacity {
             var checked = definition
-            if checked.decayIntoID > Element.customIDEnd { checked.decayIntoID = Element.empty }
+            if !Element.isKnown(checked.decayIntoID) { checked.decayIntoID = Element.empty }
             checked.interactions = definition.interactions.map { rule in
                 var safe = rule
                 safe.resultSelfID = usable(rule.resultSelfID)

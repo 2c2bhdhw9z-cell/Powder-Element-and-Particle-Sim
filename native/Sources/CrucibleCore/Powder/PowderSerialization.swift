@@ -259,7 +259,7 @@ extension PowderEngine {
         // had poisoned the whole world.
         for i in 0 ..< count {
             let id = state.gridType[i]
-            let usable = id <= Element.customIDEnd ? id : Element.empty
+            let usable = Element.isKnown(id) ? id : Element.empty
             type[i] = usable
             // Loading is the second of the two ways a portal can enter the grid. Noticed
             // here, inside a walk that was happening anyway, rather than by a separate
@@ -319,7 +319,7 @@ extension PowderEngine {
         let count = min(cellCount, bytes.count)
         for i in 0 ..< count {
             let id = ElementID(bytes[i])
-            let usable = id <= Element.customIDEnd ? id : Element.empty
+            let usable = Element.isKnown(id) ? id : Element.empty
             type[i] = usable
             // Arriving over the wire is one of the ways a portal can enter the grid.
             // Noticed here, inside a walk that was happening anyway, rather than by a

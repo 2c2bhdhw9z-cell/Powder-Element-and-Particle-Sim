@@ -423,6 +423,9 @@ public final class PowderEngine {
         } else if elementID == Element.fan {
             if previous != Element.fan { life[idx] = 0 }
             // Otherwise the existing rotation counter is kept.
+        } else if elementID == Element.belt {
+            // Which way a belt runs is kept the same way, for the same reason.
+            if previous != Element.belt { life[idx] = 0 }
         } else {
             life[idx] = JS.toUInt16(Double(definition.decayTicks))
         }

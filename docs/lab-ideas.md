@@ -14,7 +14,7 @@ Built:
 - Red-and-blue glasses: the box drawn twice, once for each eye (Round 4 item 4, Round 7 item 41)
 - An app icon at last, drawn by the same golden spiral the sunflower uses (Round 7, item 18)
 - The cost warning knows the box costs more, and says so (Round 7, item 38)
-- Nine materials of this app's own: popcorn, soap, foam, sponge, belt, magnet, iron dust
+- Nine materials of this app's own — corn that pops, soap, foam, sponge, belt, magnet, iron dust — each tested for doing what its card says
 - Galaxy crash, Solar system, Pendulum wave, Marbling, Atom and Jellyfish — six scenes from Rounds 5 and 6
 - Living clock: the field spells the time and tumbles into the next minute
 - Floating labels: names that hang beside the things they name and follow them
@@ -23,7 +23,7 @@ Built:
 - Real down: laid flat, the phone makes things fall into the box (3D)
 - A slice through the box, colour by how far away things are, and shadows on the floor (3D)
 - Ten fingers: every finger on the glass is its own tool
-- Kaleidoscope: every stroke copied evenly round the middle, in either chamber's field
+- Kaleidoscope: every stroke copied evenly round the middle (particle field; the powder world not yet)
 - Muscles: springs whose length pulses, and that push while they squeeze (what makes the jellyfish swim)
 - Gravity that points at the middle of the world, for little round worlds
 - Particle collisions that stack

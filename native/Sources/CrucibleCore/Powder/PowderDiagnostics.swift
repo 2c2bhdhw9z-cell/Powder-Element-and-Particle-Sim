@@ -90,7 +90,7 @@ extension PowderEngine {
                 // Anything the registry does not describe — past the end of it, or a custom material that
                 // has since been deleted. Checking only the end left deleted materials in the grid,
                 // behaving as air, counted as real, and reported healthy.
-                if id > Element.customIDEnd || !table[id].isDefined {
+                if !Element.isKnown(id) || !table[id].isDefined {
                     corruptTypeCount += 1
                     cellIsCorrupt = true
                 }
@@ -166,7 +166,7 @@ extension PowderEngine {
         visited.update(repeating: 0, count: cellCount)
         let table = registry.table
         for i in 0 ..< cellCount where type[i] != Element.empty
-            && (type[i] > Element.customIDEnd || !table[type[i]].isDefined)
+            && (!Element.isKnown(type[i]) || !table[type[i]].isDefined)
         {
             // Emptied completely. Clearing only the element and its temperature left the
             // cell holding the lifetime and momentum of whatever had been there, so the

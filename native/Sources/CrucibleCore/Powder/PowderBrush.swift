@@ -135,6 +135,16 @@ extension PowderEngine {
                     }
                     continue
                 }
+                // A belt painted over a belt turns round, the same way and with the same pause between turns, so a
+                // belt does not flip back and forth under a finger held on it.
+                if elementID == Element.belt && type[index(x, y)] == Element.belt {
+                    if fanMayTurn {
+                        let idx = index(x, y)
+                        life[idx] = UInt16((Int(life[idx]) + 1) % 2)
+                        turnedAFan = true
+                    }
+                    continue
+                }
 
                 setElement(x, y, elementID)
             }

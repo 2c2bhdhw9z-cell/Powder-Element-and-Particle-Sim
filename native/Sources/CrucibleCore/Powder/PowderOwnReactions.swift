@@ -30,7 +30,8 @@ extension PowderEngine {
     private func popKernel(x: Int, y: Int) -> Bool {
         let index = y * width + x
         guard temperature[index] >= 180 else { return false }
-        setElement(x, y, Element.popcorn)
+        let heat = Double(temperature[index])
+        setElement(x, y, Element.popcorn, temp: heat)
         // A jump, because popping is a small explosion: the corn leaves the pan.
         velocityY[index] = -6
         velocityX[index] = Int8(clamping: rng.int(below: 5) - 2)
@@ -39,7 +40,7 @@ extension PowderEngine {
         if y > 0 {
             let above = (y - 1) * width + x
             if type[above] == Element.empty {
-                setElement(x, y - 1, Element.popcorn)
+                setElement(x, y - 1, Element.popcorn, temp: heat)
                 velocityY[above] = -7
             }
         }
@@ -123,6 +124,9 @@ extension PowderEngine {
     /// over a belt turns it round, exactly as painting a fan over a fan does.
     private func runBelt(x: Int, y: Int) -> Bool {
         guard y > 0 else { return false }
+        // One cell every third moment. Every moment was sixty cells a second, which carried a grain the length of
+        // the screen before anybody could see it was on a belt at all.
+        guard frameCount % 3 == 0 else { return false }
         let index = y * width + x
         // Nought or two is rightward, one is leftward. Read the same way a fan's is.
         let step = life[index] % 2 == 1 ? -1 : 1
@@ -131,13 +135,15 @@ extension PowderEngine {
         guard carried != Element.empty else { return false }
         // Not the machinery itself: a belt does not carry another belt along.
         guard carried != Element.belt, carried != Element.magnet, carried != Element.bedrock else { return false }
+        // Not something another piece of belt has already moved this moment. Without this, the grain carried one
+        // cell along was met by the next piece of belt in the same sweep and carried again, and again — so it crossed
+        // the whole belt in a single moment and dropped off the far end before anybody saw it move.
+        guard visited[above] == 0 else { return false }
         let toX = x + step
         guard toX >= 0, toX < width else { return false }
         let target = (y - 1) * width + toX
         guard type[target] == Element.empty else { return false }
         swapCells(above, target)
-        // A push rather than a teleport, so something carried off the end of a belt keeps going and falls.
-        velocityX[target] = Int8(clamping: step * 2)
         return true
     }
 
@@ -151,7 +157,7 @@ extension PowderEngine {
     /// The spikes are not drawn: they are what happens when grains all move toward the same place and then cannot
     /// pass through each other, so they pile outward along the lines they arrived on.
     private func pullIron(x: Int, y: Int) -> Bool {
-        let reach = 6
+        let reach = 8
         for dy in -reach ... reach {
             for dx in -reach ... reach {
                 guard dx != 0 || dy != 0 else { continue }
@@ -163,7 +169,7 @@ extension PowderEngine {
                 // Stronger close up, as a magnet is: right beside it the grains barely move at all because they
                 // are already there, and at the edge of its reach they only twitch.
                 let away = max(1, abs(dx) + abs(dy))
-                guard away <= reach, rng.chance(0.9 / Double(away)) else { continue }
+                guard away <= reach, rng.chance(min(1, 1.8 / Double(away))) else { continue }
                 // One step toward the magnet, along whichever direction is furthest off.
                 let stepX = abs(dx) >= abs(dy) ? (dx > 0 ? -1 : 1) : 0
                 let stepY = abs(dy) > abs(dx) ? (dy > 0 ? -1 : 1) : 0
