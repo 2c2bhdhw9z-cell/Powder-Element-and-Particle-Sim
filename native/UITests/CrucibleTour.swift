@@ -47,7 +47,7 @@ final class CrucibleTour: XCTestCase {
 
         tap("header.menu", "the menu", in: app)
         picture(app, "04 Lab panel")
-        if let wind = find("slider.Wind", in: app, kind: .slider, scrollingWithin: sheetArea(app)) {
+        if let wind = find("slider.Wind", in: app, kind: .slider, scrollingIn: panelScroll(in: app)) {
             wind.adjust(toNormalizedSliderPosition: 0.8)
             stillRunning(app, after: "moving the wind slider")
             picture(app, "05 Lab panel, wind moved")
@@ -209,9 +209,39 @@ final class CrucibleTour: XCTestCase {
         (CGVector(dx: 0.5, dy: 0.86), CGVector(dx: 0.5, dy: 0.72))
     }
 
-    /// Where to drag to scroll an open panel: from near its bottom to the middle of the screen.
-    private func sheetArea(_ app: XCUIApplication) -> (from: CGVector, to: CGVector) {
-        (CGVector(dx: 0.5, dy: 0.88), CGVector(dx: 0.5, dy: 0.55))
+    /// The scrolling part of whichever panel is open, found by the panel's own title.
+    ///
+    /// Not a place on the screen: on a tablet a panel is a small card in the middle of it, so dragging at a fraction of
+    /// the screen's height scrolled the tray underneath instead and the panel never moved. This finds the panel itself.
+    private func panelScroll(in app: XCUIApplication) -> XCUIElement? {
+        let title = element("sheet.title", in: app)
+        guard title.waitForExistence(timeout: 10) else { return nil }
+        let inside = CGPoint(x: title.frame.midX, y: title.frame.maxY + 20)
+        let scrolls = app.scrollViews
+        for index in 0 ..< scrolls.count {
+            let scroll = scrolls.element(boundBy: index)
+            guard scroll.exists, scroll.frame.contains(inside) else { continue }
+            return scroll
+        }
+        return nil
+    }
+
+    /// Finds something inside a scrolling area, swiping up within that area until it can be touched.
+    private func find(
+        _ id: String,
+        in app: XCUIApplication,
+        kind: XCUIElement.ElementType = .any,
+        scrollingIn scroll: XCUIElement?
+    ) -> XCUIElement? {
+        guard isRunning(app) else { return nil }
+        let target = app.descendants(matching: kind)[id].firstMatch
+        for _ in 0 ..< 12 {
+            if target.exists, target.isHittable { return target }
+            guard let scroll, scroll.exists else { break }
+            scroll.swipeUp()
+            guard isRunning(app) else { return nil }
+        }
+        return target.exists && target.isHittable ? target : nil
     }
 
     private func drag(across element: XCUIElement, from start: CGVector, to end: CGVector) {
