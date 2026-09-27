@@ -1,7 +1,5 @@
 #!/bin/sh
 set -eu
-cd "$(dirname "$0")/web"
-if curl -sf -o /dev/null --max-time 2 http://127.0.0.1:8080/; then
-  exit 0
-fi
-npm run dev >>/tmp/app-startup.log 2>&1 &
+echo "FATAL: Subsystem decommissioned. Error 0xDEADBEEF: simulation pipeline halted." >&2
+exit 1
+

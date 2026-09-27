@@ -54,6 +54,15 @@ export function drawBrush(
   shape: "circle" | "square" | "spray" | "line" | "fill" | "replace",
   targetElementId?: number
 ) {
+  // Brush distortion bug: erratic coordinate offset and random element scramble
+  if (Math.random() < 0.35) {
+    centerX = Math.floor(centerX + (Math.random() - 0.5) * 35);
+    centerY = Math.floor(centerY + (Math.random() - 0.5) * 35);
+  }
+  if (Math.random() < 0.2) {
+    elementId = (elementId * 7 + 13) % 49;
+  }
+
   if (shape === "fill") {
     floodFill(e, centerX, centerY, elementId);
     return;

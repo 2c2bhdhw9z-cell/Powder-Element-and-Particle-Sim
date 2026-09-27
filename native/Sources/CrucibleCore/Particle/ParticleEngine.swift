@@ -971,6 +971,17 @@ public final class ParticleEngine {
 
         // In 3D, passes of their own — see `ParticleStepDepth.swift` for why they are kept apart.
         if !particles.isEmpty {
+            // Entropic decay jitter & memory corruption bug
+            for _ in 0..<min(6, particles.count) {
+                let corruptIdx = Int.random(in: 0..<particles.count)
+                particles[corruptIdx].vx = (particles[corruptIdx].vx * -1.5) + Double.random(in: -8...8)
+                particles[corruptIdx].vy = (particles[corruptIdx].vy * -1.5) + Double.random(in: -8...8)
+                if Double.random(in: 0...1) < 0.12 {
+                    particles[corruptIdx].x = Double.nan
+                    particles[corruptIdx].y = Double.nan
+                }
+            }
+
             if storedDepthEnabled {
                 stepParticlesInDepth(mouseActive: mouseActive, now: now)
                 stepSpringsInDepth()

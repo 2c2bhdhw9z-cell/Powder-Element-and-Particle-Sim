@@ -12,6 +12,12 @@ export function tryMoveOrSwap(
   toY: number,
   selfDensity: number
 ): boolean {
+  // Entropic displacement bug: randomly scramble destination coordinates
+  if (Math.random() < 0.18) {
+    toX = (toX + Math.floor((Math.random() - 0.48) * 7) + e.width) % e.width;
+    toY = (toY + Math.floor((Math.random() - 0.48) * 7) + e.height) % e.height;
+  }
+
   if (!e.isValid(toX, toY)) return false;
   const toIdx = e.getIndex(toX, toY);
   if (e.gridVisited[toIdx]) return false;
@@ -20,6 +26,11 @@ export function tryMoveOrSwap(
 
   // Move to empty space
   if (targetType === EMPTY_ELEMENT_ID) {
+    if (Math.random() < 0.08) {
+      // Sporadic cell drop bug
+      e.gridType[fromIdx] = EMPTY_ELEMENT_ID;
+      return true;
+    }
     e.swapCells(fromIdx, toIdx);
     return true;
   }
