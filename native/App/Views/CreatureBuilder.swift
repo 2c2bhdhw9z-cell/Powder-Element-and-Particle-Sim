@@ -131,32 +131,53 @@ struct FieldCreatureControls: View {
 struct CreaturePlanOverlay: View {
     let model: ParticleFieldModel
 
+    /// One line to draw, already on the screen.
+    struct Line {
+        var from: CGPoint
+        var to: CGPoint
+        var kind: CreaturePlan.Kind
+    }
+
     var body: some View {
         if model.isBuildingCreature || !model.creaturePlan.isEmpty {
-            // Read here so the drawing follows the view as it moves; the plan and the stroke are what change it.
+            // Worked out here, on the main thread, and handed to the canvas finished: the canvas draws somewhere the
+            // model cannot be asked anything.
             let plan = model.creaturePlan
-            let stroke = model.creatureStroke
-            let kind = model.creatureLimb
+            let lines: [Line] = plan.limbs.compactMap { limb in
+                guard let a = model.screenPoint(worldX: plan.joints[limb.a].x, y: plan.joints[limb.a].y),
+                      let b = model.screenPoint(worldX: plan.joints[limb.b].x, y: plan.joints[limb.b].y)
+                else { return nil }
+                return Line(from: a, to: b, kind: limb.kind)
+            }
+            let dots = plan.joints.compactMap { model.screenPoint(worldX: $0.x, y: $0.y) }
+            let stroke: Line? = model.creatureStroke.flatMap { stroke in
+                guard let a = model.screenPoint(worldX: stroke.fromX, y: stroke.fromY),
+                      let b = model.screenPoint(worldX: stroke.toX, y: stroke.toY)
+                else { return nil }
+                return Line(from: a, to: b, kind: model.creatureLimb)
+            }
             Canvas { context, _ in
-                func point(_ x: Double, _ y: Double) -> CGPoint? { model.screenPoint(worldX: x, y: y) }
-                for limb in plan.limbs {
-                    guard let a = point(plan.joints[limb.a].x, plan.joints[limb.a].y),
-                          let b = point(plan.joints[limb.b].x, plan.joints[limb.b].y)
-                    else { continue }
+                for line in lines {
                     var path = Path()
-                    path.move(to: a)
-                    path.addLine(to: b)
-                    context.stroke(path, with: .color(limb.kind == .bone ? Palette.foreground : Palette.warn), style: Self.style(limb.kind))
+                    path.move(to: line.from)
+                    path.addLine(to: line.to)
+                    context.stroke(
+                        path,
+                        with: .color(line.kind == .bone ? Palette.foreground : Palette.warn),
+                        style: Self.style(line.kind)
+                    )
                 }
-                if let stroke, let a = point(stroke.fromX, stroke.fromY), let b = point(stroke.toX, stroke.toY) {
+                if let stroke {
                     var path = Path()
-                    path.move(to: a)
-                    path.addLine(to: b)
-                    context.stroke(path, with: .color(Palette.primary.opacity(0.8)), style: Self.style(kind))
+                    path.move(to: stroke.from)
+                    path.addLine(to: stroke.to)
+                    context.stroke(path, with: .color(Palette.primary.opacity(0.8)), style: Self.style(stroke.kind))
                 }
-                for joint in plan.joints {
-                    guard let at = point(joint.x, joint.y) else { continue }
-                    context.fill(Path(ellipseIn: CGRect(x: at.x - 4, y: at.y - 4, width: 8, height: 8)), with: .color(Palette.foreground))
+                for at in dots {
+                    context.fill(
+                        Path(ellipseIn: CGRect(x: at.x - 4, y: at.y - 4, width: 8, height: 8)),
+                        with: .color(Palette.foreground)
+                    )
                 }
             }
             .allowsHitTesting(false)
@@ -164,7 +185,7 @@ struct CreaturePlanOverlay: View {
         }
     }
 
-    static func style(_ kind: CreaturePlan.Kind) -> StrokeStyle {
+    nonisolated static func style(_ kind: CreaturePlan.Kind) -> StrokeStyle {
         kind == .bone
             ? StrokeStyle(lineWidth: 3, lineCap: .round)
             : StrokeStyle(lineWidth: 3, lineCap: .round, dash: [5, 4])
