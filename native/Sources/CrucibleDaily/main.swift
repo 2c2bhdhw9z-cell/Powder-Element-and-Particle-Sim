@@ -38,7 +38,10 @@ func today() -> String {
     var calendar = Calendar(identifier: .gregorian)
     // The same day everywhere, so two machines in different places publish the same world. Local midnight would give
     // Auckland one world and Los Angeles another, and the whole point is that it is shared.
-    calendar.timeZone = TimeZone(identifier: "UTC") ?? .gmt
+    //
+    // Built from an offset of nothing rather than named, and not `.gmt`: that spelling needs a newer macOS than this
+    // package asks for, and it built here and failed on the machine that checks it.
+    calendar.timeZone = TimeZone(identifier: "UTC") ?? TimeZone(secondsFromGMT: 0) ?? .current
     let parts = calendar.dateComponents([.year, .month, .day], from: Date())
     let year = parts.year ?? 2_026
     let month = parts.month ?? 1

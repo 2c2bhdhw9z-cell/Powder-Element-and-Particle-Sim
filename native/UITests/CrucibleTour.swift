@@ -151,7 +151,11 @@ final class CrucibleTour: XCTestCase {
             guard let picker = find("recipe.pick", in: app, scrollingWithin: trayArea(app)) else { break }
             picker.tap()
             let choice = app.buttons["recipe.choice.\(name)"]
-            if choice.waitForExistence(timeout: 3) {
+            // Hittable as well as present. A menu of ten on a small screen puts some of its items where there is no
+            // usable point to press, and asking anyway is an error rather than a miss — so the ones out of reach are
+            // left for another screen size rather than failing the walk. That every recipe lays out is settled by the
+            // engine's own checks; what is being walked here is the interface.
+            if choice.waitForExistence(timeout: 3), choice.isHittable {
                 choice.tap()
                 stillRunning(app, after: "choosing \(name)")
                 if let again = find("recipe.make", in: app, scrollingWithin: trayArea(app)) {
@@ -159,8 +163,10 @@ final class CrucibleTour: XCTestCase {
                     stillRunning(app, after: "making \(name)")
                 }
             } else {
-                // The menu did not open, so close it again rather than leaving the walk poking at a covered tray.
+                // The menu did not open, or the item is out of reach on this screen. Closed again rather than left
+                // covering the tray for everything that follows.
                 app.tap()
+                stillRunning(app, after: "closing a menu that could not be used")
             }
         }
         picture(app, "23 The last shape from a formula")
@@ -254,22 +260,24 @@ final class CrucibleTour: XCTestCase {
         if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
             more.tap()
             let copy = app.buttons["layer.copy.1"]
-            if copy.waitForExistence(timeout: 3) {
+            if copy.waitForExistence(timeout: 3), copy.isHittable {
                 copy.tap()
                 stillRunning(app, after: "copying a layer")
             } else {
                 app.tap()
+                stillRunning(app, after: "closing a menu that could not be used")
             }
         }
         guard isRunning(app) else { return }
         if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
             more.tap()
             let remove = app.buttons["layer.delete.1"]
-            if remove.waitForExistence(timeout: 3) {
+            if remove.waitForExistence(timeout: 3), remove.isHittable {
                 remove.tap()
                 stillRunning(app, after: "deleting the layer being looked at")
             } else {
                 app.tap()
+                stillRunning(app, after: "closing a menu that could not be used")
             }
         }
         picture(app, "29 After deleting a layer")
@@ -410,17 +418,34 @@ final class CrucibleTour: XCTestCase {
     ///
     /// Not a place on the screen: on a tablet a panel is a small card in the middle of it, so dragging at a fraction of
     /// the screen's height scrolled the tray underneath instead and the panel never moved. This finds the panel itself.
+    ///
+    /// ## Why it is not a point any more
+    ///
+    /// It used to take the point twenty pixels below the title and look for the scrolling area containing it. That
+    /// point landed in the gap between the panel's heading and the top of its contents — three pixels above, as it
+    /// happens — so nothing contained it, nothing scrolled, and every check that needed to reach further down the
+    /// panel reported that the control "was not in the panel" when it was simply below the fold. On a phone the wind
+    /// slider was fifteen hundred pixels down a nine-hundred-pixel screen.
+    ///
+    /// So: the tallest scrolling area that begins at or below the heading. A panel's contents are the tallest thing on
+    /// screen by a wide margin — four hundred pixels against the tray's thirty — and "below the heading" is what
+    /// distinguishes it from the world's own scrolling parts above.
     private func panelScroll(in app: XCUIApplication) -> XCUIElement? {
         let title = element("sheet.title", in: app)
         guard title.waitForExistence(timeout: 10) else { return nil }
-        let inside = CGPoint(x: title.frame.midX, y: title.frame.maxY + 20)
+        let top = title.frame.minY
+        var best: XCUIElement?
+        var tallest: CGFloat = 0
         let scrolls = app.scrollViews
         for index in 0 ..< scrolls.count {
             let scroll = scrolls.element(boundBy: index)
-            guard scroll.exists, scroll.frame.contains(inside) else { continue }
-            return scroll
+            guard scroll.exists else { continue }
+            let frame = scroll.frame
+            guard frame.minY >= top - 1, frame.height > tallest else { continue }
+            tallest = frame.height
+            best = scroll
         }
-        return nil
+        return best
     }
 
     /// Finds something inside a scrolling area, swiping up within that area until it can be touched.
@@ -432,10 +457,23 @@ final class CrucibleTour: XCTestCase {
     ) -> XCUIElement? {
         guard isRunning(app) else { return nil }
         let target = app.descendants(matching: kind)[id].firstMatch
-        for _ in 0 ..< 12 {
+        // Said out loud, because a nil here used to look exactly like "the control does not exist" — and the control
+        // did exist, a thousand pixels below the fold, with nothing scrolling to reach it.
+        if scroll == nil {
+            report(app, "Could not find the panel's scrolling part, so nothing could be scrolled to reach \(id)")
+        }
+        for _ in 0 ..< 14 {
             if target.exists, target.isHittable { return target }
             guard let scroll, scroll.exists else { break }
             scroll.swipeUp()
+            guard isRunning(app) else { return nil }
+        }
+        // And back the other way, in case it went past. A panel can be scrolled further than the thing being looked
+        // for, and then it is above the fold rather than below it — equally invisible, for the opposite reason.
+        for _ in 0 ..< 14 {
+            if target.exists, target.isHittable { return target }
+            guard let scroll, scroll.exists else { break }
+            scroll.swipeDown()
             guard isRunning(app) else { return nil }
         }
         return target.exists && target.isHittable ? target : nil
