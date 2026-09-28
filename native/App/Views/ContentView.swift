@@ -253,6 +253,7 @@ struct ContentView: View {
             // that problem.
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
+                    Group {
                     if isSplit {
                         // Stacked rather than side by side, because on a phone held upright two tall thin
                         // chambers are far worse than two short wide ones. The reference does the same —
@@ -270,6 +271,15 @@ struct ContentView: View {
                         chamberPane(chamber, topClearance: clearance)
                             .background(Palette.background)
                     }
+                    }
+                    // The note that something was written down, at the foot of the world and never over the tray.
+                    //
+                    // It used to hang off the whole screen ninety-six points up, which on every phone put it on top of
+                    // the tray — exactly where a thumb is. Reaching for a tool while the starting world was busy
+                    // finding fire and obsidian opened the notebook instead, and the walkthrough caught it doing so.
+                    // Pinned to the world, it can only ever cover world.
+                    .overlay(alignment: .bottom) { discoveryNote }
+                    .animation(.easeOut(duration: 0.25), value: notebook.justFound)
 
                     dock
                 }
@@ -323,21 +333,6 @@ struct ContentView: View {
             // A note rather than a panel, and it takes itself away. Finding something happens in the middle of doing
             // something else — usually in the middle of an explosion — and stopping the world to announce it would be
             // the most irritating possible way to reward somebody for playing.
-            .overlay(alignment: .bottom) {
-                if let found = notebook.justFound {
-                    DiscoveryNote(discovery: found) {
-                        notebook.justFound = nil
-                        showingNotebook = true
-                    }
-                    .padding(.bottom, 96)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .task(id: found.id) {
-                        try? await Task.sleep(for: .seconds(4))
-                        withAnimation(.easeOut(duration: 0.25)) { notebook.justFound = nil }
-                    }
-                }
-            }
-            .animation(.easeOut(duration: 0.25), value: notebook.justFound)
         }
         // Behind everything, including the strip at the top and the one at the bottom, so that nothing
         // the world does not reach is ever left showing through to white.
@@ -628,6 +623,25 @@ struct ContentView: View {
     }
 
     // MARK: - The notebook
+
+    /// The note that something was written down. Raised clear of the rewind slider and the lasso's bar, which share
+    /// the foot of the world with it.
+    @ViewBuilder
+    private var discoveryNote: some View {
+        if let found = notebook.justFound {
+            DiscoveryNote(discovery: found) {
+                notebook.justFound = nil
+                showingNotebook = true
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 64)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .task(id: found.id) {
+                try? await Task.sleep(for: .seconds(4))
+                withAnimation(.easeOut(duration: 0.25)) { notebook.justFound = nil }
+            }
+        }
+    }
 
     /// Listens to both chambers for something worth writing down.
     ///

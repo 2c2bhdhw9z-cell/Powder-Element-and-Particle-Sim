@@ -20,6 +20,7 @@ struct CrucibleApp: App {
                 UserDefaults.standard.removePersistentDomain(forName: identity)
             }
             SceneStore.forgetAutosaveBeforeLaunch()
+            Breadcrumbs.forgetBeforeLaunch()
         }
         DebugSettings.applyGraphicsOverlayPreference()
     }

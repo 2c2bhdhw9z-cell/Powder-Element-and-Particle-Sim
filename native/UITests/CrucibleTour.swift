@@ -554,21 +554,39 @@ final class CrucibleTour: XCTestCase {
         if scroll == nil {
             report(app, "Could not find anything to scroll, so nothing could be scrolled to reach \(id)")
         }
-        for _ in 0 ..< 14 {
+        for _ in 0 ..< 40 {
             if target.exists, target.isHittable { return target }
             guard let scroll, scroll.exists else { break }
-            scroll.swipeUp()
+            step(scroll, down: true)
             guard isRunning(app) else { return nil }
         }
         // And back the other way, in case it went past. A panel can be scrolled further than the thing being looked
         // for, and then it is above the fold rather than below it — equally invisible, for the opposite reason.
-        for _ in 0 ..< 14 {
+        for _ in 0 ..< 40 {
             if target.exists, target.isHittable { return target }
             guard let scroll, scroll.exists else { break }
-            scroll.swipeDown()
+            step(scroll, down: false)
             guard isRunning(app) else { return nil }
         }
         return target.exists && target.isHittable ? target : nil
+    }
+
+    /// Moves a scrolling area on by about half of itself, and no further.
+    ///
+    /// ## Why not a swipe
+    ///
+    /// A swipe is a flick, and a flick carries on after the finger has gone. In the field tray — three hundred points
+    /// tall showing a list three and a half thousand points long — each flick threw the list about a thousand points,
+    /// so the slider being looked for went from below the window to above it between two looks and was never seen in
+    /// it. The walk then reported that the slider "was not in the tray" when it had flown straight past. A slow drag
+    /// that holds still at the end stops dead where the finger stops, so every part of the list passes through the
+    /// window at least once.
+    private func step(_ scroll: XCUIElement, down: Bool) {
+        // In the right-hand margin, where there are no sliders: a drag that begins on a slider moves the slider.
+        let low = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.985, dy: 0.8))
+        let high = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.985, dy: 0.3))
+        let (from, to) = down ? (low, high) : (high, low)
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: 400, thenHoldForDuration: 0.3)
     }
 
     private func drag(across element: XCUIElement, from start: CGVector, to end: CGVector) {

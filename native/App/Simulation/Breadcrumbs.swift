@@ -128,6 +128,18 @@ final class Breadcrumbs {
         write()
     }
 
+    /// Throws away last time's note before anything reads it, for a start that is meant to look like a new install.
+    ///
+    /// A newly installed app has no last time, so it has nothing to offer to send. Without this, every part of the
+    /// walkthrough after the first opened to "Last time ended badly" — the walkthrough closes the app between parts,
+    /// which is exactly what a crash looks like from the inside — and the system's own handler dismissing that offer
+    /// was a tap landing somewhere on the screen that nobody chose.
+    nonisolated static func forgetBeforeLaunch() {
+        let files = FileManager.default
+        guard let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        try? files.removeItem(at: support.appendingPathComponent("breadcrumb.json", isDirectory: false))
+    }
+
     private static func noteURL(files: FileManager) -> URL? {
         guard let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         try? files.createDirectory(at: support, withIntermediateDirectories: true)
