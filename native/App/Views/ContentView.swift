@@ -303,6 +303,7 @@ struct ContentView: View {
                     // The note stays below the Field tray. It can be pressed when the world is clear, but it cannot
                     // intercept a drag or button inside an open tray.
                     .overlay(alignment: .bottom) { discoveryNote }
+                    .overlay(alignment: .bottom) { peopleLimitNote }
                     .animation(.easeOut(duration: 0.25), value: notebook.justFound)
                     // The expanded Field tray looks and behaves as before — a single panel rising over the world —
                     // but it belongs to the world's overlay rather than being positioned above the dock with an
@@ -849,6 +850,29 @@ struct ContentView: View {
                 try? await Task.sleep(for: .seconds(4))
                 withAnimation(.easeOut(duration: 0.25)) { notebook.justFound = nil }
             }
+        }
+    }
+
+    /// "Twenty is as many people as a world can hold." It used to be set and never shown, so a tap at the limit simply
+    /// did nothing. Shown briefly over the world, never over the tray.
+    @ViewBuilder
+    private var peopleLimitNote: some View {
+        if chamber == .powder, let note = powder.peopleNote {
+            Text(note)
+                .font(.labBody(12, .medium))
+                .foregroundStyle(Palette.foreground)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(Palette.elevated))
+                .overlay(Capsule().stroke(Palette.borderStrong, lineWidth: 1))
+                .padding(.bottom, 120)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier("people.limitNote")
+                .transition(.opacity)
+                .task(id: note) {
+                    try? await Task.sleep(for: .seconds(3))
+                    withAnimation(.easeOut(duration: 0.25)) { powder.peopleNote = nil }
+                }
         }
     }
 

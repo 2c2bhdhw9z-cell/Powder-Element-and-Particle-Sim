@@ -330,10 +330,16 @@ extension PowderEngine {
                 guard person.health > 0 else {
                     // A puff of smoke where they were, so somebody watching sees what happened rather than a person
                     // simply ceasing to be there.
-                    let x = Int(person.x)
-                    let y = Int(person.y) - 1
-                    if isValid(x, y), typeAt(x, y) == Element.empty {
-                        setElement(x, y, Element.smoke, temp: 120, life: 70)
+                    // Where they were, or in the water they drowned in: a puff rising out of a lake is how anybody
+                    // watching sees that somebody went under. Never over something solid.
+                    let x = Int(person.y.isFinite && person.x.isFinite ? person.x : -1)
+                    let feet = Int(person.y.isFinite ? person.y : -1)
+                    for y in stride(from: feet - 1, through: feet - PowderPeople.height, by: -1) where isValid(x, y) {
+                        let here = typeAt(x, y)
+                        if here == Element.empty || isLiquid(here) {
+                            setElement(x, y, Element.smoke, temp: 120, life: 70)
+                            break
+                        }
                     }
                     continue
                 }
@@ -442,18 +448,35 @@ extension PowderEngine {
 
         if !standing {
             person.doing = inWater ? .swimming : .falling
+            // People fall the way the world falls. With the world's pull turned down they fall more gently, and with no
+            // pull downwards at all they hang where they are. Sideways and upward pulls are not followed: a person has
+            // feet at one end and the whole of walking assumes the floor is below them.
+            let pull = PowderPeople.gravity * (gravityY.isFinite ? max(0, min(2, gravityY)) : 1)
             if inWater {
                 // Water takes speed *away*, rather than merely adding less. Slowing the pull alone was not enough and
                 // is worth writing down: somebody who fell a long way before reaching the water was already going as
                 // fast as anybody can, so a gentler pull changed nothing at all and they hit the bottom at full speed.
                 // Water has to be drag, which is what makes a lake a way down and not just a slower sky.
-                person.fall = min(PowderPeople.waterFall, person.fall * PowderPeople.waterDrag + PowderPeople.gravity)
+                person.fall = min(PowderPeople.waterFall, person.fall * PowderPeople.waterDrag + pull)
             } else {
-                person.fall = min(PowderPeople.terminalFall, person.fall + PowderPeople.gravity)
+                person.fall = min(PowderPeople.terminalFall, person.fall + pull)
             }
-            person.y += person.fall
+            // Every row passed on the way down is checked, not only the one they end up above. A fall can cover more
+            // than a cell in one moment, and checking only the end let people drop straight through a one-cell floor
+            // about one time in ten, or land with their feet inside a thicker one.
+            let column = Int(person.x)
+            let target = person.y + person.fall
+            let lastRow = Int(target) + 1
+            if lastRow > below {
+                for row in (below + 1) ... lastRow where isSolidFooting(column, row) {
+                    person.y = Double(row - 1)
+                    land(&person)
+                    return
+                }
+            }
+            person.y = target
             // Landed on the way down, rather than passing through the floor.
-            if isSolidFooting(Int(person.x), Int(person.y) + 1) {
+            if isSolidFooting(column, Int(person.y) + 1) {
                 land(&person)
             }
             return
@@ -479,7 +502,10 @@ extension PowderEngine {
         for up in 1 ... PowderPeople.stepUp {
             let stepY = feetY - up
             if isWalkable(aheadX, stepY), isSolidFooting(aheadX, stepY + 1) {
-                person.x = wantedX
+                // Onto the step, not still over the old column. Raised while their feet were still over where they
+                // had been standing, they had nothing under them next moment, fell back, and tried again — one step
+                // took about forty moments.
+                person.x = Double(aheadX) + 0.5
                 person.y = Double(stepY)
                 person.doing = .climbing
                 climbed = true

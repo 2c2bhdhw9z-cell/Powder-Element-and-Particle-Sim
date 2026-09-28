@@ -110,6 +110,13 @@ extension PowderEngine {
         // fully inside the world and falls as one mass.
         let centerY = 14
 
+        // The ball itself is put there by the button, not made by any rule, so it is not a discovery. Without this, a
+        // meteor on an empty world wrote "Melted stone" and "Fire caught" into the notebook. What it then sets off —
+        // sand melting, wood catching — is still noticed, because the world's own step does that.
+        let wasNoticing = storedNoticing
+        storedNoticing = false
+        defer { storedNoticing = wasNoticing }
+
         for dy in -radius ... radius {
             for dx in -radius ... radius {
                 // A disc, compared without a square root.

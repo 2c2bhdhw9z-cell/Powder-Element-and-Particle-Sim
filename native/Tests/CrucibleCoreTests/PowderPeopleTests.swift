@@ -101,7 +101,13 @@ struct PowderPeopleTests {
         people[0].facing = 1
         engine.setPeopleForTest(people)
 
-        for _ in 0 ..< 200 { engine.step() }
+        // Up the step promptly, not after slipping back off it several times. It used to take about forty moments.
+        var onTopAt = -1
+        for moment in 0 ..< 200 {
+            engine.step()
+            if onTopAt < 0, only(engine).x >= 30, only(engine).y < 27 { onTopAt = moment }
+        }
+        #expect(onTopAt >= 0 && onTopAt < 40, "climbing one step took far too long")
         #expect(only(engine).x > 32, "somebody stopped at a single step instead of climbing it")
         #expect(only(engine).y < 27, "somebody got past the step without going up")
     }
@@ -270,6 +276,52 @@ struct PowderPeopleTests {
         for y in 25 ... 27 { engine.setElement(20, y, Element.lava, temp: 1_500) }
         for _ in 0 ..< 10 { engine.step() }
         #expect(engine.people.isEmpty, "somebody survived being in lava at death's door")
+    }
+
+    @Test("Drowning leaves a puff of smoke too")
+    func drowningLeavesSmoke() {
+        let engine = room(40, 30)
+        for x in 0 ..< 40 { for y in 20 ... 27 { engine.setElement(x, y, Element.water) } }
+        _ = engine.addPerson(atX: 20, y: 27)
+        var people = engine.people
+        people[0].health = 0.001
+        people[0].breath = 0
+        engine.setPeopleForTest(people)
+        var smoke = false
+        for _ in 0 ..< 10 {
+            engine.step()
+            for x in 0 ..< 40 { for y in 0 ..< 28 where engine.typeAt(x, y) == Element.smoke { smoke = true } }
+            if smoke { break }
+        }
+        #expect(engine.people.isEmpty, "somebody out of breath and health survived")
+        #expect(smoke, "somebody drowned and nothing showed it")
+    }
+
+    @Test("A fall never passes through a floor one cell thick")
+    func noFallingThroughThinFloors() {
+        var through = 0
+        var inside = 0
+        for trial in 0 ..< 60 {
+            let engine = PowderEngine(width: 20, height: 120, seed: UInt32(trial + 1))
+            let floor = 80 + trial % 5
+            for x in 0 ..< 20 { engine.setElement(x, floor, Element.glass) }
+            _ = engine.addPerson(atX: 10, y: 2 + trial % 20)
+            for _ in 0 ..< 400 { engine.step() }
+            guard let person = engine.people.first else { continue }
+            if Int(person.y) > floor { through += 1 }
+            if Int(person.y) == floor { inside += 1 }
+        }
+        #expect(through == 0, "somebody fell straight through a thin floor")
+        #expect(inside == 0, "somebody landed with their feet inside the floor")
+    }
+
+    @Test("With no pull downwards, people do not fall")
+    func peopleFollowTheWorldsPull() {
+        let engine = room(40, 30)
+        engine.gravityY = 0
+        _ = engine.addPerson(atX: 20, y: 5)
+        for _ in 0 ..< 60 { engine.step() }
+        #expect((engine.people.first?.y ?? 99) < 6, "somebody fell in a world with no pull")
     }
 
     @Test("They cool down again after being warm")

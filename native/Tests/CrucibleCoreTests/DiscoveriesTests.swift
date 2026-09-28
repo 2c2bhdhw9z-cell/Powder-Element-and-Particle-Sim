@@ -19,12 +19,20 @@ struct DiscoveriesTests {
 
     @Test("Painting something by hand is not discovering it")
     func paintingIsNotDiscovering() {
-        let engine = world()
-        // Every material in the notebook, painted straight in.
-        for id in Discoveries.byElement.keys {
-            engine.setElement(5, 5, id)
+        // Every material in the notebook, painted straight in on its own and then left to run. Asking straight after
+        // painting proved nothing — outside a moment nothing is ever noticed — so the world has to run for this to
+        // mean anything. What is checked is that the thing painted is not then "found" by itself.
+        //
+        // Wet sponge is left out on purpose: a blob of it squeezes itself, lets out water, and soaks that water back
+        // up, which is the sponge rule genuinely running.
+        for id in Discoveries.byElement.keys.sorted() where id != Element.wetSponge {
+            let engine = world()
+            for x in 20 ..< 24 { for y in 20 ..< 22 { engine.setElement(x, y, id) } }
+            _ = engine.takeNewlyMade()
+            for _ in 0 ..< 120 { engine.step() }
+            let made = engine.takeNewlyMade()
+            #expect(!made.contains(id), "a painted material was written down as found by itself")
         }
-        #expect(engine.takeNewlyMade().isEmpty, "the notebook filled up from the tray")
     }
 
     @Test("Sand hot enough to melt is discovering glass")
@@ -58,8 +66,18 @@ struct DiscoveriesTests {
         for x in 18 ... 22 { engine.setElement(x, 19, Element.water, temp: 20) }
         for _ in 0 ..< 40 { engine.step() }
         let made = engine.takeNewlyMade()
-        #expect(made.contains(Element.obsidian) || made.contains(Element.steam),
-                "quenching lava told the notebook nothing")
+        // Obsidian itself. Steam used to count as well, so the check passed with the obsidian half missing.
+        #expect(made.contains(Element.obsidian), "quenching lava did not tell the notebook about obsidian")
+    }
+
+    @Test("A meteor on an empty world writes nothing down")
+    func meteorIsNotADiscovery() {
+        // The ball is lava and fire put there by a button. Nothing melted and nothing caught, so neither page is true.
+        let engine = world(120, 80)
+        engine.start(.meteor)
+        let made = engine.takeNewlyMade()
+        #expect(!made.contains(Element.lava), "the meteor's own lava was written down as melted stone")
+        #expect(!made.contains(Element.fire), "the meteor's own fire was written down as something catching")
     }
 
     @Test("The deep freeze counts, because it is a rule and not a brush")
