@@ -44,6 +44,24 @@ struct FieldDock: View {
     /// The tools that only make sense on a flat field.
     private static let flatOnly: Set<ParticleMouseMode> = [.slingshot, .jelly]
 
+    /// Opens the unusually large Field tray without animating its insertion. On real phones, animating the
+    /// complete control tree can briefly require enough layout and accessibility work to terminate the app.
+    /// Closing is cheap because the tree has already been laid out, so it can keep the familiar movement.
+    private func setOpen(_ open: Bool) {
+        guard isOpen != open else { return }
+        if open {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { isOpen = true }
+        } else {
+            withAnimation(.easeOut(duration: 0.22)) { isOpen = false }
+        }
+    }
+
+    private func toggleOpen() {
+        setOpen(!isOpen)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             handle
@@ -74,7 +92,7 @@ struct FieldDock: View {
     private var handle: some View {
         Button {
             Haptics.selection()
-            withAnimation(.easeOut(duration: 0.22)) { isOpen.toggle() }
+            toggleOpen()
         } label: {
             Capsule()
                 .fill(Color.white.opacity(0.45))
@@ -88,9 +106,7 @@ struct FieldDock: View {
         .accessibilityIdentifier("fieldTray.handle")
         .highPriorityGesture(
             DragGesture(minimumDistance: 18).onEnded { value in
-                withAnimation(.easeOut(duration: 0.22)) {
-                    isOpen = value.translation.height < 0
-                }
+                setOpen(value.translation.height < 0)
             }
         )
     }
@@ -156,7 +172,7 @@ struct FieldDock: View {
             .accessibilityAddTraits(model.depthEnabled ? [.isSelected] : [])
 
             Button {
-                withAnimation(.easeOut(duration: 0.22)) { isOpen.toggle() }
+                toggleOpen()
             } label: {
                 Image(systemName: "chevron.up")
                     .font(.labBody(13, .medium))
@@ -1282,7 +1298,10 @@ struct FieldDock: View {
     }
 
     private var expandedContents: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // A ScrollView does not make an ordinary VStack lazy. Building every Field control at once caused a
+        // large one-frame layout/accessibility spike on real phones when this tray opened. Only construct the
+        // sections that are on screen; the rest appear as somebody scrolls to them.
+        LazyVStack(alignment: .leading, spacing: 14) {
             destinations
             costWarning
             // Before the arrangements, because it changes what every one of them is.
