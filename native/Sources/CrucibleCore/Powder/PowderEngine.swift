@@ -131,6 +131,15 @@ public final class PowderEngine {
     /// Moments until the surface is searched for again.
     var tideSurfaceAge = 0
 
+    /// Materials the world's own rules made, and whether there are any to report. See `PowderNoticing.swift`.
+    var storedNoticed: [UInt8] = []
+    var storedNoticedAny = false
+    var storedNoticing = false
+    /// How many explosions have followed one another, when the last one was, and the longest run since it was asked.
+    var storedChainLength = 0
+    var storedLastBurstFrame = -1_000
+    var storedLongestChain = 0
+
     /// Whether an exit portal might be somewhere in the grid.
     ///
     /// The tick has to know where every exit portal is before anything moves, and
@@ -452,6 +461,9 @@ public final class PowderEngine {
         // Deliberate placement is one of only two ways a portal can enter the grid, so
         // this is where the tick learns it has to start looking for them again.
         if elementID == Element.portalB { portalBMayExist = true }
+        // And this is where the notebook learns something was made. Only while the world is running its own rules —
+        // painting glass is not discovering glass. See `PowderNoticing.swift`.
+        if storedNoticing, elementID != previous { noticeMade(elementID) }
 
         if let temp {
             temperature[idx] = JS.toFloat32(temp)
@@ -611,6 +623,11 @@ public final class PowderEngine {
         elements = registry.table
 
         guard cellCount > 0 else { return }
+        // Listening starts here and stops at the end, which is the whole of how the notebook tells a rule from a
+        // brush: both change a cell the same way, and only one of them happens while the world is running.
+        let wasNoticing = storedNoticing
+        storedNoticing = true
+        defer { storedNoticing = wasNoticing }
         visited.update(repeating: 0, count: cellCount)
 
         if heatConductionEnabled && frameCount % 2 == 0 {

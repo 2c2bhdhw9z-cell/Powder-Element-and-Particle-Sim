@@ -38,6 +38,12 @@ extension PowderEngine {
         maxHeat: Double = 3000
     ) {
         guard cellCount > 0 else { return }
+        // With the notebook listening, whether this came from the tick or from a tap. An explosion makes plasma and
+        // thermite by its own rules, and those are as much a discovery as glass is. Saved and restored, because an
+        // explosion can set off another. See `PowderNoticing.swift`.
+        let wasNoticing = storedNoticing
+        storedNoticing = true
+        defer { storedNoticing = wasNoticing }
         // Held to something a world can contain. A custom material's blast size comes from storage or a
         // shared scene unchecked, and four billion overflowed the arithmetic below while a hundred thousand
         // was, in effect, a loop that never ended. Nothing built in goes past thirty-six.
@@ -217,5 +223,8 @@ extension PowderEngine {
         // engine itself does neither.
         onBurst?(centerX, centerY, radius)
         largestUnreportedBurst = max(largestUnreportedBurst, max(0, radius))
+        // And how many explosions have followed one another, which is what makes a chain reaction a thing that can be
+        // noticed rather than just a lot of bangs. See `PowderNoticing.swift`.
+        noteChainLink()
     }
 }

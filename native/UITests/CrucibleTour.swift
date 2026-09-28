@@ -278,6 +278,40 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "closing the tray after working with layers")
     }
 
+    /// The notebook: opened, read, and emptied.
+    ///
+    /// The list of things still to find is built from the notebook itself, so a discovery that names something the
+    /// build no longer has, or two that answer to the same name, shows up here as an empty or duplicated row rather
+    /// than anywhere it could be reasoned about.
+    func testNotebook() {
+        let app = launch()
+        tap("tray.arrow", "the powder tray's arrow", in: app)
+        guard isRunning(app) else { return }
+
+        guard let entry = find("dock.notebook", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("the notebook was not in the tray")
+            report(app, "The notebook was not in the tray")
+            return
+        }
+        entry.tap()
+        stillRunning(app, after: "opening the notebook")
+        picture(app, "30 The notebook")
+
+        // How many have been found, which on a fresh run is none of them — and the list of what to look for.
+        let count = element("notebook.count", in: app)
+        if !count.waitForExistence(timeout: 5) {
+            XCTFail("the notebook did not say how many had been found")
+            report(app, "The notebook had no count in it")
+        }
+        if let scroll = panelScroll(in: app) {
+            scroll.swipeUp()
+            stillRunning(app, after: "scrolling the notebook")
+            picture(app, "31 The notebook, scrolled")
+        }
+        tap("sheet.close", "the notebook's close button", in: app)
+        stillRunning(app, after: "closing the notebook")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

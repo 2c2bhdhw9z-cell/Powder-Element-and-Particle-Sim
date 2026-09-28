@@ -43,6 +43,8 @@ struct ContentView: View {
     /// One speaker for the whole app.
     @State private var audio = LabAudio()
     @State private var store = SceneStore()
+    /// What has been worked out so far. See `NotebookStore.swift`.
+    @State private var notebook = NotebookStore()
     /// Why a world opened from elsewhere could not be used, while that is being said.
     @State private var arrivalProblem: String?
     @State private var recorder = ScreenRecorder()
@@ -56,6 +58,7 @@ struct ContentView: View {
 
     @State private var isDockOpen = false
     @State private var showingScenes = false
+    @State private var showingNotebook = false
     @State private var showingPresets = false
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
@@ -315,6 +318,26 @@ struct ContentView: View {
                     .transition(.opacity)
                 }
             }
+            // The note that something was written down, low on the screen and out of the way of the tools.
+            //
+            // A note rather than a panel, and it takes itself away. Finding something happens in the middle of doing
+            // something else — usually in the middle of an explosion — and stopping the world to announce it would be
+            // the most irritating possible way to reward somebody for playing.
+            .overlay(alignment: .bottom) {
+                if let found = notebook.justFound {
+                    DiscoveryNote(discovery: found) {
+                        notebook.justFound = nil
+                        showingNotebook = true
+                    }
+                    .padding(.bottom, 96)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .task(id: found.id) {
+                        try? await Task.sleep(for: .seconds(4))
+                        withAnimation(.easeOut(duration: 0.25)) { notebook.justFound = nil }
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.25), value: notebook.justFound)
         }
         // Behind everything, including the strip at the top and the one at the bottom, so that nothing
         // the world does not reach is ever left showing through to white.
@@ -362,6 +385,7 @@ struct ContentView: View {
             senses.isOn = usesRoomSenses
             applyRoomSenses()
             bigScreen.use(field)
+            watchForDiscoveries()
             if !hasBeenWelcomed { showingWelcome = true }
         }
         .onChange(of: usesRoomSenses) { _, wanted in
@@ -541,6 +565,9 @@ struct ContentView: View {
         .sheet(item: $infoElement) { target in
             ElementInfoSheet(model: powder, elementID: target.id)
         }
+        .sheet(isPresented: $showingNotebook) {
+            NotebookSheet(store: notebook)
+        }
         .sheet(isPresented: $showingSaves) {
             SavesSheet(powder: powder, field: field, chamber: chamber, store: store)
         }
@@ -598,6 +625,53 @@ struct ContentView: View {
             let picture = chamber == .powder ? powder.snapshot() : field.snapshot()
             report = breadcrumbs.reportNow(picture: picture)
         }
+    }
+
+    // MARK: - The notebook
+
+    /// Listens to both chambers for something worth writing down.
+    ///
+    /// Set up once. Both models report rather than record — neither knows a notebook exists — so this is the one place
+    /// that decides what counts as a discovery and what a page is worth taking a picture of.
+    private func watchForDiscoveries() {
+        powder.onDiscovery = { [notebook] made, chain, blast in
+            for id in made {
+                guard let discovery = Discoveries.forElement(id) else { continue }
+                // The picture is a closure, and it is only called when the page turns out to be new. Rendering the
+                // world costs a pass over every cell and a shrink, and most of what arrives here has been found
+                // already — usually several times a second, in a world with a fire in it.
+                notebook.note(discovery, chamber: "powder", picture: { notebookPicture(of: .powder) })
+            }
+            if chain >= 5 {
+                notebook.note("chainreaction", chamber: "powder", picture: { notebookPicture(of: .powder) })
+            }
+            if blast >= 60 {
+                notebook.note("bigblast", chamber: "powder", picture: { notebookPicture(of: .powder) })
+            }
+        }
+        field.onDiscovery = { [notebook] id in
+            notebook.note(id, chamber: "field", picture: { notebookPicture(of: .field) })
+        }
+    }
+
+    /// A small picture of one chamber, for a notebook page.
+    ///
+    /// The same recipe the gallery of kept worlds uses: the engine's own pixels rather than a grab of the screen, so it
+    /// works while a panel is open, and shrunk, because a notebook of full-size pictures would be tens of megabytes.
+    private func notebookPicture(of which: Chamber) -> Data? {
+        let image = which == .powder ? powder.snapshot() : field.snapshot()
+        guard let image else { return nil }
+        let longest = max(image.size.width, image.size.height)
+        guard longest > 0 else { return nil }
+        let scale = min(1, 320 / longest)
+        let size = CGSize(width: max(1, image.size.width * scale), height: max(1, image.size.height * scale))
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = true
+        format.scale = 1
+        let shrunk = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return shrunk.jpegData(compressionQuality: 0.8)
     }
 
     // MARK: - What the note says about the world
@@ -973,6 +1047,9 @@ struct ContentView: View {
                 onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
                 onShowPeriodic: { showingPeriodic = true },
                 onShowSaves: { showingSaves = true },
+                onShowNotebook: { showingNotebook = true },
+                found: notebook.notebook.found,
+                howMany: notebook.notebook.howMany,
                 onShowEditor: { showingEditor = true },
                 paletteVersion: paletteVersion,
                 today: Self.today,

@@ -1209,6 +1209,13 @@ final class ParticleFieldModel {
         if feelsBigMoments, engine.bigMomentStrength > 0 {
             Haptics.impact(strength: engine.bigMomentStrength)
         }
+        // A supernova, and a field of colours that behave as though they were alive, for the notebook. Reported rather
+        // than recorded here, the same way the explosion is: the field makes it happen and something else decides
+        // whether it is worth writing down.
+        if let onDiscovery {
+            if engine.bigMomentStrength >= 0.9 { onDiscovery("bigbang") }
+            if engine.particleLifeEnabled, engine.arrangementAge > 120 { onDiscovery("lifeitself") }
+        }
 
         ticksSinceSample += steps
         let sampledAt = CFAbsoluteTimeGetCurrent()
@@ -2881,6 +2888,9 @@ final class ParticleFieldModel {
     }
 
     // MARK: - Particle life
+
+    /// Told when something worth writing down happens, by name. See ``SimulationModel/onDiscovery``.
+    var onDiscovery: ((String) -> Void)?
 
     /// Whether the field is the one where colours like and dislike each other.
     var isParticleLife: Bool {

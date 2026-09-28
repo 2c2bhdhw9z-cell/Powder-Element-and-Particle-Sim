@@ -73,16 +73,23 @@ extension PowderEngine {
     /// - Returns: what should accompany it, including the delayed half where it has one.
     @discardableResult
     public func start(_ event: PowderEventID) -> PowderEventStart {
-        switch event {
-        case .meteor: return startMeteor()
-        case .blast: return startBlast()
-        case .surge: return startSurge()
-        case .freeze: return startFreeze()
+        // With the notebook listening. An event is a rule the player set off rather than a material they painted — the
+        // deep freeze turns water to ice by the same rule the cold does, so finding out that way counts.
+        whileNoticing {
+            switch event {
+            case .meteor: return startMeteor()
+            case .blast: return startBlast()
+            case .surge: return startSurge()
+            case .freeze: return startFreeze()
+            }
         }
     }
 
     /// Runs the delayed half of an event.
     public func finish(_ followUp: PowderEventFollowUp) {
+        let wasNoticing = storedNoticing
+        storedNoticing = true
+        defer { storedNoticing = wasNoticing }
         for blast in followUp.blasts {
             triggerExplosion(
                 centerX: blast.x,
@@ -218,10 +225,13 @@ extension PowderEngine {
                 || cellType == Element.oil || cellType == Element.saltWater
             {
                 type[i] = Element.ice
+                // The deep freeze writes the grid directly. Told by hand, like the other three.
+                noticeMade(Element.ice)
                 tint[i] = 0
             }
             if cellType == Element.lava {
                 type[i] = Element.stone
+                noticeMade(Element.stone)
                 tint[i] = 0
             }
         }

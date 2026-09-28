@@ -432,6 +432,13 @@ final class SimulationModel {
     var speed: Double = 1
 
     /// Ticks per second actually achieved, averaged over the last second.
+    /// Told what the world made by itself, so a notebook can write it down.
+    ///
+    /// Nothing in here knows what a notebook is: the model reports and whoever cares decides, which is the same
+    /// division the engine already makes when it reports an explosion rather than making a noise itself. Given the
+    /// materials the world made, the longest run of explosions, and the largest blast, all since the last frame.
+    var onDiscovery: (([ElementID], Int, Int) -> Void)?
+
     private(set) var ticksPerSecond: Int = 0
     /// How many cells are occupied. Updated once a second rather than every frame.
     private(set) var activeCells: Int = 0
@@ -655,6 +662,14 @@ final class SimulationModel {
         // entirely unnoticed off to one side of the screen.
         let blast = engine.takeLargestBurst()
         if blast > 0 { Haptics.impact(strength: Double(blast) / 24) }
+
+        // What the world made by itself this frame, for the notebook. Emptied whether or not anybody is listening, so
+        // nothing piles up unread — and the list is empty in a world where nothing is happening, which is most of them.
+        let made = engine.takeNewlyMade()
+        let chain = engine.takeLongestChain()
+        if let onDiscovery, !made.isEmpty || chain >= 5 || blast >= 60 {
+            onDiscovery(made, chain, blast)
+        }
 
         ticksSinceSample += steps
         let now = CFAbsoluteTimeGetCurrent()

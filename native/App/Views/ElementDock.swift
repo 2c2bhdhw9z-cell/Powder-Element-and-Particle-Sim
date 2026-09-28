@@ -17,6 +17,11 @@ struct ElementDock: View {
     let onShowInfo: (ElementID) -> Void
     let onShowPeriodic: () -> Void
     let onShowSaves: () -> Void
+    /// Opens the notebook of what has been worked out.
+    let onShowNotebook: () -> Void
+    /// How many things have been found, and how many there are, for the chip.
+    let found: Int
+    let howMany: Int
     let onShowEditor: () -> Void
     /// Changes whenever a material is invented or deleted.
     ///
@@ -158,6 +163,9 @@ struct ElementDock: View {
                 model.loadDailyScene(day: today)
             })
             destination("Scenes", "square.grid.2x2", action: onShowScenes)
+            // The count is on the chip because a notebook nobody knows is filling up is a notebook nobody opens.
+            destination("Notebook · \(found)/\(howMany)", "sparkles", action: onShowNotebook)
+                .accessibilityIdentifier("dock.notebook")
             if !isSimple {
                 destination("Kept", "tray.full", action: onShowSaves)
                 destination("Invent", "wand.and.stars", action: onShowEditor)
