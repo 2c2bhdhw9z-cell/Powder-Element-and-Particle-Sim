@@ -209,7 +209,7 @@ final class CrucibleTour: XCTestCase {
         tap("fieldTray.handle", "the Field tray's handle", in: app)
         guard isRunning(app) else { return }
 
-        guard let add = find("layer.add", in: app, scrollingWithin: trayArea(app)) else {
+        guard let add = find("layer.add", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the button that adds a layer was not in the tray")
             report(app, "Add, for layers, was not in the tray")
             return
@@ -235,7 +235,7 @@ final class CrucibleTour: XCTestCase {
             ("layer.choose.1", "choosing the second layer"),
         ] {
             guard isRunning(app) else { return }
-            guard let control = find(id, in: app, scrollingWithin: trayArea(app)) else {
+            guard let control = find(id, in: app, scrollingIn: trayScroll(in: app)) else {
                 XCTFail("\(id) was not in the tray")
                 report(app, "\(id) was not in the tray")
                 continue
@@ -258,7 +258,7 @@ final class CrucibleTour: XCTestCase {
 
         // Copying, and then deleting the very layer being looked at — the case that breaks a list.
         guard isRunning(app) else { return }
-        if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
+        if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let copy = app.buttons["layer.copy.1"]
             if copy.waitForExistence(timeout: 3), canReallyTap(copy, in: app) {
@@ -270,7 +270,7 @@ final class CrucibleTour: XCTestCase {
             }
         }
         guard isRunning(app) else { return }
-        if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
+        if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let remove = app.buttons["layer.delete.1"]
             if remove.waitForExistence(timeout: 3), canReallyTap(remove, in: app) {
@@ -686,6 +686,9 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "going inside a body")
         guard element("within.back", in: app).waitForExistence(timeout: 10) else {
             XCTFail("going inside a body did not say where it was")
+            // With the tray open, so the written-out screen includes the tray's own note on why ("There is no body
+            // there…"), which is under the tray's handle and was not on screen when this first failed on a tablet.
+            tap("fieldTray.handle", "the Field tray's handle, to read why", in: app)
             report(app, "No way back out")
             return
         }
@@ -799,9 +802,25 @@ final class CrucibleTour: XCTestCase {
         // Three seconds of recording, then the library, which may ask first.
         let note = element("movie.liveNote", in: app)
         var settled = false
+        // The phone asks whether Crucible may add to Photos. That question belongs to the system, not the app, so it is
+        // not in the app's own screen at all — the walk used to wait thirty seconds beside it, the app saying
+        // "Saving…" the whole time because it was waiting for an answer, and fail. Answered here, as a person would.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         for _ in 0 ..< 60 {
             Thread.sleep(forTimeInterval: 0.5)
             guard isRunning(app) else { break }
+            let question = springboard.alerts.firstMatch
+            if question.exists {
+                picture(app, "57a Asked for permission to add to Photos")
+                for answer in ["Allow Full Access", "Allow Access to All Photos", "Allow", "OK", "Add Photos Only"] {
+                    let button = question.buttons[answer]
+                    if button.exists {
+                        button.tap()
+                        break
+                    }
+                }
+                continue
+            }
             let said = note.exists ? note.label : ""
             if said.contains("Saved") || said.contains("permission") || said.contains("could not") || said.contains("Nothing") {
                 settled = true
@@ -1133,7 +1152,13 @@ final class CrucibleTour: XCTestCase {
     /// never started, looks exactly like this — and nothing else in the checks can see it.
     private func expectDrawn(_ world: XCUIElement, _ what: String, in app: XCUIApplication) {
         guard isRunning(app) else { return }
-        XCTAssertTrue(world.waitForExistence(timeout: 10), "could not find \(what)")
+        // Thirty seconds, not ten: the very first walk of a run opens the field on a simulator that has only just
+        // started, and there the field's first appearance once took longer than ten while it was being prepared.
+        guard world.waitForExistence(timeout: 30) else {
+            XCTFail("could not find \(what)")
+            report(app, "Could not find \(what)")
+            return
+        }
         // A moment for the first frames.
         _ = XCTWaiter.wait(for: [XCTestExpectation(description: "a moment")], timeout: 1.5)
         let colours = distinctColours(in: world.frame, of: app.screenshot().image)
