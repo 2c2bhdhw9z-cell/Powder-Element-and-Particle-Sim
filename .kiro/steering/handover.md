@@ -218,6 +218,9 @@ popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.*
 Checked against the repository, not remembered: items 5 to 9 below are **all built** — parallel worlds (`710c5a5`),
 worlds within worlds (`796f666`), talk / wave / look / table (`9d9b2fa`), 3D moment and Live Photo (`218fb86`), lava
 lamp (`0bdc177`); red-and-blue glasses, the clock, photo colours, photo into powder and relax mode were built earlier.
+Also seen, part of #12: an arrangement chosen with the Field tray open is laid out in the smaller world above the tray,
+and closing the tray grows the world with a plain `resize` that moves nothing — so the galaxy's black hole ends up a
+third of the way down the screen, not in the middle. The worlds-within walk now searches for it instead of failing.
 What is genuinely left: #10's iPad/sideways pictures, #12 the Field tray crash, #13 performance, and every fault in
 "Found by chat two" above (none fixed yet).
 

@@ -681,10 +681,22 @@ final class CrucibleTour: XCTestCase {
         look.tap()
         tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
-        // The black hole sits in the middle of the galaxy, and holds still there.
-        drag(across: field, from: CGVector(dx: 0.5, dy: 0.5), to: CGVector(dx: 0.52, dy: 0.5))
+        // The black hole sits in the middle of the galaxy and holds still there — but the galaxy is not always in the
+        // middle of the screen. It is laid out while the tray is open, in the smaller world above it, and closing the
+        // tray grows the world without moving anything (handover #12), so the hole ends up about a third of the way
+        // down on a phone. A missed tap only says "no body there" and waits for another, so the walk tries down the
+        // middle, the way somebody would, rather than failing on where the hole happens to be.
+        var inside = false
+        for down in [0.5, 0.3, 0.4, 0.35, 0.45, 0.25, 0.55, 0.6] {
+            guard isRunning(app) else { return }
+            drag(across: field, from: CGVector(dx: 0.5, dy: down), to: CGVector(dx: 0.52, dy: down))
+            if element("within.back", in: app).waitForExistence(timeout: 4) {
+                inside = true
+                break
+            }
+        }
         stillRunning(app, after: "going inside a body")
-        guard element("within.back", in: app).waitForExistence(timeout: 10) else {
+        guard inside else {
             XCTFail("going inside a body did not say where it was")
             // With the tray open, so the written-out screen includes the tray's own note on why ("There is no body
             // there…"), which is under the tray's handle and was not on screen when this first failed on a tablet.
