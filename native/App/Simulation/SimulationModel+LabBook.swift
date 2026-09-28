@@ -36,6 +36,7 @@ extension SimulationModel {
     /// The world it replaces is one undo away, as with a scene. The world is held still until a guess is made, so
     /// nothing happens before anybody has thought about what will.
     func beginExperiment(_ experiment: LabExperiment) {
+        endParallel(keepSecond: false)
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()

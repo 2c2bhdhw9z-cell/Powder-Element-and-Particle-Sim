@@ -21,6 +21,8 @@ struct ElementDock: View {
     let onShowNotebook: () -> Void
     /// Opens the lab book of experiments, and how many of them have been done.
     let onShowLabBook: () -> Void
+    /// Opens the choice of what differs between two parallel worlds.
+    let onShowParallel: () -> Void
     let labBookDone: Int
     /// How many things have been found, and how many there are, for the chip.
     let found: Int
@@ -173,6 +175,8 @@ struct ElementDock: View {
             destination("Lab book · \(labBookDone)/\(LabBook.experiments.count)", "book", action: onShowLabBook)
                 .accessibilityIdentifier("dock.labbook")
             if !isSimple {
+                destination("Parallel worlds", "square.split.2x1", action: onShowParallel)
+                    .accessibilityIdentifier("dock.parallel")
                 destination("Kept", "tray.full", action: onShowSaves)
                 destination("Invent", "wand.and.stars", action: onShowEditor)
                 destination("Periodic", "atom", action: onShowPeriodic)

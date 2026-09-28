@@ -443,6 +443,13 @@ final class SimulationModel {
     /// materials the world made, the longest run of explosions, and the largest blast, all since the last frame.
     var onDiscovery: (([ElementID], Int, Int) -> Void)?
 
+    /// The second of two parallel worlds, while there are two, and the one thing that differs in it. See
+    /// `SimulationModel+Parallel.swift`.
+    private(set) var parallel: SimulationModel?
+    private(set) var parallelChange: PowderParallelChange?
+    /// How much of the two worlds differs, nought to one. Refreshed once a second.
+    private(set) var parallelDifference = 0.0
+
     /// Listens to the world for the soundscape. See `Soundscape.swift`.
     @ObservationIgnored private var soundscapeListener = SoundscapeListener()
     /// When the world was last listened to, and the biggest explosion since.
@@ -511,6 +518,27 @@ final class SimulationModel {
     var canRedo: Bool {
         observeEngine()
         return history.canRedo && !isRewinding
+    }
+
+    /// The second of two parallel worlds: an exact copy of another's world, at this moment.
+    ///
+    /// Held still by itself — the first world steps it, so the two take exactly the same moments — and given no sound,
+    /// no tilt and no notebook: it is only ever watched.
+    /// Sets or clears the second of two parallel worlds. Here rather than beside the rest of it, because the two
+    /// properties can only be written from this file.
+    func setParallel(_ twin: SimulationModel?, _ change: PowderParallelChange?) {
+        parallel = twin
+        parallelChange = change
+        parallelDifference = 0
+    }
+
+    init(twinOf first: SimulationModel) {
+        engine = first.engine.twin()
+        history = PowderHistory(maximumSteps: 1)
+        detail = first.detail
+        overlay = first.overlay
+        isRunning = false
+        refreshCounts()
     }
 
     init() {
@@ -692,7 +720,11 @@ final class SimulationModel {
 
         let startedAt = CFAbsoluteTimeGetCurrent()
         for _ in 0 ..< steps {
+            // The second of two parallel worlds takes exactly the same moments as this one, in the same loop, so the
+            // two can never drift apart in time — only in what happens.
+            if let twin = parallel, let change = parallelChange { change.keep(twin.engine, following: engine) }
             engine.step()
+            parallel?.engine.step()
             // A moment kept every so often, to rewind to.
             rewind.noteMoment(engine, time: worldSeconds)
             // Inside the loop rather than after it, because an experiment says how many moments apart it wants to
@@ -712,6 +744,12 @@ final class SimulationModel {
 
         // What the world made by itself this frame, for the notebook. Emptied whether or not anybody is listening, so
         // nothing piles up unread — and the list is empty in a world where nothing is happening, which is most of them.
+        if let twin = parallel {
+            // Emptied, so nothing piles up: the notebook listens to the first world only.
+            _ = twin.engine.takeNewlyMade()
+            _ = twin.engine.takeLongestChain()
+            _ = twin.engine.takeLargestBurst()
+        }
         let made = engine.takeNewlyMade()
         let chain = engine.takeLongestChain()
         if let onDiscovery, !made.isEmpty || chain >= 5 || blast >= 60 {
@@ -744,6 +782,11 @@ final class SimulationModel {
             heatHistory.record(hottestCell)
 
             if rewindCount != rewind.count { rewindCount = rewind.count }
+            if let twin = parallel {
+                let differs = PowderEngine.difference(engine, twin.engine)
+                if abs(differs - parallelDifference) > 0.0005 { parallelDifference = differs }
+                twin.refreshCounts()
+            }
             if isMeasuring {
                 measurements.sample(engine, seconds: worldSeconds - measuringSince, thermometer: thermometer?.current)
                 measurementRows = measurements.rows.count
@@ -923,6 +966,8 @@ final class SimulationModel {
     /// panel and the buttons have to be told. They were not: after an undo the redo button stayed greyed
     /// out and could not be pressed, and switching tilt off afterwards returned to the wrong gravity.
     func undo() {
+        // Undoing one of two parallel worlds would be a second difference between them, so the second goes first.
+        endParallel(keepSecond: false)
         guard !isRewinding else { return }
         cancelPendingEvent()
         toolsBeforeUndo()
@@ -931,6 +976,7 @@ final class SimulationModel {
     }
 
     func redo() {
+        endParallel(keepSecond: false)
         guard !isRewinding else { return }
         cancelPendingEvent()
         toolsBeforeUndo()
@@ -1023,6 +1069,7 @@ final class SimulationModel {
     @discardableResult
     func loadDailyScene(day: String) -> String {
         endExperiment()
+        endParallel(keepSecond: false)
         // A meteor still falling would otherwise land in the day's world, as it used to, with no undo point of its own.
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
@@ -1352,8 +1399,9 @@ final class SimulationModel {
     // MARK: - Scenes
 
     func loadScene(_ recipe: PowderRecipe) {
-        // A different world is not the experiment any more.
+        // A different world is not the experiment any more, nor one of two parallel worlds.
         endExperiment()
+        endParallel(keepSecond: false)
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()
@@ -1364,6 +1412,7 @@ final class SimulationModel {
 
     func clear() {
         endExperiment()
+        endParallel(keepSecond: false)
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()

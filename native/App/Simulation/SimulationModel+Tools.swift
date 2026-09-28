@@ -493,6 +493,7 @@ extension SimulationModel {
 
     /// Brings out the rewind: time stops, and the world can be scrubbed back through the last little while.
     func beginRewind() {
+        endParallel(keepSecond: false)
         guard canRewind, !isRewinding else { return }
         cancelPendingEvent()
         // A piece in the lasso's hand goes back first, so it is in the present that scrubbing returns to.

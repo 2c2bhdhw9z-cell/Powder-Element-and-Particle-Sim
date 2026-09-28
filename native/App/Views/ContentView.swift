@@ -62,6 +62,7 @@ struct ContentView: View {
     @State private var showingScenes = false
     @State private var showingNotebook = false
     @State private var showingLabBook = false
+    @State private var showingParallel = false
     @State private var showingPresets = false
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
@@ -591,6 +592,15 @@ struct ContentView: View {
         .sheet(isPresented: $showingNotebook) {
             NotebookSheet(store: notebook)
         }
+        .sheet(isPresented: $showingParallel) {
+            ParallelWorldsSheet { change in
+                showingParallel = false
+                breadcrumbs.record("made a parallel world with \(change.title.lowercased())")
+                if chamber != .powder { select(.powder) }
+                isDockOpen = false
+                withAnimation(.easeOut(duration: 0.2)) { powder.beginParallel(change) }
+            }
+        }
         .sheet(isPresented: $showingLabBook) {
             LabBookSheet(store: labBook) { experiment in
                 showingLabBook = false
@@ -775,8 +785,9 @@ struct ContentView: View {
                 surface(which, size: geometry.size)
 
                 // The floating controls belong to whichever chamber has focus. Showing them on both
-                // halves would be two sets of undo buttons doing different things.
-                if which == chamber {
+                // halves would be two sets of undo buttons doing different things. None while two parallel worlds
+                // run: every one of them would change the first world and not the second.
+                if which == chamber, !(which == .powder && powder.parallel != nil) {
                     VStack(alignment: .leading, spacing: 8) {
                         tools
                         if showDebugOverlay { debugReadout }
@@ -790,7 +801,7 @@ struct ContentView: View {
                 // nothing stops one growing under the other — and the tools did exactly that, being
                 // wider than the phone. The tools are two rows now and this keeps its corner; the
                 // readout is also a single short line, so it cannot grow to meet them.
-                if which == .powder, which == chamber {
+                if which == .powder, which == chamber, powder.parallel == nil {
                     HStack {
                         Spacer(minLength: 0)
                         InspectChip(
@@ -808,7 +819,7 @@ struct ContentView: View {
             }
             // The lab book's card, under the tools, over the part of the world every experiment leaves empty.
             .overlay(alignment: .top) {
-                if which == .powder, which == chamber {
+                if which == .powder, which == chamber, powder.parallel == nil {
                     LabBookCardView(model: powder, onNext: { beginExperiment($0) })
                         .padding(.top, topClearance + 96)
                         .animation(.easeOut(duration: 0.2), value: powder.labBook)
@@ -817,7 +828,7 @@ struct ContentView: View {
             // The rewind's slider and the lasso's actions, along the bottom of the world just above the tray — where
             // the thumb already is, and away from the tools at the top.
             .overlay(alignment: .bottom) {
-                if which == .powder, which == chamber {
+                if which == .powder, which == chamber, powder.parallel == nil {
                     PowderToolBars(model: powder)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 8)
@@ -1018,15 +1029,20 @@ struct ContentView: View {
     private func surface(_ which: Chamber, size: CGSize) -> some View {
         switch which {
         case .powder:
-            ShakenPowderSurface(model: powder, size: size, unit: temperatureUnit)
-                // Said to somebody using VoiceOver, who otherwise hears nothing at all about the world: what it is,
-                // what is in it, and what a drag does.
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("The powder world")
-                .accessibilityValue("\(powder.activeCells.formatted()) cells filled. Painting \(powder.definition(of: powder.brushElement).name).")
-                .accessibilityHint("Drag to paint.")
-                .accessibilityAddTraits(.allowsDirectInteraction)
-                .accessibilityIdentifier("world.powder")
+            if let twin = powder.parallel, let change = powder.parallelChange {
+                // Two worlds, each drawn whole. Neither is resized to its half — see `ParallelPowderView`.
+                ParallelPowderView(first: powder, second: twin, change: change)
+            } else {
+                ShakenPowderSurface(model: powder, size: size, unit: temperatureUnit)
+                    // Said to somebody using VoiceOver, who otherwise hears nothing at all about the world: what it is,
+                    // what is in it, and what a drag does.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("The powder world")
+                    .accessibilityValue("\(powder.activeCells.formatted()) cells filled. Painting \(powder.definition(of: powder.brushElement).name).")
+                    .accessibilityHint("Drag to paint.")
+                    .accessibilityAddTraits(.allowsDirectInteraction)
+                    .accessibilityIdentifier("world.powder")
+            }
         case .field:
             FieldWithLabels(model: field)
                 .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
@@ -1115,6 +1131,7 @@ struct ContentView: View {
                 onShowSaves: { showingSaves = true },
                 onShowNotebook: { showingNotebook = true },
                 onShowLabBook: { showingLabBook = true },
+                onShowParallel: { showingParallel = true },
                 labBookDone: labBook.progress.doneCount,
                 found: notebook.notebook.found,
                 howMany: notebook.notebook.howMany,

@@ -600,6 +600,53 @@ final class CrucibleTour: XCTestCase {
         }
     }
 
+    /// Parallel worlds: the world copied with one grain of sand added, both run side by side, and the second kept.
+    ///
+    /// Two powder worlds on screen at once is two graphics views drawing two worlds, where the app was built for one —
+    /// which is exactly where it could come apart. The walk sees both drawn and then goes back to one.
+    func testParallelWorlds() {
+        let app = launch()
+        tap("tray.arrow", "the powder tray's arrow", in: app)
+        guard isRunning(app) else { return }
+        guard let entry = find("dock.parallel", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("parallel worlds were not in the tray")
+            report(app, "No parallel worlds in the tray")
+            return
+        }
+        entry.tap()
+        stillRunning(app, after: "opening parallel worlds")
+        guard let grain = find("parallel.oneGrain", in: app, scrollingIn: panelScroll(in: app)) else {
+            XCTFail("the choice of one grain of sand was not offered")
+            report(app, "No one-grain choice")
+            return
+        }
+        grain.tap()
+        stillRunning(app, after: "making a parallel world")
+        let second = element("world.parallel.second", in: app)
+        guard second.waitForExistence(timeout: 10) else {
+            XCTFail("the second world was not on screen")
+            report(app, "No second world")
+            return
+        }
+        expectDrawn(element("world.parallel.first", in: app), "the first of two parallel worlds", in: app)
+        expectDrawn(second, "the second of two parallel worlds", in: app)
+        picture(app, "48 Two parallel worlds")
+        Thread.sleep(forTimeInterval: 6)
+        stillRunning(app, after: "running two worlds side by side")
+        picture(app, "49 Two parallel worlds, a while later")
+        if !element("parallel.difference", in: app).exists {
+            XCTFail("nothing said how different the two worlds were")
+            report(app, "No difference line")
+        }
+        tap("parallel.keep.second", "keeping the second world", in: app)
+        guard element("world.powder", in: app).waitForExistence(timeout: 10) else {
+            XCTFail("keeping one world did not go back to one world")
+            report(app, "Still two worlds")
+            return
+        }
+        stillRunning(app, after: "going back to one world")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {
