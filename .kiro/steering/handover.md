@@ -26,6 +26,28 @@ fresh conversation has.
   extensions). On this Linux box, syntax-check app files with `swiftc -parse <file>` — it will not catch type errors,
   so expect CI to find those.
 
+## If two conversations are working at once
+
+Possible, and useful, but only with a boundary — otherwise both will edit the same handful of files and one of them will
+lose work. Almost every app feature touches `App/Views/ContentView.swift`, the two trays, and the two models, so those
+cannot be shared.
+
+**Push with `sh scripts/push-to-main.sh`.** It looks up what the main line is called, replays the work on top of
+anything that arrived meanwhile, and refuses rather than guessing if that will not go cleanly. Never `--force`.
+
+The boundary that actually works:
+
+- **The building conversation** owns everything under `native/App/` and `native/Sources/CrucibleCore/`, and its own new
+  test files. It does the features, then the Field tray crash, then the performance work — in that order, because the
+  last two touch the same files the features do.
+- **The other conversation** owns `docs/`, `scripts/`, `.github/workflows/`, `native/UITests/`, and anything new in a
+  folder of its own. That is: the engine in a browser, `METHOD.md`, the second opinion, the pictures of the app on a
+  tablet and sideways, and ticking off what is built in `docs/lab-ideas.md`.
+- **This file is shared.** Whoever edits it should push immediately rather than holding it, and should add rather than
+  rewrite, so the two never disagree about the same paragraph.
+- Neither should touch `native/Tests/.../Fixtures/` without saying so: those are recorded comparisons, and two
+  conversations re-recording them at once produces a file that matches neither engine.
+
 ## Commands
 
 ```
