@@ -45,6 +45,8 @@ struct ContentView: View {
     @State private var store = SceneStore()
     /// What has been worked out so far. See `NotebookStore.swift`.
     @State private var notebook = NotebookStore()
+    /// Which lab book experiments have been done. See `LabBookStore.swift`.
+    @State private var labBook = LabBookStore()
     /// Why a world opened from elsewhere could not be used, while that is being said.
     @State private var arrivalProblem: String?
     @State private var recorder = ScreenRecorder()
@@ -59,6 +61,7 @@ struct ContentView: View {
     @State private var isDockOpen = false
     @State private var showingScenes = false
     @State private var showingNotebook = false
+    @State private var showingLabBook = false
     @State private var showingPresets = false
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
@@ -381,6 +384,10 @@ struct ContentView: View {
             applyRoomSenses()
             bigScreen.use(field)
             watchForDiscoveries()
+            powder.onLabBookAnswered = { [labBook, breadcrumbs] run in
+                breadcrumbs.record("answered the \(run.experiment.title) experiment")
+                labBook.finish(run)
+            }
             if !hasBeenWelcomed { showingWelcome = true }
         }
         .onChange(of: usesRoomSenses) { _, wanted in
@@ -563,6 +570,12 @@ struct ContentView: View {
         .sheet(isPresented: $showingNotebook) {
             NotebookSheet(store: notebook)
         }
+        .sheet(isPresented: $showingLabBook) {
+            LabBookSheet(store: labBook) { experiment in
+                showingLabBook = false
+                beginExperiment(experiment)
+            }
+        }
         .sheet(isPresented: $showingSaves) {
             SavesSheet(powder: powder, field: field, chamber: chamber, store: store)
         }
@@ -620,6 +633,16 @@ struct ContentView: View {
             let picture = chamber == .powder ? powder.snapshot() : field.snapshot()
             report = breadcrumbs.reportNow(picture: picture)
         }
+    }
+
+    // MARK: - The lab book
+
+    /// Sets an experiment up in the powder world, on screen and with the tray out of the way.
+    private func beginExperiment(_ experiment: LabExperiment) {
+        breadcrumbs.record("began the \(experiment.title) experiment")
+        if chamber != .powder { select(.powder) }
+        isDockOpen = false
+        withAnimation(.easeOut(duration: 0.2)) { powder.beginExperiment(experiment) }
     }
 
     // MARK: - The notebook
@@ -760,6 +783,14 @@ struct ContentView: View {
                     // The same clearance as the tools. It is in the same layer over the same world, so
                     // the bar would cover it just as thoroughly.
                     .padding(.top, topClearance)
+                }
+            }
+            // The lab book's card, under the tools, over the part of the world every experiment leaves empty.
+            .overlay(alignment: .top) {
+                if which == .powder, which == chamber {
+                    LabBookCardView(model: powder, onNext: { beginExperiment($0) })
+                        .padding(.top, topClearance + 96)
+                        .animation(.easeOut(duration: 0.2), value: powder.labBook)
                 }
             }
             // The rewind's slider and the lasso's actions, along the bottom of the world just above the tray — where
@@ -1062,6 +1093,8 @@ struct ContentView: View {
                 onShowPeriodic: { showingPeriodic = true },
                 onShowSaves: { showingSaves = true },
                 onShowNotebook: { showingNotebook = true },
+                onShowLabBook: { showingLabBook = true },
+                labBookDone: labBook.progress.doneCount,
                 found: notebook.notebook.found,
                 howMany: notebook.notebook.howMany,
                 onShowEditor: { showingEditor = true },

@@ -19,6 +19,9 @@ struct ElementDock: View {
     let onShowSaves: () -> Void
     /// Opens the notebook of what has been worked out.
     let onShowNotebook: () -> Void
+    /// Opens the lab book of experiments, and how many of them have been done.
+    let onShowLabBook: () -> Void
+    let labBookDone: Int
     /// How many things have been found, and how many there are, for the chip.
     let found: Int
     let howMany: Int
@@ -166,6 +169,9 @@ struct ElementDock: View {
             // The count is on the chip because a notebook nobody knows is filling up is a notebook nobody opens.
             destination("Notebook · \(found)/\(howMany)", "sparkles", action: onShowNotebook)
                 .accessibilityIdentifier("dock.notebook")
+            // Beside the notebook: one is what the world taught you by accident, the other on purpose.
+            destination("Lab book · \(labBookDone)/\(LabBook.experiments.count)", "book", action: onShowLabBook)
+                .accessibilityIdentifier("dock.labbook")
             if !isSimple {
                 destination("Kept", "tray.full", action: onShowSaves)
                 destination("Invent", "wand.and.stars", action: onShowEditor)

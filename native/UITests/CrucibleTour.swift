@@ -369,6 +369,62 @@ final class CrucibleTour: XCTestCase {
         }
     }
 
+    /// The lab book: an experiment chosen, a guess made, the world asked to show how, and the answer explained.
+    ///
+    /// The card on the world changes shape three times — question, task, answer — and the answer arrives from the
+    /// middle of a running world rather than from a tap, which is the part nothing but a walk can see: a card whose
+    /// explanation lays out badly, or an answer that lands while the tray or a panel is in the way.
+    func testLabBook() {
+        let app = launch()
+        tap("tray.arrow", "the powder tray's arrow", in: app)
+        guard isRunning(app) else { return }
+        guard let entry = find("dock.labbook", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("the lab book was not in the tray")
+            report(app, "The lab book was not in the tray")
+            return
+        }
+        entry.tap()
+        stillRunning(app, after: "opening the lab book")
+        picture(app, "35 The lab book")
+
+        guard let floating = find("labbook.floating", in: app, scrollingIn: panelScroll(in: app)) else {
+            XCTFail("the first experiment was not in the lab book")
+            report(app, "The first experiment was not in the lab book")
+            return
+        }
+        floating.tap()
+        stillRunning(app, after: "choosing an experiment")
+        guard element("labbook.card", in: app).waitForExistence(timeout: 10) else {
+            XCTFail("choosing an experiment put no card on the world")
+            report(app, "No lab book card")
+            return
+        }
+        picture(app, "36 A question, waiting for a guess")
+
+        tap("labbook.guess.0", "the first guess", in: app)
+        picture(app, "37 The task")
+
+        // Help is offered once the world has run for a fair while without an answer, which on a simulated phone is
+        // slower than on a real one.
+        if waitUntilEnabled("labbook.showme", "Show me", in: app, seconds: 150) {
+            tap("labbook.showme", "Show me", in: app)
+            picture(app, "38 Shown how")
+            if element("labbook.verdict", in: app).waitForExistence(timeout: 150) {
+                picture(app, "39 The world's answer")
+            } else {
+                XCTFail("the world never answered the experiment")
+                report(app, "The experiment was never answered")
+            }
+        }
+        guard isRunning(app) else { return }
+        if element("labbook.next", in: app).waitForExistence(timeout: 5) {
+            tap("labbook.next", "the next experiment", in: app)
+            picture(app, "40 The next experiment")
+        }
+        tap("labbook.stop", "putting the lab book away", in: app)
+        stillRunning(app, after: "putting the lab book away")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

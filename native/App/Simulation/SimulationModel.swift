@@ -443,6 +443,19 @@ final class SimulationModel {
     /// materials the world made, the longest run of explosions, and the largest blast, all since the last frame.
     var onDiscovery: (([ElementID], Int, Int) -> Void)?
 
+    /// The lab book experiment being done, if one is. See `SimulationModel+LabBook.swift`.
+    ///
+    /// Not watched: it is looked at every few moments and changes each time, and the card reads ``labBook`` instead,
+    /// which only changes when something worth redrawing has happened.
+    @ObservationIgnored var labRun: LabBookRun?
+    /// What the lab book card shows. Changes when an experiment starts, a guess is made, help is offered, or the world
+    /// answers — a handful of times per experiment rather than every look.
+    var labBook: LabBookCard?
+    /// The engine moment the experiment was last looked at.
+    @ObservationIgnored var labLookedAt = 0
+    /// Told when the world answers an experiment, so its progress can be written down.
+    var onLabBookAnswered: ((LabBookRun) -> Void)?
+
     private(set) var ticksPerSecond: Int = 0
     /// How many cells are occupied. Updated once a second rather than every frame.
     private(set) var activeCells: Int = 0
@@ -656,6 +669,9 @@ final class SimulationModel {
             engine.step()
             // A moment kept every so often, to rewind to.
             rewind.noteMoment(engine, time: worldSeconds)
+            // Inside the loop rather than after it, because an experiment says how many moments apart it wants to
+            // be looked at, and a fast frame takes eight.
+            if labRun != nil { lookAtExperiment() }
         }
         simulationSeconds += CFAbsoluteTimeGetCurrent() - startedAt
 
@@ -979,6 +995,7 @@ final class SimulationModel {
     /// - Returns: its name, for saying which one it was.
     @discardableResult
     func loadDailyScene(day: String) -> String {
+        endExperiment()
         // A meteor still falling would otherwise land in the day's world, as it used to, with no undo point of its own.
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
@@ -1308,6 +1325,8 @@ final class SimulationModel {
     // MARK: - Scenes
 
     func loadScene(_ recipe: PowderRecipe) {
+        // A different world is not the experiment any more.
+        endExperiment()
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()
@@ -1317,6 +1336,7 @@ final class SimulationModel {
     }
 
     func clear() {
+        endExperiment()
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()
