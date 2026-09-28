@@ -326,6 +326,9 @@ public final class ParticleEngine {
     /// An outline being drawn with the jelly pen, and the jellies made with it. See `ParticleJellyPen.swift`.
     var storedJellyOutline: [ParticleFingerPoint] = []
     var storedJellies: [ParticleJelly] = []
+    /// How warm each blob of a lava lamp is. See `ParticleLavaLamp.swift`.
+    var storedLampWarmth: [Double] = []
+    var storedLampBlobs: [[Int]] = []
     /// Creatures of bones and muscles. See `ParticleCreatures.swift`.
     var storedCreatures: [ParticleCreature] = []
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
@@ -1067,6 +1070,8 @@ public final class ParticleEngine {
         stepForceLoops(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
         // And every jelly pulling itself back towards the shape it was drawn.
         stepJellies()
+        // And the wax in a lava lamp, warming and cooling.
+        stepLavaLamp()
 
         if mouseActive, mouseMode == .emitter, let mouseX, let mouseY {
             if storedDepthEnabled {

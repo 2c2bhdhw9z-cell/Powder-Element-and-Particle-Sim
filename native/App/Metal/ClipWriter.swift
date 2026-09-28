@@ -190,17 +190,19 @@ final class ClipWriter: @unchecked Sendable {
     func wantsStill(at now: CFTimeInterval) -> Bool {
         guard pairing != nil, !stillTaken, let startedAt, now - startedAt >= Self.stillAt else { return false }
         stillTaken = true
-        let item = AVMutableMetadataItem()
-        item.keySpace = .quickTimeMetadata
-        item.key = "com.apple.quicktime.still-image-time" as NSString
-        item.value = 0 as NSNumber
-        item.dataType = "com.apple.metadata.datatype.int8"
         let at = CMTime(seconds: now - startedAt, preferredTimescale: 600)
-        let group = AVTimedMetadataGroup(items: [item], timeRange: CMTimeRange(start: at, duration: CMTime(value: 20, timescale: 600)))
         let track = StillBox(stillTrack)
+        // Made on the writer's own queue: the pieces of a metadata group are not safe to hand between threads, and a
+        // time is.
         queue.async { [self] in
             guard !isFinished, let adaptor = track.adaptor, adaptor.assetWriterInput.isReadyForMoreMediaData else { return }
-            adaptor.append(group)
+            let item = AVMutableMetadataItem()
+            item.keySpace = .quickTimeMetadata
+            item.key = "com.apple.quicktime.still-image-time" as NSString
+            item.value = 0 as NSNumber
+            item.dataType = "com.apple.metadata.datatype.int8"
+            let range = CMTimeRange(start: at, duration: CMTime(value: 20, timescale: 600))
+            adaptor.append(AVTimedMetadataGroup(items: [item], timeRange: range))
         }
         return true
     }

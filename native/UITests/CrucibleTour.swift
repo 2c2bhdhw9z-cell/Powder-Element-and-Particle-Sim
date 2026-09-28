@@ -807,6 +807,25 @@ final class CrucibleTour: XCTestCase {
         }
     }
 
+    /// The lava lamp: chosen, watched for a while, and drawn.
+    func testLavaLamp() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let lamp = find("arrangement.lavalamp", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the lava lamp was not in the tray")
+            report(app, "No lava lamp")
+            return
+        }
+        lamp.tap()
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        Thread.sleep(forTimeInterval: 5)
+        stillRunning(app, after: "watching the lava lamp")
+        expectDrawn(element("world.field", in: app), "the lava lamp", in: app)
+        picture(app, "58 A lava lamp")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

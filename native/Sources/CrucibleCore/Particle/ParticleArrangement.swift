@@ -249,6 +249,13 @@ public struct ParticleArrangement: Sendable, Hashable {
             inDepth: "Bells swimming through the box, passing in front of and behind each other."
         ),
         ParticleArrangement(
+            "lavalamp", "Lava lamp", joining: .none,
+            about: "Blobs of wax that warm at the bottom, rise, cool at the top and sink again, for ever.",
+            join: "",
+            view: .front,
+            inDepth: "Soft balls of wax rising and sinking through the box, in front of and behind each other."
+        ),
+        ParticleArrangement(
             "pendulums", "Pendulum wave", joining: .structure,
             about: "A row of weights on strings, each string a little longer than the last, let go together. "
                 + "They drift in and out of snake patterns, then line back up.",
@@ -557,6 +564,7 @@ extension ParticleEngine {
         case "solar": spawnSolarSystem()
         case "pendulums": spawnPendulumWave()
         case "jellyfish": spawnJellyfish()
+        case "lavalamp": spawnLavaLamp()
         case "life": spawnParticleLife()
         case "foxes": spawnFoxesAndRabbits()
         case "drum": spawnDrum()
