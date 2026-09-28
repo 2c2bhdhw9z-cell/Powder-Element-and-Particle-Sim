@@ -144,6 +144,21 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "making a shape from a formula")
         picture(app, "22 A shape from a formula")
 
+        // Its own slider, while it is still known which recipe is loaded: the first of the ready-made ones, whose
+        // knobs are how big it is and how many petals it has. Checked here rather than after the loop below, because
+        // which recipe the loop ends on depends on which menu items this screen size can reach — and a check whose
+        // subject depends on the screen is a check that fails for the wrong reason.
+        if let petals = find("slider.Petals", in: app, kind: .slider, scrollingIn: trayScroll(in: app)) {
+            petals.adjust(toNormalizedSliderPosition: 0.9)
+            stillRunning(app, after: "turning a shape's own knob")
+            petals.adjust(toNormalizedSliderPosition: 0.1)
+            stillRunning(app, after: "turning it back")
+            picture(app, "23 A shape reshaped by its own knob")
+        } else {
+            XCTFail("a recipe's own slider was not in the tray")
+            report(app, "A recipe's own slider was not in the tray")
+        }
+
         // Every ready-made recipe, each made in turn. Any one of them that cannot lay out takes the app down here
         // rather than on somebody's phone.
         for name in ["Lissajous", "Spirograph", "Heart", "Ripples", "Star", "Knot", "Grid that bends"] {
@@ -155,7 +170,7 @@ final class CrucibleTour: XCTestCase {
             // usable point to press, and asking anyway is an error rather than a miss — so the ones out of reach are
             // left for another screen size rather than failing the walk. That every recipe lays out is settled by the
             // engine's own checks; what is being walked here is the interface.
-            if choice.waitForExistence(timeout: 3), choice.isHittable {
+            if choice.waitForExistence(timeout: 3), canReallyTap(choice, in: app) {
                 choice.tap()
                 stillRunning(app, after: "choosing \(name)")
                 if let again = find("recipe.make", in: app, scrollingWithin: trayArea(app)) {
@@ -169,21 +184,7 @@ final class CrucibleTour: XCTestCase {
                 stillRunning(app, after: "closing a menu that could not be used")
             }
         }
-        picture(app, "23 The last shape from a formula")
-
-        // Its own slider, moved. Which slider it is depends on the recipe, so it is found by the name the recipe gave
-        // it — which is the thing being checked.
-        guard isRunning(app) else { return }
-        if let knob = find("slider.How often", in: app, kind: .slider, scrollingWithin: trayArea(app)) {
-            knob.adjust(toNormalizedSliderPosition: 0.9)
-            stillRunning(app, after: "turning a shape's own knob")
-            knob.adjust(toNormalizedSliderPosition: 0.1)
-            stillRunning(app, after: "turning it back")
-            picture(app, "24 A shape reshaped by its own knob")
-        } else {
-            XCTFail("a recipe's own slider was not in the tray")
-            report(app, "A recipe's own slider was not in the tray")
-        }
+        picture(app, "24 The last shape from a formula")
 
         guard isRunning(app) else { return }
         tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
@@ -246,7 +247,7 @@ final class CrucibleTour: XCTestCase {
 
         // Its own two sliders, which only appear for the layer being worked on.
         guard isRunning(app) else { return }
-        if let weight = find("slider.Weight", in: app, kind: .slider, scrollingWithin: trayArea(app)) {
+        if let weight = find("slider.Weight", in: app, kind: .slider, scrollingIn: trayScroll(in: app)) {
             weight.adjust(toNormalizedSliderPosition: 0.2)
             stillRunning(app, after: "making a layer lighter")
             picture(app, "28 A layer with its own weight")
@@ -260,7 +261,7 @@ final class CrucibleTour: XCTestCase {
         if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
             more.tap()
             let copy = app.buttons["layer.copy.1"]
-            if copy.waitForExistence(timeout: 3), copy.isHittable {
+            if copy.waitForExistence(timeout: 3), canReallyTap(copy, in: app) {
                 copy.tap()
                 stillRunning(app, after: "copying a layer")
             } else {
@@ -272,7 +273,7 @@ final class CrucibleTour: XCTestCase {
         if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
             more.tap()
             let remove = app.buttons["layer.delete.1"]
-            if remove.waitForExistence(timeout: 3), remove.isHittable {
+            if remove.waitForExistence(timeout: 3), canReallyTap(remove, in: app) {
                 remove.tap()
                 stillRunning(app, after: "deleting the layer being looked at")
             } else {
@@ -458,8 +459,51 @@ final class CrucibleTour: XCTestCase {
     }
 
     /// Where to drag to scroll the open tray: near the bottom of the screen, upwards a little.
+    ///
+    /// Still a place rather than an element, because a tray holds several scrolling strips — the materials run
+    /// sideways, the tools run down — and a drag at the bottom of the screen reaches whichever is under it. Good enough
+    /// for the buttons, which sit in the part that is always on screen. Not good enough for a slider further down: see
+    /// `trayScroll`.
     private func trayArea(_ app: XCUIApplication) -> (from: CGVector, to: CGVector) {
         (CGVector(dx: 0.5, dy: 0.86), CGVector(dx: 0.5, dy: 0.72))
+    }
+
+    /// The scrolling part of an open tray.
+    ///
+    /// The tallest scrolling area in the lower half of the screen. The same reasoning as `panelScroll`, and it exists
+    /// for the same reason that one had to be rewritten: dragging at a fixed fraction of the screen catches whatever
+    /// happens to be under that fraction, which for the field tray was a strip of chips rather than the tray's own
+    /// contents — so a slider a few hundred pixels down was reported missing when it was merely below the fold.
+    private func trayScroll(in app: XCUIApplication) -> XCUIElement? {
+        let window = app.windows.element(boundBy: 0)
+        guard window.exists else { return nil }
+        let middle = window.frame.midY
+        var best: XCUIElement?
+        var tallest: CGFloat = 0
+        let scrolls = app.scrollViews
+        for index in 0 ..< scrolls.count {
+            let scroll = scrolls.element(boundBy: index)
+            guard scroll.exists else { continue }
+            let frame = scroll.frame
+            guard frame.midY > middle, frame.height > tallest else { continue }
+            tallest = frame.height
+            best = scroll
+        }
+        return best
+    }
+
+    /// Whether an element can really be pressed.
+    ///
+    /// `isHittable` is not enough on its own, which cost two failures: a menu item hanging off the right-hand edge of a
+    /// phone reports itself hittable and then has no usable point to press, and asking anyway is an error rather than a
+    /// miss. So the frame has to sit inside the window as well.
+    private func canReallyTap(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists, element.isHittable else { return false }
+        let window = app.windows.element(boundBy: 0)
+        guard window.exists else { return false }
+        let frame = element.frame
+        guard frame.width > 1, frame.height > 1 else { return false }
+        return window.frame.insetBy(dx: -1, dy: -1).contains(frame)
     }
 
     /// The scrolling part of whichever panel is open, found by the panel's own title.
@@ -508,7 +552,7 @@ final class CrucibleTour: XCTestCase {
         // Said out loud, because a nil here used to look exactly like "the control does not exist" — and the control
         // did exist, a thousand pixels below the fold, with nothing scrolling to reach it.
         if scroll == nil {
-            report(app, "Could not find the panel's scrolling part, so nothing could be scrolled to reach \(id)")
+            report(app, "Could not find anything to scroll, so nothing could be scrolled to reach \(id)")
         }
         for _ in 0 ..< 14 {
             if target.exists, target.isHittable { return target }
