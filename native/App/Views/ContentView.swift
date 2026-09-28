@@ -466,6 +466,9 @@ struct ContentView: View {
         // Joining or leaving a room changes whether the powder chamber has to keep running while
         // somebody looks at the field. See `updateCompanionStepping`.
         .onChange(of: isSharingRoom) { _, _ in updateCompanionStepping() }
+        // With the phone showing Powder, its display callback becomes the television Field's one clock. The TV renderer
+        // itself never steps physics, so connecting it cannot double the speed.
+        .onChange(of: bigScreen.isShowing) { _, _ in updateCompanionStepping() }
         // Written back whenever it changes, so the panel drives the model and the model is the one
         // source of truth rather than the two being kept in step by hand.
         .onChange(of: powder.detail) { _, level in detailRaw = level.rawValue }
@@ -1107,7 +1110,7 @@ struct ContentView: View {
         case .powder:
             // The powder chamber's clock is the one running, so it carries the field along if that was
             // asked for. The timestamp is the same one the field's own view would have handed it.
-            guard bothChambersRun else { return }
+            guard bothChambersRun || bigScreen.isShowing else { return }
             field.tilt = tilt
             powder.alsoStep = { [field] in field.tick(now: CFAbsoluteTimeGetCurrent() * 1000) }
         case .field:
