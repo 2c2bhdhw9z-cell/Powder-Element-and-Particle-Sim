@@ -918,14 +918,11 @@ struct ContentView: View {
             let fitted = CGSize(width: world.width * scale, height: world.height * scale)
             // What this pane would be at full single-chamber size. A persisted split can be the first layout after
             // launch; doubling its half gives the same canonical canvas without ever resizing an existing world later.
-            let initialCanvas: CGSize
-            if isSplit, splitSideBySide {
-                initialCanvas = CGSize(width: geometry.size.width * 2 + 1, height: geometry.size.height)
-            } else if isSplit {
-                initialCanvas = CGSize(width: geometry.size.width, height: geometry.size.height * 2 + 1)
-            } else {
-                initialCanvas = geometry.size
-            }
+            let initialCanvas = isSplit
+                ? (splitSideBySide
+                    ? CGSize(width: geometry.size.width * 2 + 1, height: geometry.size.height)
+                    : CGSize(width: geometry.size.width, height: geometry.size.height * 2 + 1))
+                : geometry.size
             ZStack(alignment: .topLeading) {
                 surface(which, size: fitted, initialCanvas: initialCanvas)
                     .frame(width: fitted.width, height: fitted.height)
