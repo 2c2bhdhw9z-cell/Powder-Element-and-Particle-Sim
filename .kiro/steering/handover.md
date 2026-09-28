@@ -16,6 +16,9 @@ fresh conversation has.
 - **Never excuse a defect by saying the reference implementation does the same.** "My port is faithful" is not an
   answer. If something looks or behaves wrong, fix it — in *both* engines (`native/` and `web/`), and re-record the
   comparison fixtures.
+- **No web or browser version.** The owner does not want one, so do not build one or suggest one. The `web/` folder
+  stays only as the reference the phone's engine is checked against: nobody uses it, it gets no new features, and a
+  fault found in it is fixed there as well as in `native/`, as above.
 - **Push straight to the project's main line.** No branches, no pull requests. The main line has been renamed several
   times and a branch called `main` was deleted on purpose — never recreate it. Look the name up before every push:
   `/projects/sandbox/logs/push-main.sh` does this (it refuses if somebody else has pushed).
@@ -38,10 +41,10 @@ anything that arrived meanwhile, and refuses rather than guessing if that will n
   `native/UITests/`, `native/Package.swift`, and `web/src/` (fixing both engines is its job). Does "Still to build" in
   order and adds a walkthrough for each feature, then the Field tray crash, then the performance work. The tablet and
   sideways pictures (#32) are its too: they come from the walkthrough, and any fix they need is app code.
-- **Chat two — everything around the app.** Owns `docs/`, `scripts/`, `.github/workflows/`, `README.md`,
-  `PORT-STATUS.md`, and a new folder of its own for the engine in a browser. Does #21 the engine in a browser, #34
-  `METHOD.md`, #35 the second opinion, and keeps `docs/lab-ideas.md`, `PORT-STATUS.md` and the README's test count
-  current. If it finds a real fault in the app, it writes it under "Found by chat two" below rather than fixing it.
+- **Chat two — everything around the app.** Owns `docs/`, `scripts/`, `.github/workflows/`, `README.md` and
+  `PORT-STATUS.md`. Does #34 `METHOD.md` and #35 the second opinion, and keeps `docs/lab-ideas.md`, `PORT-STATUS.md`
+  and the README's test count current. If it finds a real fault in the app, it writes it under "Found by chat two"
+  below rather than fixing it.
 - If either has to touch the other's files, make that one change on its own and push it straight away.
 - **This file is shared.** Add to it rather than rewriting, and push at once. When chat one finishes something it adds a
   line under "Shipped"; that is how chat two knows what to tick off.
@@ -159,10 +162,9 @@ popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.*
 8. **Send a 3D moment** (USDZ), **Live Photo**.
 9. Smaller ones: red-and-blue glasses 3D, a lava lamp, a clock spelt in bodies, colours taken from a photo (the engine
    can already recolour — it needs a button), a picture turned into real sand and water, relax mode.
-10. Round 7 leftovers: **#21 the engine in a browser** (SwiftWasm may be unavailable offline — if so do the honest
-    alternative and say exactly what was done instead), **#32 pictures of the app on iPad and sideways** from the
-    tour, **#34 METHOD.md**, **#35 a second opinion** (another provider is not available; use the `semantic_reviewer`
-    sub-agent and say so plainly).
+10. Round 7 leftovers: **#32 pictures of the app on iPad and sideways** from the tour, **#34 METHOD.md**, **#35 a
+    second opinion** (another provider is not available; use the `semantic_reviewer` sub-agent and say so plainly).
+    **#21, the engine in a browser, is dropped: the owner does not want a web or browser version.**
 11. Notes: mark what is built in `docs/lab-ideas.md`, `PORT-STATUS.md`, the README's test count, this file.
 12. **LAST, as the owner ordered:** the crash when the up arrow on the Field tray's header is tapped (the app closes to
     the home screen; the Powder tray's arrow is fine). It does **not** reproduce on a simulator — it is device-only, so

@@ -411,6 +411,8 @@ are in brackets. Nearly everything from "after 11" onwards waits on the last ite
     a screen. That is exactly what a build for a browser would need, so a world could be watched by somebody
     who will never install anything, and a day's world could be drawn by a machine with nobody's phone
     involved. Not reviving the web app; it is this engine, somewhere else. [large]
+    **Dropped: the owner does not want a browser version.** Drawing the day's world without a phone was done
+    another way — see 23.
 22. The television. The field already reacts to sound, and mirroring to a screen costs no extension — which
     matters, because extensions are the one thing this app cannot have. [medium]
 23. Publish the day's world. Everybody is given the same world each day and there is no way to compare, so it
