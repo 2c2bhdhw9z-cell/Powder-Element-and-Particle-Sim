@@ -230,8 +230,7 @@ or sideways field empty. Fixed in `16dafe3`; the picture check now looks at the 
 letting overlaid buttons disguise a blank area. The powder opening and tray animation still resize/shift worlds and can
 overlap controls; fold those into #12's resize fix.
 
-What is genuinely left: #12 the Field tray crash plus tray/powder/tablet/sideways resize damage, #13 the
-final performance pass, and every fault in "Found by chat two" above (none fixed yet).
+~~What is genuinely left~~ — superseded by "Done late 28 September" at the end of this file.
 
 A full audit found one still higher-priority omission not in the second opinion: a field may hold one million crowd
 bodies, but a save silently keeps only 24,000, and an undo snapshot above 200,000 omits the crowd then restores that
@@ -300,3 +299,26 @@ tour launches with `-fieldControlsUseListMenu NO` so it keeps walking the tray. 
 real iPhone from both styles (never on the simulator). It now lives in `App/Views/FieldPhysicsControls.swift` as many
 small separate views with range-clamped sliders and safe number text; every tray section and menu page is also wrapped
 separately. Not yet confirmed on the owner's phone.
+
+## Done late 28 September (second chat of the evening)
+
+- Tray resizing: already fixed by `45d20c2`/`af89e09` — the world is sized once; trays, split and rotation only change
+  the viewport, never the world or undo/rewind.
+- `25d7959` people: fall is swept row by row (no falling through one-cell floors), climbing moves onto the step
+  (about 20 moments, no slips), fall follows the world's downward pull (none or upward = they hang), drowning leaves
+  smoke, "Twenty is as many people…" is shown (`people.limitNote`), Meteor no longer files Fire/Melted stone. Weak
+  checks rewritten (painting now runs 120 moments; obsidian alone; meteor, drowning, thin floors, pull, climb speed).
+- `abf0592` layers/recipes: hiding the current layer moves "current" to a shown one; hide/show keeps morph and recipe
+  targets with their bodies (`exchangeCrowdBodies`, `storedRecipeSlots`); formula places with no real answer are left
+  out (`shapeValue(for:)`); the engine refuses forces that read shape words. Every second-opinion probe was re-run:
+  everything else on that list was already fixed. The field probes live on as `LayerAndRecipeRegressionTests*.swift`.
+  F15 was a false alarm (the probe repainted a body by hand).
+- `8197c3d` the open powder tray is drawn over the world like the Field tray (`ElementDock.Presentation`), not on the
+  upside-down alignment guide; the walk drags inside `tray.expanded`. The Field tray is a plain stack loaded four parts
+  at a time: as a lazy stack it hung the iPhone simulator for minutes when scrolled far down — on a phone that is the
+  system closing the app, so it may have been the real "tray crash".
+- `332c807` speed: release builds of CrucibleCore use `-enforce-exclusivity=unchecked` (the profiler showed ~38% of
+  time in access checks; debug and every test keep them on), and the crowd step and collisions hold their buffers in
+  locals. Same Linux machine, before → after: powder 200×430 5.9 → 2.9 ms, 420×910 25.4 → 12.6 ms, 25,000 colliding
+  36 → 28 ms, 500,000 free 3.6 → 3.3 ms. `bench-baseline.json` not changed: it was recorded on the CI machine, whose
+  gate will show the real figures. 1,309 tests pass in plain and optimised builds.
