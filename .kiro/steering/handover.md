@@ -140,8 +140,9 @@ failure via its own `report(_:_:)`, which is how to see what was actually on scr
 - `#expect` cannot be handed a call that changes the thing it is looking at. Assign to a local first.
 - `deinit` in a `@MainActor` class may not touch actor-isolated stored properties. The pattern used is a separate
   non-isolated holder class (`PowerWatchers`, `SenseWatchers`, `BigScreenWatchers`).
-- `ContentView.body` is split four ways — `lab` → `labWithWatchers` → `labWithPanels` → `body` — because the compiler
-  refused it as one expression. Put anything new **inside** whichever of the four it belongs to.
+- `ContentView.body` is split five ways — `lab` → `labWithWatchers` → `labKeepingTime` → `labWithPanels` → `body` —
+  because the compiler refused it as one expression (it refused `labWithWatchers` again once it grew). Put anything
+  new **inside** whichever of the five it belongs to, and split again rather than lengthen one.
 - The welcome screen must be an overlay, not `.fullScreenCover`: the cover took the view's one presentation slot and
   silently broke *every* panel in the app. Found only by the App tour.
 - `git checkout <file>` throws away uncommitted work. It has cost real work here once.

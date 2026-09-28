@@ -177,9 +177,9 @@ struct ContentView: View {
     /// size it works at it for a while and then gives up outright — "unable to type-check this expression in
     /// reasonable time". The build machine refused the app twice before this was split.
     ///
-    /// So: the world and its furniture, then what it watches, then the panels, then the alerts. Each is a property of
-    /// its own, which is a separate problem for the compiler and reads better besides. Anything new belongs inside
-    /// whichever of the four it is, rather than on the end of all of them.
+    /// So: the world and its furniture, then what it watches (in two parts, since it outgrew one), then the panels,
+    /// then the alerts. Each is a property of its own, which is a separate problem for the compiler and reads better
+    /// besides. Anything new belongs inside whichever of the five it is, rather than on the end of all of them.
     var body: some View {
         labWithPanels
         .alert(
@@ -415,6 +415,9 @@ struct ContentView: View {
         .onChange(of: chamberRaw) { _, _ in
             updateCompanionStepping()
             describeTheWorld()
+            // The world that is not on screen is not heard either. The powder world stops being ticked when it is
+            // not on screen, so it cannot say so itself.
+            if chamber != .powder, !isSplit { audio.setSoundscape(.silence) }
         }
         // Both counts are refreshed about once a second by whichever chamber is ticking, which is the beat the note is
         // kept on: often enough to describe what was happening, rarely enough to cost nothing.
@@ -426,6 +429,13 @@ struct ContentView: View {
             describeTheWorld()
             breadcrumbs.writeIfWaiting()
         }
+    }
+
+    /// The rest of what the screen watches: the clock the autosave keeps, the app going away and coming back, the
+    /// sound, and the movie's clip. A piece of its own for the reason given on `body`: the watchers had grown past
+    /// the size the compiler will type-check as one expression.
+    private var labKeepingTime: some View {
+        labWithWatchers
         .onChange(of: bothChambersRun) { _, _ in updateCompanionStepping() }
         // Joining or leaving a room changes whether the powder chamber has to keep running while
         // somebody looks at the field. See `updateCompanionStepping`.
@@ -461,11 +471,6 @@ struct ContentView: View {
             audio.isEnabled = wanted
         }
         .onChange(of: soundscapeEnabled) { _, wanted in audio.soundscapeEnabled = wanted }
-        // The world that is not on screen is not heard either. The powder world stops being ticked when it is not
-        // on screen, so it cannot say so itself.
-        .onChange(of: chamberRaw) { _, _ in
-            if chamber != .powder, !isSplit { audio.setSoundscape(.silence) }
-        }
         // A movie's clip, finished, offered straight away to be kept or sent.
         .onChange(of: field.finishedClip) { _, clip in
             guard let clip else { return }
@@ -477,7 +482,7 @@ struct ContentView: View {
 
     /// Every panel that slides up over the world.
     private var labWithPanels: some View {
-        labWithWatchers
+        labKeepingTime
         .sheet(isPresented: $showingScenes) {
             ScenePicker(simple: isSimple) { recipe in
                 breadcrumbs.record("loaded the \(recipe.name) scene")

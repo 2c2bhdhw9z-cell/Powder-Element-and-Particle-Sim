@@ -168,8 +168,9 @@ final class ClipWriter: @unchecked Sendable {
                 return
             }
             input.markAsFinished()
-            let url = url
-            writer.finishWriting { [writer] in
+            // Through this object rather than the writer itself, which is not safe to hand between threads; this is
+            // looked after by its own queue, and so is.
+            writer.finishWriting { [self] in
                 if writer.status == .completed {
                     done(url, nil)
                 } else {
