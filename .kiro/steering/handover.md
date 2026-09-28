@@ -123,6 +123,15 @@ power/thermal/battery, first run and Simple, the gallery of kept worlds, room se
 bodies, the removal of the draw double-copy, glow folded from three passes to two, the powder world as a slab, the
 television, `docs/IF-THIS-STOPS.md`.
 
+Shipped by chat one on 28 September, second session, newest last:
+
+- `7f6d1f2` Walkthrough fixes: the discovery note sat over the tray and a thumb reaching for a tool opened the notebook
+  (moved to the foot of the world); a fresh start now forgets last time's note like a new install; the walkthrough
+  scrolls with slow drags instead of flicks that flew past sliders.
+- `d4a85bb` **Guided lab book** (#1 below) — `Powder/PowderLabBook.swift`, `App/Views/LabBookSheet.swift`,
+  `App/Simulation/SimulationModel+LabBook.swift`, `LabBookStore.swift`; "Lab book" in the powder tray; walkthrough
+  `testLabBook`. Eight experiments; checks prove each answers when done and never by itself.
+
 **Confirmed already built** (checked against the code, not remembered): slice of the box, turntable video, tiny planet,
 atom, marbling, pendulum wave, solar system, jellyfish, kaleidoscope, physics lens, shadows in 3D, colour by distance,
 floating labels, ten fingers, hourglass, sand on a drum, foxes and rabbits, particle life, galaxy crash, supernova,
@@ -131,7 +140,7 @@ popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.*
 
 ## Still to build, in this order
 
-1. **Guided lab book** — hands-on experiments that set something up, let the player find the answer, then explain it
+1. ~~**Guided lab book**~~ — **shipped `d4a85bb`.** Hands-on experiments that set something up, let the player find the answer, then explain it
    using their own world.
 2. **Movie studio** — camera stops, travel speed between them, slow motion, captions, export a clip.
 3. **Living soundscape** — water, fire, glass, electricity, impacts, mixed by what the simulation is doing.
