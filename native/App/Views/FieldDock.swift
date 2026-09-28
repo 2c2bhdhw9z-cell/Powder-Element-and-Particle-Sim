@@ -1453,10 +1453,12 @@ struct FieldDock: View {
     }
 
     private var expandedContents: some View {
-        // This is still the original one-piece scrolling tray. The structural difference is under the surface:
-        // `ForEach` supplies real lazy rows, and the switch builds only the row SwiftUI asks to display. The previous
-        // list named every large computed view directly, which let opening evaluate the entire control graph at once.
-        LazyVStack(alignment: .leading, spacing: 14) {
+        // The original one-piece scrolling tray, built a few parts at a time rather than all at once when it opens.
+        //
+        // A plain stack, not a lazy one. In the lazy one the parts' heights were only guesses until they were drawn, and
+        // on a narrow phone scrolling far down it kept re-measuring and never settled: the walkthrough saw the app stop
+        // answering for minutes near the movie and formula parts, which on a real phone is the system closing the app.
+        VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(ExpandedSection.allCases.prefix(expandedSectionLimit)), id: \.self) { section in
                 expandedSection(section)
                     .id(section)
@@ -1469,6 +1471,8 @@ struct FieldDock: View {
                     .onAppear {
                         // Move this work out of the layout pass that noticed the end of the current chunk.
                         Task { @MainActor in
+                            // A breath between parts, so opening never does all the work in one go.
+                            try? await Task.sleep(for: .milliseconds(40))
                             expandedSectionLimit = min(
                                 ExpandedSection.allCases.count,
                                 expandedSectionLimit + 4

@@ -61,7 +61,29 @@ struct ElementDock: View {
         (Element.plant, "Plant"), (Element.c4, "C4"), (Element.spark, "Spark"),
     ]
 
+    /// The fixed dock, or the open tray. The open tray is drawn by ContentView over the bottom of the world — the
+    /// same way the Field's tray is — instead of hanging above the dock on an upside-down alignment guide. That guide
+    /// put the tray's reported position in the wrong place (the walkthrough could not find sand in it) and is the
+    /// layout the Field tray's device crash was traced to.
+    enum Presentation {
+        case dock
+        case tray
+    }
+
+    var presentation: Presentation = .dock
+
+    @ViewBuilder
     var body: some View {
+        switch presentation {
+        case .dock:
+            fixedDock
+        case .tray:
+            expanded
+                .solidPanel(in: Rectangle())
+        }
+    }
+
+    private var fixedDock: some View {
         VStack(spacing: 0) {
             handle
             header
@@ -72,17 +94,6 @@ struct ElementDock: View {
                 .allowsHitTesting(!isOpen)
                 .accessibilityHidden(isOpen)
             transport
-        }
-        .overlay(alignment: .top) {
-            if isOpen {
-                expanded
-                    // Align the expanded tray's bottom with the fixed dock's top, so it grows over the world instead of
-                    // pushing the world smaller on every animation frame.
-                    .alignmentGuide(.top) { $0[.bottom] }
-                    .solidPanel(in: Rectangle())
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(2)
-            }
         }
         .background(alignment: .top) {
             // A hairline along the top edge and a shadow beneath it, so the dock reads as
@@ -251,6 +262,7 @@ struct ElementDock: View {
         // No rubber-banding when it all fits, so a short tray does not feel broken.
         .scrollBounceBehavior(.basedOnSize)
         .labScrollEdges()
+        .accessibilityIdentifier("tray.expanded")
     }
 
     /// How a touch paints, and the eyedropper.

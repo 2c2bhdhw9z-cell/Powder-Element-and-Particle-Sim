@@ -1010,7 +1010,21 @@ final class CrucibleTour: XCTestCase {
     /// for the buttons, which sit in the part that is always on screen. Not good enough for a slider further down: see
     /// `trayScroll`.
     private func trayArea(_ app: XCUIApplication) -> (from: CGVector, to: CGVector) {
-        (CGVector(dx: 0.5, dy: 0.86), CGVector(dx: 0.5, dy: 0.72))
+        // The open tray now sits over the bottom of the world, above the dock, so a drag near the foot of the screen
+        // landed on the dock instead and nothing scrolled. Dragged inside the tray itself whenever it can be found.
+        let window = app.windows.element(boundBy: 0)
+        for id in ["tray.expanded", "fieldTray.expanded"] {
+            let tray = app.descendants(matching: .any)[id].firstMatch
+            guard tray.exists, window.exists else { continue }
+            let frame = tray.frame
+            let screen = window.frame
+            guard frame.height > 40, screen.height > 0 else { continue }
+            let x = 0.5
+            let from = (frame.minY + frame.height * 0.8 - screen.minY) / screen.height
+            let to = (frame.minY + frame.height * 0.35 - screen.minY) / screen.height
+            return (CGVector(dx: x, dy: from), CGVector(dx: x, dy: to))
+        }
+        return (CGVector(dx: 0.5, dy: 0.86), CGVector(dx: 0.5, dy: 0.72))
     }
 
     /// The scrolling part of an open tray.

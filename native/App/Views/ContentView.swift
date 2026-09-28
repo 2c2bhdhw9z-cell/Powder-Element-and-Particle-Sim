@@ -313,6 +313,10 @@ struct ContentView: View {
                             fieldDock(presentation: .tray)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                                 .zIndex(2)
+                        } else if chamber == .powder, isDockOpen {
+                            powderDock(presentation: .tray)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .zIndex(2)
                         }
                     }
 
@@ -1328,28 +1332,34 @@ struct ContentView: View {
     private var dock: some View {
         switch chamber {
         case .powder:
-            ElementDock(
-                model: powder,
-                isOpen: $isDockOpen,
-                onShowScenes: { showingScenes = true },
-                onShowSettings: { showingSettings = true },
-                onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
-                onShowPeriodic: { showingPeriodic = true },
-                onShowSaves: { showingSaves = true },
-                onShowNotebook: { showingNotebook = true },
-                onShowLabBook: { showingLabBook = true },
-                onShowParallel: { showingParallel = true },
-                labBookDone: labBook.progress.doneCount,
-                found: notebook.notebook.found,
-                howMany: notebook.notebook.howMany,
-                onShowEditor: { showingEditor = true },
-                paletteVersion: paletteVersion,
-                today: Self.today,
-                isSimple: isSimple
-            )
+            powderDock(presentation: .dock)
         case .field:
             fieldDock(presentation: .dock)
         }
+    }
+
+    /// The powder dock and its open tray share one open state and the same actions.
+    private func powderDock(presentation: ElementDock.Presentation) -> ElementDock {
+        ElementDock(
+            model: powder,
+            isOpen: $isDockOpen,
+            onShowScenes: { showingScenes = true },
+            onShowSettings: { showingSettings = true },
+            onShowInfo: { infoElement = ElementInfoTarget(id: $0) },
+            onShowPeriodic: { showingPeriodic = true },
+            onShowSaves: { showingSaves = true },
+            onShowNotebook: { showingNotebook = true },
+            onShowLabBook: { showingLabBook = true },
+            onShowParallel: { showingParallel = true },
+            labBookDone: labBook.progress.doneCount,
+            found: notebook.notebook.found,
+            howMany: notebook.notebook.howMany,
+            onShowEditor: { showingEditor = true },
+            paletteVersion: paletteVersion,
+            today: Self.today,
+            isSimple: isSimple,
+            presentation: presentation
+        )
     }
 
     /// The fixed dock, the world-overlay tray and the list menu share the same model, open state, actions and batch choice.
