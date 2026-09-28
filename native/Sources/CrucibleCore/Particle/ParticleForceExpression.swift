@@ -259,6 +259,11 @@ public struct ParticleForceExpression: Sendable, Hashable {
     /// The words that only mean something to a shape recipe: a body's place in the queue, and the knobs.
     public static let recipeOnlyVariables: Set<Variable> = [.u, .v, .a, .b, .c]
 
+    /// Whether this reads any word that only means something in a shape recipe.
+    public var readsShapeWords: Bool {
+        !variablesUsed.isDisjoint(with: Self.recipeOnlyVariables)
+    }
+
     /// Works out the value for one body.
     ///
     /// Anything that cannot produce a usable number gives nought rather than spreading through the
@@ -277,7 +282,22 @@ public struct ParticleForceExpression: Sendable, Hashable {
         // thirty-two used to drop whatever went past it, so a deeply nested expression that fitted inside the
         // length limit quietly gave the wrong answer.
         return withUnsafeTemporaryAllocation(of: Double.self, capacity: max(32, steps.count + 1)) { stack in
-            evaluate(steps: steps, into: stack, inputs: inputs)
+            var unusable = false
+            return evaluate(steps: steps, into: stack, inputs: inputs, unusable: &unusable)
+        }
+    }
+
+    /// The value for a shape, or nil where the formula has no real answer.
+    ///
+    /// A force treats those places as nought, which is right for a push. A shape must not: nought is a real place,
+    /// so `sqrt(u - 0.5)` stacked half of its bodies on one line. Here the square root of a negative, a division by
+    /// nothing, a wrap by nothing or a number too big to hold all mean "leave this body out".
+    public func shapeValue(for inputs: Inputs) -> Double? {
+        guard !steps.isEmpty else { return 0 }
+        return withUnsafeTemporaryAllocation(of: Double.self, capacity: max(32, steps.count + 1)) { stack in
+            var unusable = false
+            let result = evaluate(steps: steps, into: stack, inputs: inputs, unusable: &unusable)
+            return unusable ? nil : result
         }
     }
 
@@ -285,13 +305,17 @@ public struct ParticleForceExpression: Sendable, Hashable {
     private func evaluate(
         steps: [Step],
         into stack: UnsafeMutableBufferPointer<Double>,
-        inputs: Inputs
+        inputs: Inputs,
+        unusable: inout Bool
     ) -> Double {
         var depth = 0
+        var bad = false
+        defer { unusable = bad }
 
         @inline(__always)
         func push(_ value: Double) {
             guard depth < stack.count else { return }
+            if !value.isFinite { bad = true }
             stack[depth] = value.isFinite ? value : 0
             depth += 1
         }
@@ -336,6 +360,7 @@ public struct ParticleForceExpression: Sendable, Hashable {
                 let left = pop()
                 // Nought rather than infinity. Infinity multiplied by nought is not a number, and one
                 // body holding one of those spreads it to every body it touches.
+                if right == 0 { bad = true }
                 push(right == 0 ? 0 : left / right)
             case .negate:
                 push(-pop())
@@ -347,7 +372,9 @@ public struct ParticleForceExpression: Sendable, Hashable {
                 case .abs: push(abs(argument))
                 // Clamped at nought rather than refusing, so `sqrt(x - 0.5)` is usable across the whole
                 // field instead of producing nothing over half of it.
-                case .sqrt: push(argument < 0 ? 0 : argument.squareRoot())
+                case .sqrt:
+                    if argument < 0 { bad = true }
+                    push(argument < 0 ? 0 : argument.squareRoot())
                 case .sign: push(argument > 0 ? 1 : (argument < 0 ? -1 : 0))
                 case .floor: push(argument.rounded(.down))
                 case .frac: push(argument - argument.rounded(.down))
@@ -361,6 +388,7 @@ public struct ParticleForceExpression: Sendable, Hashable {
                 case .hypot: push((first * first + second * second).squareRoot())
                 case .wrap:
                     guard second != 0 else {
+                        bad = true
                         push(0)
                         continue
                     }
@@ -371,6 +399,7 @@ public struct ParticleForceExpression: Sendable, Hashable {
         }
 
         let result = depth > 0 ? stack[depth - 1] : 0
+        if !result.isFinite { bad = true }
         return result.isFinite ? result : 0
     }
 

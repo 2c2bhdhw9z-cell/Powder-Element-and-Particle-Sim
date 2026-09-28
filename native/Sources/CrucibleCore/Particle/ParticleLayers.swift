@@ -173,6 +173,13 @@ extension ParticleEngine {
         if tintChanged { pushUndo() }
         all[index] = wanted
         storedLayers = all
+        // New bodies go into the current layer. If that layer has just been hidden, whatever was added next was
+        // invisible — clear, add five thousand, see nothing. The current layer moves to the first one still shown.
+        if wasShown, !wanted.shown, currentLayer == index,
+           let shown = all.indices.first(where: { all[$0].shown })
+        {
+            storedCurrentLayer = shown
+        }
         if wasShown != all[index].shown { restackLayers() }
         applyLayerTints()
         return true
@@ -486,6 +493,21 @@ extension ParticleEngine {
     ///
     /// Called when a layer is shown or hidden, when bodies change layer, and after anything that removes bodies —
     /// removal swaps the last body into the gap, which can put a hidden one back among the shown.
+    /// Swaps two crowd bodies along with everything the engine keeps about them by position — the morph's two
+    /// shapes and the recipe's places — so a body keeps its own target when the crowd is reordered.
+    func exchangeCrowdBodies(_ first: Int, _ second: Int) {
+        swarm.exchange(first, second)
+        if first < storedMorphA.count, second < storedMorphA.count,
+           storedMorphA.count == storedMorphB.count
+        {
+            storedMorphA.swapAt(first, second)
+            storedMorphB.swapAt(first, second)
+        }
+        if first < storedRecipeSlots.count, second < storedRecipeSlots.count {
+            storedRecipeSlots.swapAt(first, second)
+        }
+    }
+
     func restackLayers() {
         storedRestackedAt = swarm.generation
         guard !storedLayers.isEmpty, storedLayers.contains(where: { !$0.shown }) else {
@@ -510,7 +532,7 @@ extension ParticleEngine {
             } else if isHidden(back) {
                 back -= 1
             } else {
-                swarm.exchange(front, back)
+                exchangeCrowdBodies(front, back)
                 front += 1
                 back -= 1
             }

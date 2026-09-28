@@ -290,6 +290,9 @@ public final class ParticleEngine {
     var storedMorphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
     /// A shape described by formula, with its own knobs. See `ParticleRecipeBox.swift`.
     var storedRecipe: ParticleRecipe?
+    /// Which of the recipe's places each crowd body belongs to. Hiding a layer reorders the crowd, and handing out
+    /// places by position afterwards sent bodies criss-crossing to each other's spots.
+    var storedRecipeSlots: [Int] = []
     /// Named groups of bodies, each with its own look and rules. Empty means the world has not been divided up, which
     /// is what nearly every world is — see `ParticleLayers.swift`.
     var storedLayers: [ParticleLayer] = []
@@ -375,9 +378,17 @@ public final class ParticleEngine {
     /// A force somebody wrote, for the sideways direction.
     ///
     /// Empty means no force, which is what an empty box in the interface should mean.
-    public var writtenForceAcross: ParticleForceExpression = .blank
+    ///
+    /// A force that reads a shape recipe's words (`u`, `v`, `a`, `b`, `c`) is refused here and becomes no force. Those
+    /// words are nought inside a force, so `sin(u * 4)` would silently do nothing. The app's text box already said so;
+    /// now a saved or shared world cannot carry one in either.
+    public var writtenForceAcross: ParticleForceExpression = .blank {
+        didSet { if writtenForceAcross.readsShapeWords { writtenForceAcross = .blank } }
+    }
     /// The same, for the vertical direction.
-    public var writtenForceDown: ParticleForceExpression = .blank
+    public var writtenForceDown: ParticleForceExpression = .blank {
+        didSet { if writtenForceDown.readsShapeWords { writtenForceDown = .blank } }
+    }
     /// How hard a written force pushes.
     public var writtenForceStrength: Double = 1
 

@@ -413,6 +413,7 @@ extension ParticleEngine {
         }
 
         storedRecipe = wanted
+        storedRecipeSlots = Array(0 ..< swarm.count)
         // The title, hung in the field rather than only in the panel — a recipe with no name on screen is a shape
         // nobody can say the name of afterwards.
         labels = wanted.title.isEmpty ? [] : [ParticleLabel(wanted.title, x: width / 2, y: height * 0.08)]
@@ -440,10 +441,14 @@ extension ParticleEngine {
         guard !places.isEmpty else { return false }
         // Written straight into the crowd's own memory, which is how the morph moves homes too: the bodies stay where
         // they are and only what they are pulled towards changes, so the shape flows rather than jumping.
-        for index in 0 ..< min(swarm.count, places.count) {
+        // Each body goes to its own place, even if hiding a layer has reordered the crowd since.
+        let slots = storedRecipeSlots.count == swarm.count ? storedRecipeSlots : Array(0 ..< swarm.count)
+        for index in 0 ..< swarm.count {
+            let slot = slots[index]
+            guard slot >= 0, slot < places.count else { continue }
             let at = index * Swarm.homeStride
-            swarm.homes[at] = JS.toFloat32(places[index].x)
-            swarm.homes[at + 1] = JS.toFloat32(places[index].y)
+            swarm.homes[at] = JS.toFloat32(places[slot].x)
+            swarm.homes[at + 1] = JS.toFloat32(places[slot].y)
             // The seventh number of the seven is the stiffness. The four in between are the radius, angle, spin and
             // squash an orbiting body uses, which a held body leaves alone.
             swarm.homes[at + 6] = JS.toFloat32(wanted.hold)
@@ -497,11 +502,13 @@ extension ParticleEngine {
                     along: along, across: across,
                     first: compiled.first, second: compiled.second, third: compiled.third
                 )
-                let x = compiled.across.isEmpty ? 0.5 : compiled.across.value(for: inputs)
-                let y = compiled.down.isEmpty ? 0.5 : compiled.down.value(for: inputs)
                 // Anything that came out unusable is left out rather than placed at nought, which would be a stripe of
-                // bodies down the left edge that reads as part of the shape.
-                guard x.isFinite, y.isFinite else { continue }
+                // bodies down the left edge that reads as part of the shape. The force evaluator already turns those
+                // into nought, so the shape asks the stricter question instead.
+                guard let x = compiled.across.isEmpty ? 0.5 : compiled.across.shapeValue(for: inputs),
+                      let y = compiled.down.isEmpty ? 0.5 : compiled.down.shapeValue(for: inputs),
+                      x.isFinite, y.isFinite
+                else { continue }
                 raw.append((x, y))
                 lowX = min(lowX, x)
                 highX = max(highX, x)
