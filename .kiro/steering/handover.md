@@ -223,7 +223,13 @@ lamp (`0bdc177`); red-and-blue glasses, the clock, photo colours, photo into pow
 Also seen, part of #12: an arrangement chosen with the Field tray open is laid out in the smaller world above the tray,
 and closing the tray grows the world with a plain `resize` that moves nothing — so the galaxy's black hole ends up a
 third of the way down the screen, not in the middle. The worlds-within walk now searches for it instead of failing.
-What is genuinely left: #10's iPad/sideways picture review, #12 the Field tray crash and resize damage, #13 the
+The iPad and sideways picture review is done. Text and controls stay readable, panels fit, and parallel/worlds-within
+views use the space well. The main worlds do not: the opening galaxy and powder scene remain sized/positioned like a
+phone and sit toward one side of a huge tablet or sideways canvas; opening the trays visibly moves/shrinks them, and a
+picture taken during the tray animation shows controls on top of one another. Fold these into #12's resize fix rather
+than treating them as a separate feature.
+
+What is genuinely left: #12 the Field tray crash plus tray/tablet/sideways resize damage, #13 the
 final performance pass, and every fault in "Found by chat two" above (none fixed yet).
 
 A full audit found one still higher-priority omission not in the second opinion: a field may hold one million crowd
@@ -261,9 +267,10 @@ for another physics step. The full engine suite passes locally; the final iPhone
 8. ~~**Send a 3D moment / Live Photo**~~ — **shipped `218fb86`.** Live Photo still needs a real photo-library check.
 9. ~~**Smaller ones**~~ — **all shipped:** red-and-blue glasses, lava lamp, body clock, photo colours, photo into
    powder, and relax mode.
-10. Round 7 leftover: **#32 review the app's iPad and sideways pictures** from the tour. #34 `METHOD.md` and #35
-    the second opinion shipped in `447e6ac`. **#21, the engine in a browser, is dropped: the owner does not want a web
-    or browser version.**
+10. ~~**Review the iPad and sideways pictures**~~ — done in the audit. Panels and text fit; the main scenes stay
+    phone-sized/off-centre, and tray animation can overlap controls. Fix with #12. #34 `METHOD.md` and #35 the second
+    opinion shipped in `447e6ac`. **#21, the engine in a browser, is dropped: the owner does not want a web or browser
+    version.**
 11. ~~**Status notes**~~ — updated after the full audit. Before more features: fix silent large-world save/undo loss,
     then every proved people/notebook/layers/recipes fault under “Found by chat two.”
 12. **Then, as the owner ordered:** the crash when the up arrow on the Field tray's header is tapped (the app closes to
