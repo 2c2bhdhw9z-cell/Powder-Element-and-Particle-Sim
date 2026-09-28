@@ -334,6 +334,14 @@ struct ContentView: View {
             // down with it: the play button and the clear button ended up inside the home-indicator strip,
             // where iOS takes the upward swipe and pressing them is a gamble.
             .ignoresSafeArea(edges: .top)
+            // The Field's full control menu is not part of the dock's layout. The old upward dock overlay still
+            // terminated a real iPhone after its animation was removed and its stack was made lazy. This root layer
+            // opens a tiny static category chooser first, cannot resize the world, and builds only the chosen page.
+            .overlay {
+                if chamber == .field, isDockOpen {
+                    fieldDock(presentation: .menu)
+                }
+            }
             // The introduction, over everything, on the first launch and whenever it is asked for again.
             //
             // A layer rather than a screen the system presents. It was the latter, and it quietly broke every panel in
@@ -1307,22 +1315,38 @@ struct ContentView: View {
                 isSimple: isSimple
             )
         case .field:
-            FieldDock(
-                model: field,
-                isOpen: $isDockOpen,
-                onShowPresets: { showingPresets = true },
-                // Its own sheet, not the powder world's. Almost nothing carries over between them —
-                // there are no cells here, no temperature and no wind — so sharing one would be a
-                // list of controls that mostly did not apply.
-                onShowSettings: { showingFieldSettings = true },
-                today: Self.today,
-                onSettleEverything: { _ = bridge?.settleEverything() },
-                onShowPowderInTheBox: {
-                    breadcrumbs.record("showed the powder world in the box")
-                    _ = bridge?.showPowderInTheBox()
-                }
-            )
+            fieldDock(presentation: .dock)
         }
+    }
+
+    /// Both FieldDock presentations receive exactly the same actions. The compact one owns the arrow and handle;
+    /// the modal one owns the category chooser and selected controls.
+    private func fieldDock(presentation: FieldDock.Presentation) -> FieldDock {
+        FieldDock(
+            model: field,
+            isOpen: $isDockOpen,
+            presentation: presentation,
+            onShowPresets: {
+                isDockOpen = false
+                showingPresets = true
+            },
+            // Its own sheet, not the powder world's. Almost nothing carries over between them — there are no cells
+            // here, no temperature and no wind — so sharing one would be a list of controls that mostly did not apply.
+            onShowSettings: {
+                isDockOpen = false
+                showingFieldSettings = true
+            },
+            today: Self.today,
+            onSettleEverything: {
+                isDockOpen = false
+                _ = bridge?.settleEverything()
+            },
+            onShowPowderInTheBox: {
+                isDockOpen = false
+                breadcrumbs.record("showed the powder world in the box")
+                _ = bridge?.showPowderInTheBox()
+            }
+        )
     }
 }
 
