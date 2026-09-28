@@ -548,6 +548,9 @@ final class SimulationModel {
         history = PowderHistory(maximumSteps: 1)
         detail = first.detail
         overlay = first.overlay
+        lastViewSize = first.lastViewSize
+        lastViewScale = first.lastViewScale
+        worldHasCanonicalSize = true
         isRunning = false
         refreshCounts()
     }
@@ -1280,10 +1283,12 @@ final class SimulationModel {
         toolsBeforeWorldReplaced()
         recordUndoPoint()
         let applied = engine.apply(state)
-        // A world saved at another size — another phone, the website, a different detail setting — is
-        // redrawn to fit this screen. It used to keep its own size and be stretched onto the screen, every
-        // grain a rectangle.
-        if applied { refitToScreen() }
+        // Once a real or saved world exists, later tray/split/orientation layout only changes how it is shown. A load
+        // made after the full canvas is known is deliberately resampled to that canonical canvas once.
+        if applied {
+            if worldHasCanonicalSize { refitToScreen() }
+            worldHasCanonicalSize = true
+        }
         afterWholeWorldChange()
         return applied
     }
@@ -1542,19 +1547,23 @@ final class SimulationModel {
         }
     }
 
-    /// The last size the view reported, so a change of detail can re-fit without waiting for one.
+    /// The full single-chamber canvas that gave the world its physical shape. Presentation changes after this—opening
+    /// a tray, splitting the screen or turning the phone—must not resize cells or erase history.
+    private var worldHasCanonicalSize = false
+    /// The last full canvas size, so an explicit detail change can deliberately resample the world.
     private var lastViewSize: CGSize = .zero
     private var lastViewScale: CGFloat = 1
 
-    /// Matches the world to the space it is being drawn in.
-    ///
-    /// The aim is one cell per screen pixel, capped by the chosen detail. The cap is on the number of
-    /// cells rather than on either side, because that is what a moment actually costs.
-    func resize(toViewSize size: CGSize, scale: CGFloat) {
+    /// Gives a fresh opening world its one physical canvas size. Calls after the first are presentation changes only.
+    func prepareInitialCanvas(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
+        guard !worldHasCanonicalSize else { return }
         lastViewSize = size
         lastViewScale = scale
+        worldHasCanonicalSize = true
         applyLastKnownSize()
+        // The opening scene is the baseline, not a user action to undo back into the temporary stand-in grid.
+        history.clear()
     }
 
     /// The grid size this screen and detail setting call for, or nothing before the screen has been measured.
@@ -1583,15 +1592,11 @@ final class SimulationModel {
         guard newWidth != engine.width || newHeight != engine.height else { return }
         let oldWidth = engine.width
         let oldHeight = engine.height
-        // A piece lifted by the lasso goes back first, so it is part of the world that is kept.
+        // An explicit detail change redraws the same world at a different cell density. Layout changes never call this.
         toolsBeforeWorldReplaced()
-        engine.resize(width: newWidth, height: newHeight)
-        // The tools that point at places in the grid are moved to the same places in the new one.
-        toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: false)
+        engine.resample(width: newWidth, height: newHeight)
+        toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: true)
         activeCells = engine.activeParticleCount
-        // The world that was there described a different shape, so coming back to it would mean
-        // stretching it. Cleaner to start the record again.
-        history.clear()
         engineDidChange()
     }
 }

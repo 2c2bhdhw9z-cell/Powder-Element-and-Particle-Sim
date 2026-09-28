@@ -259,6 +259,8 @@ struct ContentView: View {
             // How far down the floating controls have to start to clear the bar: the strip the bar sits
             // in, the bar itself, and the eight points everything floating uses as its margin.
             let clearance = screen.safeAreaInsets.top + LabHeader.height + 8
+            // A wide screen has room for two chambers beside one another; an upright phone reads better stacked.
+            let splitSideBySide = isSplit && screen.size.width >= 700
 
             // The whole stack reaches the top, and the bar is put back down by hand.
             //
@@ -269,23 +271,30 @@ struct ContentView: View {
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
                     Group {
-                    if isSplit {
-                        // Stacked rather than side by side, because on a phone held upright two tall thin
-                        // chambers are far worse than two short wide ones. The reference does the same —
-                        // its side-by-side layout only applies from tablet widths up.
-                        VStack(spacing: 0) {
-                            // Only the upper pane is under the bar, so only the upper pane's tools move.
-                            chamberPane(.powder, topClearance: clearance)
-                            Rectangle()
-                                .fill(Palette.borderStrong)
-                                .frame(height: 1)
-                            chamberPane(.field, topClearance: 8)
-                        }
-                        .background(Palette.background)
-                    } else {
-                        chamberPane(chamber, topClearance: clearance)
+                        if isSplit {
+                            Group {
+                                if splitSideBySide {
+                                    HStack(spacing: 0) {
+                                        chamberPane(.powder, topClearance: clearance, splitSideBySide: true)
+                                        Rectangle().fill(Palette.borderStrong).frame(width: 1)
+                                        chamberPane(.field, topClearance: clearance, splitSideBySide: true)
+                                    }
+                                } else {
+                                    VStack(spacing: 0) {
+                                        // Only the upper pane is under the bar, so only the upper pane's tools move.
+                                        chamberPane(.powder, topClearance: clearance, splitSideBySide: false)
+                                        Rectangle()
+                                            .fill(Palette.borderStrong)
+                                            .frame(height: 1)
+                                        chamberPane(.field, topClearance: 8, splitSideBySide: false)
+                                    }
+                                }
+                            }
                             .background(Palette.background)
-                    }
+                        } else {
+                            chamberPane(chamber, topClearance: clearance, splitSideBySide: false)
+                                .background(Palette.background)
+                        }
                     }
                     // The note that something was written down, at the foot of the world and never over the tray.
                     //
@@ -900,10 +909,27 @@ struct ContentView: View {
     ///   them. The world itself ignores this and fills the pane, which is the whole point of the pane
     ///   reaching the top of the screen.
     @ViewBuilder
-    private func chamberPane(_ which: Chamber, topClearance: CGFloat) -> some View {
+    private func chamberPane(_ which: Chamber, topClearance: CGFloat, splitSideBySide: Bool) -> some View {
         GeometryReader { geometry in
+            let world = which == .powder
+                ? CGSize(width: CGFloat(max(1, powder.engine.width)), height: CGFloat(max(1, powder.engine.height)))
+                : CGSize(width: CGFloat(max(1, field.engine.width)), height: CGFloat(max(1, field.engine.height)))
+            let scale = min(geometry.size.width / world.width, geometry.size.height / world.height)
+            let fitted = CGSize(width: world.width * scale, height: world.height * scale)
+            // What this pane would be at full single-chamber size. A persisted split can be the first layout after
+            // launch; doubling its half gives the same canonical canvas without ever resizing an existing world later.
+            let initialCanvas: CGSize
+            if isSplit, splitSideBySide {
+                initialCanvas = CGSize(width: geometry.size.width * 2 + 1, height: geometry.size.height)
+            } else if isSplit {
+                initialCanvas = CGSize(width: geometry.size.width, height: geometry.size.height * 2 + 1)
+            } else {
+                initialCanvas = geometry.size
+            }
             ZStack(alignment: .topLeading) {
-                surface(which, size: geometry.size)
+                surface(which, size: fitted, initialCanvas: initialCanvas)
+                    .frame(width: fitted.width, height: fitted.height)
+                    .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
 
                 // The floating controls belong to whichever chamber has focus. Showing them on both
                 // halves would be two sets of undo buttons doing different things. None while two parallel worlds
@@ -1155,14 +1181,14 @@ struct ContentView: View {
     // MARK: - Pieces
 
     @ViewBuilder
-    private func surface(_ which: Chamber, size: CGSize) -> some View {
+    private func surface(_ which: Chamber, size: CGSize, initialCanvas: CGSize) -> some View {
         switch which {
         case .powder:
             if let twin = powder.parallel, let change = powder.parallelChange {
                 // Two worlds, each drawn whole. Neither is resized to its half — see `ParallelPowderView`.
                 ParallelPowderView(first: powder, second: twin, change: change)
             } else {
-                ShakenPowderSurface(model: powder, size: size, unit: temperatureUnit)
+                ShakenPowderSurface(model: powder, initialCanvas: initialCanvas, unit: temperatureUnit)
                     // Said to somebody using VoiceOver, who otherwise hears nothing at all about the world: what it is,
                     // what is in it, and what a drag does.
                     .accessibilityElement(children: .ignore)
@@ -1174,9 +1200,15 @@ struct ContentView: View {
             }
         case .field:
             FieldWithLabels(model: field)
-                .onAppear { field.resize(toViewSize: size, scale: UIScreen.main.scale) }
+                .onAppear {
+                    field.prepareInitialCanvas(toViewSize: initialCanvas, scale: UIScreen.main.scale)
+                    field.updateViewport(toViewSize: size, scale: UIScreen.main.scale)
+                }
+                .onChange(of: initialCanvas) { _, new in
+                    field.prepareInitialCanvas(toViewSize: new, scale: UIScreen.main.scale)
+                }
                 .onChange(of: size) { _, new in
-                    field.resize(toViewSize: new, scale: UIScreen.main.scale)
+                    field.updateViewport(toViewSize: new, scale: UIScreen.main.scale)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("The particle field")
@@ -1203,7 +1235,7 @@ struct ContentView: View {
     /// app glitching rather than as the world being hit.
     private struct ShakenPowderSurface: View {
         let model: SimulationModel
-        let size: CGSize
+        let initialCanvas: CGSize
         let unit: TemperatureUnit
 
         var body: some View {
@@ -1211,9 +1243,9 @@ struct ContentView: View {
                 // The lasso's loop and the thermometer are marks on the world, so they are shaken with it.
                 .overlay { PowderWorldMarks(model: model, unit: unit) }
                 .offset(x: model.screenShakeOffset.width, y: model.screenShakeOffset.height)
-                .onAppear { model.resize(toViewSize: size, scale: UIScreen.main.scale) }
-                .onChange(of: size) { _, new in
-                    model.resize(toViewSize: new, scale: UIScreen.main.scale)
+                .onAppear { model.prepareInitialCanvas(toViewSize: initialCanvas, scale: UIScreen.main.scale) }
+                .onChange(of: initialCanvas) { _, new in
+                    model.prepareInitialCanvas(toViewSize: new, scale: UIScreen.main.scale)
                 }
         }
     }

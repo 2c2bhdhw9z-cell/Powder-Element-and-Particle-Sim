@@ -48,9 +48,19 @@ struct FieldDock: View {
         VStack(spacing: 0) {
             handle
             header
-            if isOpen { expanded }
             toolStrip
             transport
+        }
+        .overlay(alignment: .top) {
+            if isOpen {
+                expanded
+                    // Floats upward over the field; the fixed dock below never changes height, so the field cannot be
+                    // resized or its undo history touched by this arrow or its animation.
+                    .alignmentGuide(.top) { $0[.bottom] }
+                    .solidPanel(in: Rectangle())
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(2)
+            }
         }
         .background(alignment: .top) {
             Rectangle().fill(Palette.border).frame(height: 1)

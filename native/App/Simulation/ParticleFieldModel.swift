@@ -78,6 +78,9 @@ final class ParticleFieldModel {
     /// every body where it was — so on a first launch the opening galaxy sat small in the top corner of the
     /// screen rather than in the middle of it.
     @ObservationIgnored private var openingSceneIsUntouched = true
+    /// Once the field has its real full-screen physical size, tray/split/orientation changes only change the viewport.
+    /// Keeping those separate is what stops UI chrome from moving bodies or erasing undo.
+    @ObservationIgnored private var worldHasCanonicalSize = false
 
     /// What decides each body's colour.
     var colorMode: ParticleColorMode {
@@ -882,12 +885,17 @@ final class ParticleFieldModel {
         if applied {
             worldsOutside = []
             worldWithin = nil
+            worldHasCanonicalSize = true
         }
         if applied {
             // A file with no camera in it was written before there was one to save, and the right
             // reading of that is the resting view rather than whatever the last scene happened to
             // leave behind.
-            camera = state.camera ?? .identity
+            let savedCamera = state.camera ?? .identity
+            let baseScale = max(0.000_001, savedCamera.worldScale)
+            engine.screenWidth = engine.width / baseScale
+            engine.screenHeight = engine.height / baseScale
+            camera = savedCamera
             stopMovie()
             movie = state.movie ?? ParticleMovie()
             // The file sets the world's size, so the reach is worked out again for it.
@@ -2241,11 +2249,11 @@ final class ParticleFieldModel {
     /// Whatever is already in the field is shifted to stay in the middle, so the new space appears evenly
     /// all round the existing scene rather than the scene sitting in one corner of it.
     private func matchWorldToCamera() {
-        guard viewPixelWidth > 0, viewPixelHeight > 0 else { return }
+        guard engine.screenWidth > 0, engine.screenHeight > 0 else { return }
         let scale = storedCamera.worldScale
         engine.resizeKeepingContentsCentred(
-            width: viewPixelWidth * scale,
-            height: viewPixelHeight * scale
+            width: engine.screenWidth * scale,
+            height: engine.screenHeight * scale
         )
         // More of the world's pixels to the screen now, so the same circle on the screen is more of them.
         applyReach()
@@ -4467,31 +4475,27 @@ final class ParticleFieldModel {
 
     // MARK: - Size
 
-    func resize(toViewSize size: CGSize, scale: CGFloat) {
+    /// Gives the opening field one physical size from the full single-chamber canvas. Later layout changes use
+    /// ``updateViewport`` and never resize the simulation itself.
+    func prepareInitialCanvas(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
-        // Kept so that a drag measured in points can be turned into the pixels the camera works in.
-        if scale > 0 { viewScale = Double(scale) }
-        refreshDrawableScale()
-        // Full resolution, unlike the powder grid. The cost here is per body rather than per
-        // cell, so a larger world is not a slower one — it is simply more room.
-        //
-        // The screen's own density, never the chosen detail: how finely the field is *drawn* must not decide
-        // how much room the bodies have. Tying the two together would make turning the detail down shrink the
-        // world, which would shove every body in it and look like a zoom rather than like a setting.
-        viewPixelWidth = Double(size.width * scale)
-        viewPixelHeight = Double(size.height * scale)
-        // The screen's own size, so the engine lays arrangements out on a screen's worth of the world however
-        // far out the view is pulled, and measures a finger's forces against the screen rather than against a
-        // world grown by zooming out. See `ParticleEngine.screenWidth`.
+        updateViewport(toViewSize: size, scale: scale)
+        if worldHasCanonicalSize {
+            if engine.screenWidth <= 0 || engine.screenHeight <= 0 {
+                let baseScale = max(0.000_001, storedCamera.worldScale)
+                engine.screenWidth = engine.width / baseScale
+                engine.screenHeight = engine.height / baseScale
+            }
+            return
+        }
+
         engine.screenWidth = viewPixelWidth
         engine.screenHeight = viewPixelHeight
-        // Through the camera, because the world is the view's size times however far out it is pulled. A
-        // plain resize here would silently undo the extra room the moment the phone was turned.
         let worldScale = storedCamera.worldScale
         engine.resize(width: viewPixelWidth * worldScale, height: viewPixelHeight * worldScale)
         applyReach()
 
-        // The first real size, with the opening galaxy still as it was made: laid out again to fit the screen.
+        // The stand-in opening galaxy is laid out again only after the real full canvas exists.
         if openingSceneIsUntouched {
             openingSceneIsUntouched = false
             engine.spawnGalaxy(count: 400)
@@ -4500,6 +4504,18 @@ final class ParticleFieldModel {
             manualGravityY = engine.gravityY
             bodyCount = engine.bodyCount
         }
+        worldHasCanonicalSize = true
+    }
+
+    /// Updates touch, pan and drawable measurements for a smaller/differently shaped presentation. Bodies, world
+    /// bounds, camera room and undo history are deliberately untouched.
+    func updateViewport(toViewSize size: CGSize, scale: CGFloat) {
+        guard size.width > 0, size.height > 0 else { return }
+        if scale > 0 { viewScale = Double(scale) }
+        refreshDrawableScale()
+        viewPixelWidth = Double(size.width * scale)
+        viewPixelHeight = Double(size.height * scale)
+        applyReach()
     }
 }
 

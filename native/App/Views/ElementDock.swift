@@ -65,16 +65,24 @@ struct ElementDock: View {
         VStack(spacing: 0) {
             handle
             header
+            // Kept in the layout at all times so opening the tray never changes the world's height. Hidden while the
+            // full tray floats above this fixed base.
+            collapsedStrip
+                .opacity(isOpen ? 0 : 1)
+                .allowsHitTesting(!isOpen)
+                .accessibilityHidden(isOpen)
+            transport
+        }
+        .overlay(alignment: .top) {
             if isOpen {
                 expanded
-            } else {
-                // Only while closed, which is what it is for — the name says so. It used to show in both
-                // states, and open it sat directly beneath the category filter showing a fixed dozen
-                // materials that the filter has no effect on. Choose "Gases" and the row underneath
-                // still reads sand, water, lava: it looks exactly like a filter that does not work.
-                collapsedStrip
+                    // Align the expanded tray's bottom with the fixed dock's top, so it grows over the world instead of
+                    // pushing the world smaller on every animation frame.
+                    .alignmentGuide(.top) { $0[.bottom] }
+                    .solidPanel(in: Rectangle())
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(2)
             }
-            transport
         }
         .background(alignment: .top) {
             // A hairline along the top edge and a shadow beneath it, so the dock reads as

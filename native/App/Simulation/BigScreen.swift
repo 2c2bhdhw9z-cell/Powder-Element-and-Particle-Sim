@@ -121,14 +121,17 @@ private struct BigScreenView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let aspect = CGFloat(max(0.000_001, model.engine.width / max(0.000_001, model.engine.height)))
+            let available = geometry.size.width / max(1, geometry.size.height)
+            let size = available > aspect
+                ? CGSize(width: geometry.size.height * aspect, height: geometry.size.height)
+                : CGSize(width: geometry.size.width, height: geometry.size.width / aspect)
             FieldSurface(model: model)
-                .onAppear { model.resize(toViewSize: geometry.size, scale: 1) }
-                .onChange(of: geometry.size) { _, size in
-                    // Its own size, not the phone's: a television is a different shape and a different number of
-                    // pixels, and the field is built for the screen it is drawn on rather than stretched from another.
-                    model.resize(toViewSize: size, scale: 1)
-                }
+                .frame(width: size.width, height: size.height)
+                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }
+        // A second renderer is only another view of the same world. It must never resize that world or compete with
+        // the phone's touch/pan measurements; differing screen shapes are handled by the fitted frame above.
         .background(Color.black.ignoresSafeArea())
         .ignoresSafeArea()
         .statusBarHidden()
