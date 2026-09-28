@@ -51,24 +51,9 @@ anything that arrived meanwhile, and refuses rather than guessing if that will n
 
 ### Found by chat two
 
-- **The engine does not compile for the browser (32-bit), in three lines.** WebAssembly is a 32-bit machine, where a
-  whole number (`Int`) only holds up to about two billion, and three constants in the engine are bigger than that, so
-  the compiler refuses them:
-  - `native/Sources/CrucibleCore/Particle/SwarmFlow.swift` lines 286–288, in `corner(_:_:_:)`:
-    `UInt32(truncatingIfNeeded: y &* 0x85EB_CA6B)` and the same for `z &* 0xC2B2_AE35` (and, for tidiness, `x`).
-  - `native/Sources/CrucibleCore/Powder/PowderRender.swift` line 197, in `grainJitter`:
-    `UInt32(truncatingIfNeeded: y &* 3_812_015_801)`.
-
-  The fix is to shorten to 32 bits *before* multiplying rather than after: `UInt32(truncatingIfNeeded: y) &* 0x85EB_CA6B`.
-  That gives exactly the same answer on the phone — the bottom 32 bits of a product depend only on the bottom 32 bits
-  of what was multiplied — so no recorded comparison moves. Proved rather than argued: with those five edits made in a
-  scratch copy, the browser build and the ordinary Linux build (unedited) give identical fingerprints of cells,
-  temperatures, pixels and every body's position for eighty consecutive days (`browser/check.mjs` against
-  `crucible-lab-check`). Every other hash in the engine was checked and is already written the safe way.
-  Until this is fixed, the browser check (`.github/workflows/browser.yml`) fails at "Build for the browser", on purpose.
-- **Small, not a fault:** on Linux the engine needs the system maths library linked (its remainders call `fmod`). Anything
-  that also uses Foundation gets it for free, which is why nobody noticed; a program using only the engine does not
-  link without asking for it. `browser/Package.swift` asks for it. Worth one line in `native/README.md` some time.
+- ~~The engine does not compile for a 32-bit machine (three constants too big for a whole number there).~~
+  **Withdrawn — nothing to do.** It only mattered for the browser version, which the owner does not want. The browser
+  work was stopped before anything of it was committed; there is no `browser/` folder and no browser check.
 
 ## Commands
 
