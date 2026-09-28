@@ -202,6 +202,11 @@ extension ParticleEngine {
         // In 3D the letters are solid: each body is somewhere through a thickness, so the word can be looked at
         // from the side and is a block of letters rather than a sheet of paper.
         let thickness = storedDepthEnabled ? min(halfDepth, 0.07 * patternSpan) : 0
+        let group = UInt8(currentLayer)
+        let layerTint = layers[Int(group)].tint
+        func colourForLayer(_ colour: UInt32) -> UInt32 {
+            layerTint.map { Self.tinted(colour, with: $0) } ?? colour
+        }
         for sample in picked {
             let x = leftEdge + (sample.x - minX) * Double(pictureWidth) * scale
             let y = topEdge + (sample.y - minY) * Double(pictureHeight) * scale
@@ -213,11 +218,14 @@ extension ParticleEngine {
                     y: y,
                     velocityX: 0,
                     velocityY: 0,
-                    color: PackedColor(hue: 190 + acrossWord * 120, saturation: 0.78, lightness: 0.66).packedRGBA,
+                    color: colourForLayer(
+                        PackedColor(hue: 190 + acrossWord * 120, saturation: 0.78, lightness: 0.66).packedRGBA
+                    ),
                     budget: maxParticles - particles.count,
                     role: .holds,
                     home: Swarm.Home(anchorX: x, anchorY: y, stiffness: 0.01, anchorZ: z),
-                    z: z
+                    z: z,
+                    group: group
                 )
                 guard placedOne else { break }
                 placed += 1
@@ -230,14 +238,15 @@ extension ParticleEngine {
                 // it apart from there, which is the point — but it has to be legible first.
                 velocityX: 0,
                 velocityY: 0,
-                color: PackedColor(
+                color: colourForLayer(PackedColor(
                     hue: 190 + acrossWord * 120,
                     saturation: 0.78,
                     lightness: 0.66
-                ).packedRGBA,
+                ).packedRGBA),
                 budget: maxParticles - particles.count,
                 role: .holds,
-                home: Swarm.Home(anchorX: x, anchorY: y, stiffness: 0.01)
+                home: Swarm.Home(anchorX: x, anchorY: y, stiffness: 0.01),
+                group: group
             )
             guard placedOne else { break }
             placed += 1

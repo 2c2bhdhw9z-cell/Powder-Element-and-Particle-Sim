@@ -810,7 +810,8 @@ extension ParticleEngine {
                     reach: reach,
                     strength: strength,
                     unit: brushUnit,
-                    now: now
+                    now: now,
+                    lockedLayers: locks
                 )
             }
         }
@@ -834,7 +835,8 @@ extension ParticleEngine {
             freezeY: freezing ? fingerY : 0,
             freezeReach: freezing ? reach : 0,
             layerWeights: layerWeightTable,
-            layerThinness: layerThinnessTable
+            layerThinness: layerThinnessTable,
+            lockedLayers: lockedLayerTable
         ))
 
         // After the move, because a wall is about where something has got to rather than where it was
@@ -857,7 +859,7 @@ extension ParticleEngine {
         // some of them invisibly. Removing a body swaps the last one into the gap, which can put a hidden body back
         // among the shown — so the order is re-established here, after anything that could have removed one. Costs
         // nothing at all unless a layer is hidden. See `ParticleLayers.swift`.
-        if storedLayers.count > 1 { restackLayers() }
+        if !storedLayers.isEmpty { restackLayers() }
     }
 
     /// Remembers where every swarm body is, so a wall can tell which side it came from.

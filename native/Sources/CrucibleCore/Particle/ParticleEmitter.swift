@@ -223,6 +223,8 @@ extension ParticleEngine {
 
             let atX = emitter.atFractionX * width
             let atY = emitter.atFractionY * height
+            let group = UInt8(currentLayer)
+            let layerTint = layers[Int(group)].tint
 
             for _ in 0 ..< toEmit {
                 let angle = emitter.direction + (rng.next() - 0.5) * 2 * emitter.spread
@@ -230,17 +232,19 @@ extension ParticleEngine {
                 let weight = emitter.weight * (1 + (rng.next() - 0.5) * 2 * emitter.weightVariation)
                 let hue = emitter.hue >= 0 ? emitter.hue : rng.next() * 360
                 let colour = PackedColor(hue: hue, saturation: 0.85, lightness: 0.62)
+                let finalColour = layerTint.map { Self.tinted(colour.packedRGBA, with: $0) } ?? colour.packedRGBA
                 let placed = swarm.append(
                     x: atX,
                     y: atY,
                     velocityX: jsCos(angle) * speed,
                     velocityY: jsSin(angle) * speed,
-                    color: colour.packedRGBA,
+                    color: finalColour,
                     budget: budget,
                     mass: weight,
                     life: emitter.lifespan > 0 ? emitter.lifespan : -1,
                     role: pouredRole,
-                    size: pouredSize
+                    size: pouredSize,
+                    group: group
                 )
                 // Full. Stop, rather than spinning through the rest of the count for nothing — and keep what
                 // is owed at nought so it does not build up into a burst the moment room appears.

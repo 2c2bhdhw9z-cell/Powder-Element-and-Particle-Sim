@@ -728,6 +728,9 @@ extension ParticleEngine {
             // of it. The web version handed the swarm the full limit regardless, so the
             // two together could exceed what the user asked for.
             let budget = max(0, maxParticles - particles.count)
+            let group = UInt8(currentLayer)
+            let tint = layers[Int(group)].tint
+            let first = swarm.count
             swarm.spawn(
                 count: count,
                 width: width,
@@ -740,8 +743,14 @@ extension ParticleEngine {
                 span: patternSpan * 0.42,
                 size: ownSize,
                 // And in 3D, a ball in the box rather than a ring.
-                inDepth: worldDepth
+                inDepth: worldDepth,
+                group: group
             )
+            if let tint {
+                for index in first ..< swarm.count {
+                    swarm.colors[index] = Self.tinted(swarm.colors[index], with: tint)
+                }
+            }
             return
         }
 

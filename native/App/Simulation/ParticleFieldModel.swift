@@ -1551,8 +1551,16 @@ final class ParticleFieldModel {
             depths.springs.append(contentsOf: repeatElement(0, count: springs.count * 2 - depths.springs.count))
         }
         var written = 0
+        let allLayers = engine.layers
+        let hidesLayers = engine.hasLayers
         for spring in springs {
             guard spring.a < bodies.count, spring.b < bodies.count else { continue }
+            if hidesLayers {
+                let first = Int(bodies[spring.a].group)
+                let second = Int(bodies[spring.b].group)
+                if first < allLayers.count, !allLayers[first].shown { continue }
+                if second < allLayers.count, !allLayers[second].shown { continue }
+            }
             springPositions[written * 4] = Float(bodies[spring.a].x)
             springPositions[written * 4 + 1] = Float(bodies[spring.a].y)
             springPositions[written * 4 + 2] = Float(bodies[spring.b].x)

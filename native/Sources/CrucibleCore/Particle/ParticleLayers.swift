@@ -107,8 +107,44 @@ extension ParticleEngine {
         set { storedCurrentLayer = min(max(0, newValue), layers.count - 1) }
     }
 
-    /// Whether the world has been divided up at all.
-    public var hasLayers: Bool { storedLayers.count > 1 }
+    /// Whether the world has an explicit layer definition, including a customized first/only layer.
+    public var hasLayers: Bool { !storedLayers.isEmpty }
+
+    /// Installs layer definitions before loading bodies. Absent means the implicit plain first layer.
+    func installLayerState(_ saved: [ParticleLayer]?, current: Int, colorsAlreadyTinted: Bool) {
+        let cleaned = Array((saved ?? []).prefix(ParticleLayer.most).map(\.sanitized))
+        storedLayers = cleaned.count == 1 && cleaned[0] == ParticleLayer.first ? [] : cleaned
+        storedCurrentLayer = min(max(0, current), layers.count - 1)
+        normalizeLayerTags(colorsAlreadyTinted: colorsAlreadyTinted)
+    }
+
+    /// Makes every body name a layer that exists and synchronizes the cheap group/tint/restack caches.
+    func normalizeLayerTags(colorsAlreadyTinted: Bool) {
+        let count = layers.count
+        for index in particles.indices where Int(particles[index].group) >= count { particles[index].group = 0 }
+        swarm.normalizeGroups(layerCount: count)
+        if colorsAlreadyTinted {
+            storedAppliedTints = [PackedColor?](repeating: nil, count: ParticleLayer.most)
+            for index in storedLayers.indices where index < storedAppliedTints.count {
+                storedAppliedTints[index] = storedLayers[index].tint
+            }
+        } else {
+            storedAppliedTints = []
+            applyLayerTints()
+        }
+        restackLayers()
+    }
+
+    /// A replacement scene owns a fresh undivided world. Manual Clear may keep a person's layer list; a preset may not.
+    func resetLayersForNewScene() {
+        storedLayers = []
+        storedCurrentLayer = 0
+        storedAppliedTints = []
+        storedRecipe = nil
+        swarm.normalizeGroups(layerCount: 1)
+        for index in particles.indices { particles[index].group = 0 }
+        restackLayers()
+    }
 
     /// Adds a layer and makes it the current one.
     ///
@@ -130,16 +166,14 @@ extension ParticleEngine {
         guard index >= 0, index < all.count else { return false }
         let wasShown = all[index].shown
         let wasTinted = all[index].tint
-        all[index] = layer.sanitized
+        let wanted = layer.sanitized
+        let tintChanged = wasTinted != wanted.tint
+        // The undo point must contain the old layer definition as well as the old body colours. It used to be taken
+        // after storing the new tint, so Undo restored mismatched metadata and colours.
+        if tintChanged { pushUndo() }
+        all[index] = wanted
         storedLayers = all
         if wasShown != all[index].shown { restackLayers() }
-        // Giving a layer a colour writes that colour into its bodies, which loses the colours they had. Every other
-        // thing a layer can do is reversible by doing it again — hiding, locking, a slider — so this one is kept for
-        // undo, and only when it is actually a change. Without it, tapping a colour was the one action in the whole
-        // field that could not be taken back.
-        if wasTinted != all[index].tint, all[index].tint != nil {
-            pushUndo()
-        }
         applyLayerTints()
         return true
     }
@@ -208,7 +242,9 @@ extension ParticleEngine {
     /// - Returns: which layer they went into, or nothing if there was no room for another layer or no bodies to copy.
     @discardableResult
     public func duplicateLayer(_ index: Int) -> Int? {
-        guard index >= 0, index < layers.count, layers.count < ParticleLayer.most else { return nil }
+        guard index >= 0, index < layers.count, layers.count < ParticleLayer.most,
+              bodiesInLayer(index) > 0
+        else { return nil }
         let source = layers[index]
         pushUndo()
         let undoWas = undoSuppressed
@@ -257,11 +293,24 @@ extension ParticleEngine {
         }
 
         let bodiesWas = particles
-        for body in bodiesWas where body.group == from {
+        let springsWere = springs
+        var copiedBody: [Int: Int] = [:]
+        for (sourceIndex, body) in bodiesWas.enumerated() where body.group == from {
             guard particles.count + swarm.count < maxParticles else { break }
-            var made = body
-            made.group = into
-            addCopy(of: made)
+            var copy = body
+            copy.group = into
+            let newIndex = particles.count
+            addCopy(of: copy)
+            if particles.count > newIndex { copiedBody[sourceIndex] = newIndex }
+        }
+        // Cloth, ropes and creatures are held together by springs whose ends are positions in the object list. Copy
+        // every spring whose two ends were copied, preserving muscles and thrust rather than rebuilding a plain spring.
+        for spring in springsWere {
+            guard let a = copiedBody[spring.a], let b = copiedBody[spring.b] else { continue }
+            var copy = spring
+            copy.a = a
+            copy.b = b
+            springs.append(copy)
         }
         restackLayers()
         applyLayerTints()
@@ -279,10 +328,21 @@ extension ParticleEngine {
         pushUndo()
         let from = UInt8(index)
         let into = UInt8(other)
+        let destinationTint = all[other].tint
         if swarm.hasGroups {
-            for i in 0 ..< swarm.count where swarm.groups[i] == from { swarm.setGroup(into, at: i) }
+            for i in 0 ..< swarm.count where swarm.groups[i] == from {
+                if let destinationTint { swarm.colors[i] = Self.tinted(swarm.colors[i], with: destinationTint) }
+                swarm.setGroup(into, at: i)
+            }
         }
-        for i in particles.indices where particles[i].group == from { particles[i].group = into }
+        for i in particles.indices where particles[i].group == from {
+            if let destinationTint {
+                particles[i].color = PackedColor(
+                    packedRGBA: Self.tinted(particles[i].color.packedRGBA, with: destinationTint)
+                )
+            }
+            particles[i].group = into
+        }
         removeLayerLeavingBodies(index)
         restackLayers()
         applyLayerTints()
@@ -309,14 +369,21 @@ extension ParticleEngine {
         pushUndo()
         let from = UInt8(index)
         let into = UInt8(other)
+        let destinationTint = all[other].tint
         var moved = 0
         if swarm.hasGroups || index == 0 {
             for i in 0 ..< swarm.count where (swarm.hasGroups ? swarm.groups[i] : 0) == from {
+                if let destinationTint { swarm.colors[i] = Self.tinted(swarm.colors[i], with: destinationTint) }
                 swarm.setGroup(into, at: i)
                 moved += 1
             }
         }
         for i in particles.indices where particles[i].group == from {
+            if let destinationTint {
+                particles[i].color = PackedColor(
+                    packedRGBA: Self.tinted(particles[i].color.packedRGBA, with: destinationTint)
+                )
+            }
             particles[i].group = into
             moved += 1
         }
@@ -334,7 +401,7 @@ extension ParticleEngine {
         var all = layers
         guard index > 0, index < all.count else { return }
         all.remove(at: index)
-        storedLayers = all.count <= 1 ? [] : all
+        storedLayers = all == [ParticleLayer.first] ? [] : all
         let gone = UInt8(index)
         if swarm.hasGroups {
             for i in 0 ..< swarm.count where swarm.groups[i] > gone {
@@ -345,6 +412,7 @@ extension ParticleEngine {
             particles[i].group -= 1
         }
         storedCurrentLayer = min(storedCurrentLayer, max(0, layers.count - 1))
+        normalizeLayerTags(colorsAlreadyTinted: true)
     }
 
     // MARK: - What the rest of the engine asks
@@ -362,7 +430,7 @@ extension ParticleEngine {
 
     /// Whether the crowd's finger and tool passes need to check layers at all.
     var anyLayerLocked: Bool {
-        storedLayers.count > 1 && storedLayers.contains { $0.locked }
+        !storedLayers.isEmpty && storedLayers.contains { $0.locked }
     }
 
     /// How hard gravity pulls on each layer, as the step wants it: empty when no layer asks for anything different.
@@ -400,12 +468,12 @@ extension ParticleEngine {
 
     /// Whether any layer changes how its bodies move.
     var anyLayerChangesPhysics: Bool {
-        storedLayers.count > 1 && storedLayers.contains { $0.changesThePhysics }
+        !storedLayers.isEmpty && storedLayers.contains { $0.changesThePhysics }
     }
 
     /// How many of the crowd's bodies are drawn: the ones at the front, once the hidden are moved behind them.
     public var shownSwarmCount: Int {
-        guard storedLayers.count > 1, storedLayers.contains(where: { !$0.shown }) else { return swarm.count }
+        guard !storedLayers.isEmpty, storedLayers.contains(where: { !$0.shown }) else { return swarm.count }
         // Worked out again if the crowd has changed since it was last worked out. Bodies can be added or taken away
         // between one moment and the next — a scene loaded, something painted in while the world is paused — and a
         // count from before that is too small, so the new bodies would not be drawn until the world was set running
@@ -420,7 +488,7 @@ extension ParticleEngine {
     /// removal swaps the last body into the gap, which can put a hidden one back among the shown.
     func restackLayers() {
         storedRestackedAt = swarm.generation
-        guard storedLayers.count > 1, storedLayers.contains(where: { !$0.shown }) else {
+        guard !storedLayers.isEmpty, storedLayers.contains(where: { !$0.shown }) else {
             storedShownSwarmCount = swarm.count
             return
         }
@@ -481,7 +549,7 @@ extension ParticleEngine {
             }
             storedAppliedTints[index] = wanted
         }
-        guard any, all.count > 1 else { return }
+        guard any, !all.isEmpty else { return }
 
         for index in 0 ..< swarm.count {
             let group = Int(swarm.hasGroups ? swarm.groups[index] : 0)

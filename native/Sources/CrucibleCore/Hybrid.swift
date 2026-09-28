@@ -61,6 +61,8 @@ public enum Hybrid {
         // The middle of the box, so turning it turns the slab about itself.
         let middleX = field.width / 2
         let middleY = field.height / 2
+        let group = UInt8(field.currentLayer)
+        let layerTint = field.layers[Int(group)].tint
         for at in 0 ..< written {
             let cube = cubes[at]
             let placed = field.swarm.append(
@@ -68,7 +70,8 @@ public enum Hybrid {
                 y: middleY + cube.y,
                 velocityX: 0,
                 velocityY: 0,
-                color: cube.color | 0xFF00_0000,
+                color: layerTint.map { ParticleEngine.tinted(cube.color | 0xFF00_0000, with: $0) }
+                    ?? (cube.color | 0xFF00_0000),
                 budget: field.maxParticles,
                 // Held exactly where it was put, and held *firmly*: a shape's grains are deliberately soft so that a
                 // finger can dent one, but this is a picture of a world and a picture must not sag. Measured: at the
@@ -84,7 +87,8 @@ public enum Hybrid {
                     stiffness: 0.5,
                     anchorZ: cube.z
                 ),
-                z: cube.z
+                z: cube.z,
+                group: group
             )
             if !placed { return at }
         }

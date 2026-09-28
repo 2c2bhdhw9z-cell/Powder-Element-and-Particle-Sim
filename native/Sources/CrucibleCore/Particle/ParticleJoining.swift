@@ -255,6 +255,8 @@ extension ParticleEngine {
         guard existing > 0 else {
             // Between shells, or after a storm's last bolt has faded, there is nobody to copy. Scatter them
             // rather than refusing, so the button never silently does nothing.
+            let group = UInt8(currentLayer)
+            let first = swarm.count
             swarm.spawn(
                 count: total,
                 width: width,
@@ -264,8 +266,14 @@ extension ParticleEngine {
                 rng: &rng,
                 span: patternSpan * 0.42,
                 size: storedMatchesArrangementSize ? arrangementBodySize : 0,
-                inDepth: worldDepth
+                inDepth: worldDepth,
+                group: group
             )
+            if let tint = layers[Int(group)].tint {
+                for index in first ..< swarm.count {
+                    swarm.colors[index] = Self.tinted(swarm.colors[index], with: tint)
+                }
+            }
             return
         }
 
@@ -339,7 +347,8 @@ extension ParticleEngine {
                 home: home,
                 size: ownSize,
                 z: z,
-                velocityZ: velZ
+                velocityZ: velZ,
+                group: swarm.hasGroups ? swarm.groups[source] : 0
             ) else { return }
         }
     }

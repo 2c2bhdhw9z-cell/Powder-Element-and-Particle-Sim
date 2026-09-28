@@ -696,7 +696,8 @@ extension ParticleEngine {
             depth: depth,
             freezeRay: freezing ? ray : nil,
             layerWeights: layerWeightTable,
-            layerThinness: layerThinnessTable
+            layerThinness: layerThinnessTable,
+            lockedLayers: lockedLayerTable
         ))
 
         if !storedWalls.isEmpty {
@@ -735,26 +736,31 @@ extension ParticleEngine {
             toEmit = min(toEmit, 400)
             let atX = emitter.atFractionX * width
             let atY = emitter.atFractionY * height
+            let group = UInt8(currentLayer)
+            let layerTint = layers[Int(group)].tint
             for _ in 0 ..< toEmit {
                 let angle = emitter.direction + (rng.next() - 0.5) * 2 * emitter.spread
                 let lean = (rng.next() - 0.5) * 2 * emitter.spread
                 let speed = emitter.speed * (1 + (rng.next() - 0.5) * 2 * emitter.speedVariation)
                 let weight = emitter.weight * (1 + (rng.next() - 0.5) * 2 * emitter.weightVariation)
                 let hue = emitter.hue >= 0 ? emitter.hue : rng.next() * 360
+                let rawColour = PackedColor(hue: hue, saturation: 0.85, lightness: 0.62).packedRGBA
+                let finalColour = layerTint.map { Self.tinted(rawColour, with: $0) } ?? rawColour
                 let flat = jsCos(lean)
                 let placed = swarm.append(
                     x: atX,
                     y: atY,
                     velocityX: jsCos(angle) * speed * flat,
                     velocityY: jsSin(angle) * speed * flat,
-                    color: PackedColor(hue: hue, saturation: 0.85, lightness: 0.62).packedRGBA,
+                    color: finalColour,
                     budget: budget,
                     mass: weight,
                     life: emitter.lifespan > 0 ? emitter.lifespan : -1,
                     role: pouredRole,
                     size: pouredSize,
                     z: 0,
-                    velocityZ: jsSin(lean) * speed
+                    velocityZ: jsSin(lean) * speed,
+                    group: group
                 )
                 guard placed else {
                     emitter.owed = 0

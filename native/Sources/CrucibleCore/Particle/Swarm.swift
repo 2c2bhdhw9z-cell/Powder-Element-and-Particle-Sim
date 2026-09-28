@@ -462,6 +462,7 @@ public final class Swarm {
         sleepingCount = 0
         hasRoles = false
         hasSizes = false
+        hasGroups = false
         hasDepth = false
         generation += 1
     }
@@ -607,7 +608,8 @@ public final class Swarm {
         rng: inout Mulberry32,
         span requestedSpan: Double? = nil,
         size: Double = 0,
-        inDepth depth: Double = 0
+        inDepth depth: Double = 0,
+        group: UInt8 = 0
     ) {
         let room = max(0, min(Self.maximumCount, budget) - count)
         let adding = min(requested, room)
@@ -649,6 +651,7 @@ public final class Swarm {
                 lives[i] = -1
                 maxLives[i] = 1
                 roles[i] = 0
+                groups[i] = group
                 sizes[i] = ownSize
                 colors[i] = color != 0
                     ? color
@@ -657,6 +660,7 @@ public final class Swarm {
                         | (UInt32((i * 13) & 255) << 16)
             }
             hasDepth = true
+            if group != 0 { hasGroups = true }
             count = start + actual
             generation += 1
             return
@@ -679,6 +683,7 @@ public final class Swarm {
             lives[i] = -1
             maxLives[i] = 1
             roles[i] = 0
+            groups[i] = group
             sizes[i] = ownSize
             colors[i] = color != 0
                 ? color
@@ -687,6 +692,7 @@ public final class Swarm {
                     | (UInt32((i * 13) & 255) << 16)
         }
         count = start + actual
+        if group != 0 { hasGroups = true }
         generation += 1
     }
 
@@ -870,6 +876,17 @@ public final class Swarm {
         guard index >= 0, index < count else { return }
         groups[index] = group
         if group != 0 { hasGroups = true }
+    }
+
+    /// Pulls every live tag into the layer list and recomputes the fast-path flag from live bodies rather than stale
+    /// capacity. Used after load, undo, layer removal and whole-scene replacement.
+    func normalizeGroups(layerCount: Int) {
+        let limit = UInt8(max(1, min(ParticleLayer.most, layerCount)))
+        hasGroups = false
+        for index in 0 ..< count {
+            if groups[index] >= limit { groups[index] = 0 }
+            if groups[index] != 0 { hasGroups = true }
+        }
     }
 
     /// Swaps two bodies, everything about them together.
@@ -1093,6 +1110,8 @@ public final class Swarm {
         /// search. See ``ParticleLayer``.
         public var layerWeights: [Double] = []
         public var layerThinness: [Double] = []
+        /// Which layers a freeze tool may not stop. Empty when every layer is touchable.
+        public var lockedLayers: [Bool] = []
 
         public init(
             width: Double,
@@ -1113,10 +1132,12 @@ public final class Swarm {
             depth: Double = 0,
             freezeRay: ParticleFingerRay? = nil,
             layerWeights: [Double] = [],
-            layerThinness: [Double] = []
+            layerThinness: [Double] = [],
+            lockedLayers: [Bool] = []
         ) {
             self.layerWeights = layerWeights
             self.layerThinness = layerThinness
+            self.lockedLayers = lockedLayers
             self.depth = depth.isFinite ? max(0, depth) : 0
             self.freezeRay = freezeRay
             self.width = width
@@ -1177,7 +1198,7 @@ public final class Swarm {
         let sleeps = sleepEnabled
         // Layers with rules of their own. Empty in nearly every world, and when it is empty a body's layer is never
         // read — which is the point of checking here rather than per body.
-        let layered = !options.layerWeights.isEmpty && hasGroups
+        let layered = !options.layerWeights.isEmpty
         let layerWeights = options.layerWeights
         let layerThinness = options.layerThinness
         for i in 0 ..< count {
@@ -1256,8 +1277,12 @@ public final class Swarm {
                 let dx = positions[pair].asDouble - freezeX
                 let dy = positions[pair + 1].asDouble - freezeY
                 if freezesEverything || dx * dx + dy * dy < freezeReachSquared {
-                    velocities[pair] = 0
-                    velocities[pair + 1] = 0
+                    let group = Int(hasGroups ? groups[i] : 0)
+                    let locked = group < options.lockedLayers.count && options.lockedLayers[group]
+                    if !locked {
+                        velocities[pair] = 0
+                        velocities[pair + 1] = 0
+                    }
                 }
             }
 
@@ -1406,7 +1431,7 @@ public final class Swarm {
 
         let sleeps = sleepEnabled
         // As in the flat pass: never read unless some layer asks for different rules.
-        let layered = !options.layerWeights.isEmpty && hasGroups
+        let layered = !options.layerWeights.isEmpty
         let layerWeights = options.layerWeights
         let layerThinness = options.layerThinness
         for i in 0 ..< count {
@@ -1491,9 +1516,13 @@ public final class Swarm {
                     }
                 }
                 if inside {
-                    velX = 0
-                    velY = 0
-                    velZ = 0
+                    let group = Int(hasGroups ? groups[i] : 0)
+                    let locked = group < options.lockedLayers.count && options.lockedLayers[group]
+                    if !locked {
+                        velX = 0
+                        velY = 0
+                        velZ = 0
+                    }
                 }
             }
 

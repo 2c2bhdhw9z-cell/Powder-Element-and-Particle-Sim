@@ -245,6 +245,8 @@ public struct ParticleState: Codable, Sendable {
     public var layers: [ParticleLayer]?
     /// Which layer new bodies were going into.
     public var layerAt: Int?
+    /// The formula and knob values that own a held recipe shape. Absent in files from before recipes existed.
+    public var recipe: ParticleRecipe?
     public var particles: [ParticleRecord]
 }
 
@@ -352,8 +354,9 @@ extension ParticleEngine {
                         tz: $0.jets ? $0.thrustZ : nil
                     )
                 },
-            layers: storedLayers.count > 1 ? storedLayers : nil,
-            layerAt: storedLayers.count > 1 ? storedCurrentLayer : nil,
+            layers: storedLayers.isEmpty ? nil : storedLayers,
+            layerAt: storedLayers.isEmpty ? nil : storedCurrentLayer,
+            recipe: storedRecipe,
             // Every number made writable on the way out. A save file is text, and text has no way to say
             // "not a number" — so one corrupt body used to make the whole save fail, and because the failure
             // was swallowed, autosave simply stopped working with nothing on screen to say so.
@@ -577,6 +580,11 @@ extension ParticleEngine {
         fluidEnabled = state.fluidEnabled ?? false
         _ = setMaxParticles(state.maxParticles)
 
+        // Layers are installed before bodies. Loading used to append bodies through the old world's current layer,
+        // then try to repair tags by enumerating the untrusted records afterwards; one skipped bad record shifted every
+        // later tag onto the wrong body. Saved colours already include their tint, so the cache starts in step with them.
+        installLayerState(state.layers, current: state.layerAt ?? 0, colorsAlreadyTinted: true)
+
         // Before the bodies, so they are put back into the right kind of world.
         storedDepthEnabled = state.depthEnabled ?? false
         storedDepthRatio = Self.usableDepthRatio(state.depthRatio ?? 1)
@@ -623,23 +631,26 @@ extension ParticleEngine {
                 kind: record.t.flatMap(ParticleKind.init(rawValue:)) ?? .standard,
                 z: storedDepthEnabled ? place(record.z ?? 0) : 0,
                 velocityZ: storedDepthEnabled ? speed(record.vz ?? 0) : 0,
-                originZ: storedDepthEnabled ? (record.oz.flatMap { $0.isFinite ? place($0) : nil } ?? 0) : 0
+                originZ: storedDepthEnabled ? (record.oz.flatMap { $0.isFinite ? place($0) : nil } ?? 0) : 0,
+                group: record.layer ?? 0,
+                colorIsFinal: true
             )
         }
 
-        // The layers themselves, before the bodies are asked which one they are on — a body pointing at a layer that
-        // does not exist would be a body with nobody's colour and nobody's rules. So the list is read first, and a tag
-        // is only kept where there is a layer for it.
-        let savedLayers = (state.layers ?? []).prefix(ParticleLayer.most).map(\.sanitized)
-        storedLayers = savedLayers.count > 1 ? Array(savedLayers) : []
-        storedCurrentLayer = min(max(0, state.layerAt ?? 0), max(0, layers.count - 1))
-        if storedLayers.count > 1 {
-            let most = UInt8(storedLayers.count)
-            for (index, record) in state.particles.enumerated() where index < particles.count {
-                let tag = record.layer ?? 0
-                particles[index].group = tag < most ? tag : 0
-            }
+        // Every loaded tag must name a layer that actually exists in this file. The global eight-layer ceiling is not
+        // enough: tag five is still orphaned in a two-layer world. The loaded colours are authoritative and are not
+        // tinted a second time.
+        normalizeLayerTags(colorsAlreadyTinted: true)
+
+        storedLabels = []
+        storedShowsLabels = false
+        storedRecipe = nil
+        if let saved = state.recipe?.sanitized, case .success = saved.compiled(), swarm.hasRoles {
+            storedRecipe = saved
+            storedLabels = saved.title.isEmpty ? [] : [ParticleLabel(saved.title, x: width / 2, y: height * 0.08)]
+            storedShowsLabels = !saved.title.isEmpty
         }
+
         // Where the hidden bodies are has to be worked out for the loaded crowd, not inherited from whatever the field
         // held before. Without this a world with a hidden layer opened as an empty field: the count of bodies to draw
         // was still nought from before anything was loaded, so the screen drew none of them.

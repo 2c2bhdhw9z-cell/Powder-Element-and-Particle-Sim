@@ -578,6 +578,9 @@ public final class ParticleEngine {
         storedMorphAt = 0
         storedMorphA = []
         storedMorphB = []
+        // A formula owns the homes in the scene it made. Clear/new content must not leave its knobs attached to an
+        // unrelated crowd.
+        storedRecipe = nil
         // A recording left playing would overwrite, on the very next moment, whatever the field is about to
         // be set up as. Paused rather than deleted: it is somebody's work.
         storedPlayhead.isPlaying = false
@@ -648,7 +651,9 @@ public final class ParticleEngine {
         kind: ParticleKind = .standard,
         z: Double = 0,
         velocityZ: Double = 0,
-        originZ: Double = 0
+        originZ: Double = 0,
+        group: UInt8? = nil,
+        colorIsFinal: Bool = false
     ) -> Int {
         if bodyCount >= maxParticles, !particles.isEmpty {
             // Evicted through removeParticles so spring endpoints follow the shift.
@@ -661,7 +666,11 @@ public final class ParticleEngine {
         let id = nextSerial
         nextSerial += 1
 
-        let resolvedColor = color ?? PackedColor(hue: rng.next() * 360, saturation: 0.85, lightness: 0.65)
+        let assignedGroup = UInt8(min(max(0, Int(group ?? UInt8(currentLayer))), layers.count - 1))
+        var resolvedColor = color ?? PackedColor(hue: rng.next() * 360, saturation: 0.85, lightness: 0.65)
+        if !colorIsFinal, let tint = layers[Int(assignedGroup)].tint {
+            resolvedColor = PackedColor(packedRGBA: Self.tinted(resolvedColor.packedRGBA, with: tint))
+        }
 
         var particle = ParticleObject(
             id: id,
@@ -690,7 +699,7 @@ public final class ParticleEngine {
         particle.originZ = originZ.isFinite ? originZ : 0
         // Born into whichever layer is current, which is the whole of what makes layers feel like layers: you choose
         // one and then work, rather than choosing one for every single thing you do.
-        particle.group = UInt8(currentLayer)
+        particle.group = assignedGroup
         particles.append(particle)
         return id
     }
@@ -866,6 +875,12 @@ public final class ParticleEngine {
         public var forceLoops: [ParticleForceLoop] = []
         public var jellies: [ParticleJelly] = []
         public var creatures: [ParticleCreature] = []
+        public var layers: [ParticleLayer] = []
+        public var currentLayer: Int = 0
+        public var appliedTints: [PackedColor?] = []
+        public var recipe: ParticleRecipe?
+        public var labels: [ParticleLabel] = []
+        public var showsLabels: Bool = false
 
         /// Approximate heap memory owned by this complete entry. The large flat arrays dominate; small value and array
         /// headers are intentionally ignored so calculating the budget does not itself allocate anything.
@@ -933,7 +948,13 @@ public final class ParticleEngine {
             maxSpeedBeforeScene: storedMaxSpeedBeforeScene,
             forceLoops: storedForceLoops,
             jellies: storedJellies,
-            creatures: storedCreatures
+            creatures: storedCreatures,
+            layers: storedLayers,
+            currentLayer: storedCurrentLayer,
+            appliedTints: storedAppliedTints,
+            recipe: storedRecipe,
+            labels: storedLabels,
+            showsLabels: storedShowsLabels
         )
     }
 
@@ -946,6 +967,11 @@ public final class ParticleEngine {
     }
 
     private func apply(_ snapshot: Snapshot) {
+        storedLayers = snapshot.layers
+        storedCurrentLayer = min(max(0, snapshot.currentLayer), layers.count - 1)
+        storedRecipe = snapshot.recipe
+        storedLabels = snapshot.labels
+        storedShowsLabels = snapshot.showsLabels
         particles = snapshot.particles
         springs = snapshot.springs
         flockEnabled = snapshot.flockEnabled
@@ -988,6 +1014,8 @@ public final class ParticleEngine {
         } else {
             swarm.removeAll()
         }
+        normalizeLayerTags(colorsAlreadyTinted: true)
+        if !snapshot.appliedTints.isEmpty { storedAppliedTints = snapshot.appliedTints }
     }
 
     /// Records the current field as an undo point. Call before mutating.

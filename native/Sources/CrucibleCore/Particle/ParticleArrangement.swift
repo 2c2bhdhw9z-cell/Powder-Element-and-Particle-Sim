@@ -512,6 +512,9 @@ extension ParticleEngine {
         collisions: Bool = false
     ) {
         clear()
+        // A preset is a replacement world, not more content in somebody's current layer. The undo point taken by
+        // `clear()` still contains the complete previous layer/recipe state.
+        resetLayersForNewScene()
         self.gravityX = gravityX
         self.gravityY = gravityY
         collisionsEnabled = collisions
