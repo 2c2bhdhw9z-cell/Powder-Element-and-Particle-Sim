@@ -28,25 +28,27 @@ fresh conversation has.
 
 ## If two conversations are working at once
 
-Possible, and useful, but only with a boundary — otherwise both will edit the same handful of files and one of them will
-lose work. Almost every app feature touches `App/Views/ContentView.swift`, the two trays, and the two models, so those
-cannot be shared.
+Possible, but only with a boundary. Almost every app feature touches the main screen, the two trays and the two models,
+so two conversations editing those will lose each other's work.
 
 **Push with `sh scripts/push-to-main.sh`.** It looks up what the main line is called, replays the work on top of
 anything that arrived meanwhile, and refuses rather than guessing if that will not go cleanly. Never `--force`.
 
-The boundary that actually works:
+- **Chat one — the app.** Owns `native/App/`, `native/Sources/`, `native/Tests/` (the recorded comparisons included),
+  `native/UITests/`, `native/Package.swift`, and `web/src/` (fixing both engines is its job). Does "Still to build" in
+  order and adds a walkthrough for each feature, then the Field tray crash, then the performance work. The tablet and
+  sideways pictures (#32) are its too: they come from the walkthrough, and any fix they need is app code.
+- **Chat two — everything around the app.** Owns `docs/`, `scripts/`, `.github/workflows/`, `README.md`,
+  `PORT-STATUS.md`, and a new folder of its own for the engine in a browser. Does #21 the engine in a browser, #34
+  `METHOD.md`, #35 the second opinion, and keeps `docs/lab-ideas.md`, `PORT-STATUS.md` and the README's test count
+  current. If it finds a real fault in the app, it writes it under "Found by chat two" below rather than fixing it.
+- If either has to touch the other's files, make that one change on its own and push it straight away.
+- **This file is shared.** Add to it rather than rewriting, and push at once. When chat one finishes something it adds a
+  line under "Shipped"; that is how chat two knows what to tick off.
 
-- **The building conversation** owns everything under `native/App/` and `native/Sources/CrucibleCore/`, and its own new
-  test files. It does the features, then the Field tray crash, then the performance work — in that order, because the
-  last two touch the same files the features do.
-- **The other conversation** owns `docs/`, `scripts/`, `.github/workflows/`, `native/UITests/`, and anything new in a
-  folder of its own. That is: the engine in a browser, `METHOD.md`, the second opinion, the pictures of the app on a
-  tablet and sideways, and ticking off what is built in `docs/lab-ideas.md`.
-- **This file is shared.** Whoever edits it should push immediately rather than holding it, and should add rather than
-  rewrite, so the two never disagree about the same paragraph.
-- Neither should touch `native/Tests/.../Fixtures/` without saying so: those are recorded comparisons, and two
-  conversations re-recording them at once produces a file that matches neither engine.
+### Found by chat two
+
+(Nothing yet.)
 
 ## Commands
 
@@ -78,6 +80,10 @@ failure via its own `report(_:_:)`, which is how to see what was actually on scr
 - The welcome screen must be an overlay, not `.fullScreenCover`: the cover took the view's one presentation slot and
   silently broke *every* panel in the app. Found only by the App tour.
 - `git checkout <file>` throws away uncommitted work. It has cost real work here once.
+- **Never run a command that waits in a loop** (check the build, sleep, check again). The chat window freezes behind it
+  and shows a spinner for an hour after the command has finished. Check once, do other work, check again later.
+- Long conversations freeze and then refuse to continue. Commit and push after every piece of work, keep this note
+  current, and start a fresh conversation before one gets long.
 
 ## Where things stand (28 September 2026)
 
