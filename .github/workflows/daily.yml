@@ -126,6 +126,7 @@ jobs:
           apt-get update -qq && apt-get install -y -qq gh >/dev/null 2>&1 || true
           if command -v gh >/dev/null 2>&1; then
             gh release create "world-$DAY" pictures/* \
+              --prerelease \
               --title "The world for $DAY" \
               --notes-file "pictures/caption-$DAY.txt" \
               || gh release upload "world-$DAY" pictures/* --clobber

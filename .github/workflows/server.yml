@@ -11,21 +11,21 @@ on:
   # Pushes to any branch start this, and the job carries on only on the project's main line, whatever it is called.
   push:
     paths:
-      - "web/src/lib/**"
-      - "web/migrations/**"
-      - "web/package.json"
-      - "web/package-lock.json"
-      - "web/vitest.config.ts"
-      - "web/tsconfig.json"
+      # The browser UI is reference material, but all of `web/` can affect either that reference or the server that
+      # the phone uses. Listing a handful of folders left routes, middleware, scripts and build configuration unchecked.
+      - "web/**"
+      - "vercel.json"
       - "native/Sources/CrucibleCore/Cloud/**"
       - "native/Tests/CrucibleCoreTests/Fixtures/phone-requests.json"
       - "native/Tests/CrucibleCoreTests/Fixtures/server-replies.json"
       - ".github/workflows/server.yml"
   pull_request:
     paths:
-      - "web/src/lib/**"
-      - "web/migrations/**"
-      - "native/Tests/CrucibleCoreTests/Fixtures/*.json"
+      - "web/**"
+      - "vercel.json"
+      - "native/Sources/CrucibleCore/Cloud/**"
+      - "native/Tests/CrucibleCoreTests/Fixtures/phone-requests.json"
+      - "native/Tests/CrucibleCoreTests/Fixtures/server-replies.json"
       - ".github/workflows/server.yml"
   workflow_dispatch:
 
@@ -51,6 +51,20 @@ jobs:
         working-directory: web
         run: npm ci --no-audit --no-fund
 
-      - name: Routes and the phone contract
+      - name: Types
         working-directory: web
-        run: npx vitest run src/lib/api
+        run: npm run typecheck
+
+      - name: Style
+        working-directory: web
+        run: npm run lint
+
+      # The phone contract is part of this, along with all reference-engine and deployment-script checks. This used to
+      # run only `src/lib/api`, so most of the code that ships in the server bundle was never checked here.
+      - name: All tests
+        working-directory: web
+        run: npm test
+
+      - name: Production build
+        working-directory: web
+        run: npm run build

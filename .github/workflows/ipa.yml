@@ -148,8 +148,8 @@ jobs:
           ---
 
           Unsigned, for sideloading. Download \`Crucible.ipa\` below and sign it on the device with your own
-          certificate. Built from ${GITHUB_SHA:0:8} on \`${{ runner.os }}\` with the image's default Xcode, after the
-          engine was checked on Linux and macOS."
+          certificate. Built from ${GITHUB_SHA:0:8} on \`${{ runner.os }}\` with the image's default Xcode. The engine
+          and iPhone/iPad walkthrough checks run separately; their current result is shown on the Actions page."
 
           gh release create "$TAG" \
             --title "Crucible $TAG" \
