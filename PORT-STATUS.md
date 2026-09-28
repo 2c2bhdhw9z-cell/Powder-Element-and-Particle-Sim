@@ -17,10 +17,13 @@ decisions — so the only way to carry it into Swift intact was to run the same 
 and compare **every cell and every body**, including how many random numbers each engine
 consumed. That has found about eighty real bugs. It works because it cannot be fooled.
 
-**But `web/` is now reference material only and must not be edited.** It is going to be
-deleted once the app has surpassed it; the only reason it is still here is so the app's look
-and behaviour can be checked against it. Do not fix anything in it, do not regenerate its
-fixtures, do not "keep the two in step".
+**`web/` is reference material only.** Nobody uses it, it gets no new features, and there will be no web or
+browser version of the app — the owner does not want one. It stays so the phone's engine can be checked against it.
+
+~~Do not fix anything in it, do not regenerate its fixtures, do not "keep the two in step".~~ **Superseded.** The
+owner's rule since is the opposite: a fault found in the reference is fixed there as well as in `native/`, and the
+comparison is re-recorded from the corrected reference, so it still proves the two agree (the hourglass corrections
+below were done that way).
 
 ### Which means the comparison is a tool, not an authority
 
@@ -162,8 +165,13 @@ import of point clouds. This is a real box: every body has a depth, and the phys
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**936 engine tests. 148 reference tests. 93 script tests.** Green on Linux and macOS, in
-debug and optimised builds.
+**1,215 engine tests in 90 suites, 151 reference tests, 93 script tests** — counted by running them on 28 September
+2026, all passing on Linux. The checks run the engine suite on Linux and macOS, in debug and optimised builds.
+
+Since this table was written the app has gained a great deal more — 3D, the lab tools, layers, shape recipes, little
+people, the notebook, the guided lab book, the television and more. [docs/lab-ideas.md](docs/lab-ideas.md) keeps that
+list, and the handover note in `.kiro/steering/` says what shipped in which commit. A second opinion on four of those
+features found faults, recorded in [docs/second-opinion.md](docs/second-opinion.md).
 
 **The port is complete.** Everything the web version does, the app now does — including the online
 half. What is left is not code: the server has to be configured before anything can actually be
@@ -369,7 +377,10 @@ web/
   src/lib/lab-store.ts       every query, shared by the website and the app
   src/lib/api/               the app's HTTP routes and native sign-in
   migrations/                the schema — NOT at the repository root
-.github/workflows/           engine.yml (Linux + macOS), ipa.yml (unsigned .ipa)
+.github/workflows/           engine.yml (Linux + macOS), ipa.yml (unsigned .ipa), quick.yml (one
+                             system, one test), tour.yml (the App tour), server.yml, long-runs.yml,
+                             daily.yml (the day's world, published)
+METHOD.md                    how this was built and checked
 ```
 
 ---
@@ -399,7 +410,9 @@ implementation should be left exactly as it is.
 ## Interface faults, and the one thing they all had in common
 
 **Every fault in this list was found by the owner installing the app and looking at it. Not one
-was found by a test, and not one was found by CI.** That is the single most important fact in
+was found by a test, and not one was found by CI.** (That was true when the list was written. Since then the App tour
+walks the app on a simulated iPhone and iPad and has found faults of exactly this kind — a welcome screen that broke
+every panel, controls below the fold that never scrolled into view. It narrows the gap; it does not close it.) That is the single most important fact in
 this file about the app layer: CI proves the app *compiles*. It proves nothing whatsoever about
 whether it works, and there is no automated coverage below `CrucibleCore`. Read that as a
 standing instruction to look at screenshots and to be suspicious of anything you have only
@@ -514,8 +527,9 @@ four were true, and they had causes worth recording:
 - Has only an iPhone 17 Pro Max. No Mac, no PC. Installs by signing the `.ipa` on the
   device with E-Sign.
 - **Does not read code.** Explain in plain English, no snippets, no jargon.
-- Wants everything committed and pushed **straight to `main`**. No branches, no pull
-  requests.
+- Wants everything committed and pushed **straight to the main line** — whatever GitHub currently calls the
+  default branch; it has been renamed several times. No branches, no pull requests. Use `scripts/push-to-main.sh`.
+- Does not want a web or browser version of the app.
 - Wants haptics throughout, with a switch in Settings to turn them off. Everything that buzzes goes
   through `App/Audio/Haptics.swift`, which checks the switch.
 - Does not want incremental builds to test — work until a thing is actually finished.

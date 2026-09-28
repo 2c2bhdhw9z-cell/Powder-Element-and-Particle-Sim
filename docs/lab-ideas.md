@@ -45,6 +45,16 @@ Built:
 - Split view
 - Scene export / import
 - Real 3D particle field — a box to turn round, physics in depth, 9 3D-only scenes (build-78)
+- Shape recipe box: describe a shape by formula and the bodies go and be it, with sliders of its own (Round 4, item 1)
+- Layers: eight named groups in one world, each with colour, hidden, locked, weight and air (Round 6, item 4)
+- Discoveries notebook: nineteen things to find, noticed only when the world makes them itself (Round 5)
+- Little people: walk, climb, flee fire, fall, burn, drown, and can be picked up (Round 5)
+- Guided lab book: eight experiments that ask, wait for a guess, and explain from your own world (Round 6, item 1)
+- Sand art, photo into powder, the hourglass, sand on a drum, foxes and rabbits, slingshot, jelly pen (Round 5)
+- The powder world as a slab to walk round in the box's view (Round 7, item 40)
+- The field on the television, the phone as the remote (Round 7, item 22)
+- The day's world drawn and published every day by a machine, no phone involved (Round 7, item 23)
+- The written-down method, METHOD.md (Round 7, item 34), and a first second opinion (item 35)
 
 Still not (honest):
 - WebGPU compute physics (typed-array + GL draw is as far as JS goes here)
@@ -343,6 +353,24 @@ Brought in from a branch where it was written, so it is not lost. Not one of the
 who can install the app, what it tells us when it breaks, what it costs to run, and what it is for. Rough sizes
 are in brackets. Nearly everything from "after 11" onwards waits on the last item.
 
+### Where this round stands (28 September 2026)
+
+Checked against the repository rather than remembered.
+
+- **Built:** 1 the fast lane, 3 the tap-through (the App tour, on iPhone and iPad), 4 keeping the build's work, 5 the
+  server's half, 7 a bad link on purpose, 8 release notes, 10 the breadcrumb, 13 "that looked wrong", 15 long runs,
+  16 failing the build when it gets slower, 17 old saves (two saved worlds from 27 September are loaded on every
+  build), 18 the icon, 20 worlds that open where they are, 22 the television, 23 the day's world published,
+  24 something to hold (a line drawing for a pen plotter), 25–27 battery, heat and the room's sensors, 28 Simple,
+  30 the gallery, 31 a first run, 33 measurements as numbers, 34 the method, 35 a second opinion, 36 "if this stops",
+  38 the cost guard, 39 sleeping bodies, 40 the powder slab, 41 red-and-blue glasses, 42 the system's own settings,
+  43 lasso, rewind, thermometer and tide, 47 and 48.
+- **Partly:** 2 — the tour's pictures are kept with each run rather than on a branch. 14 — the room's frames and the
+  breadcrumb are tested against broken input; not every loader has been checked the same way.
+- **Not yet:** 32 the tablet and sideways, looked at (the app's conversation has it). 37 the room carrying the field.
+- **Dropped:** 21, the engine in a browser — the owner does not want a browser version.
+- **Waiting on the owner:** 6, 11, 12, 19, 29, 44–46, 49.
+
 ### Seeing what the app looks like without a phone
 
 1. A fast lane in the checks. Every change costs a full run — two operating systems, two build configurations,
@@ -539,6 +567,12 @@ against its own gravity:
   square examines — which is what keeps a million bodies affordable — and a ball being squeezed from all sides is
   exactly the case where that cap means most of the overlaps are never resolved.
 
+So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
+springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of
+physics and both are bigger than the scene.
+
+---
+
 **Lava lamp** (Round 5). Not shipped, and for a plainer reason than the tiny planet: the particle field has no heat.
 A lava lamp is one thing — warm matter rises, cools at the top, sinks, warms again — and every part of that cycle is
 temperature. Two weights of liquid gives the rising half honestly, through the pressure between them, and then the
@@ -549,31 +583,3 @@ rules behind it rather than a scene's worth of work.
 Everything short of that was considered and rejected as dishonest: a timer that sinks blobs on a schedule, a
 height-dependent push, a slow wobble in gravity. Each would look approximately right and none would be a lava lamp —
 they would be an animation of one, which is the thing this field is built not to be.
-
-So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
-springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of
-physics and both are bigger than the scene.
-
----
-
-## Tried and not shipped
-
-Kept so the next attempt does not repeat the work.
-
-**Tiny planet** (Round 5). Gravity pointing at the middle of the world is built, tested and available to any
-scene — that part shipped. The world itself did not, because the crowd cannot yet hold a ball of loose matter up
-against its own gravity:
-
-- **As liquid**, the ball keeps its shape perfectly, and cannot be dug. Everything in it is already pressed
-  toward one point from every side, so the liquid sits at the limit of how tightly it can pack. A pull held in it
-  moves matter *outward*, because the pressure pushes back harder than the finger pulls. Softening the liquid a
-  long way barely changed it.
-- **As grains that collide**, it can be dug, and it collapses through itself. The ball fell from two hundred and
-  seventy pixels across to sixty. Tried at two grain sizes, three packing densities and pulls from a fifth of the
-  usual strength down to a fiftieth; it collapses every time. The crowd's collisions cap how many neighbours each
-  square examines — which is what keeps a million bodies affordable — and a ball being squeezed from all sides is
-  exactly the case where that cap means most of the overlaps are never resolved.
-
-So it needs one of: collisions that hold a pile under pressure from every direction, or letting things built from
-springs push the crowd (which the jellyfish would also use — see `Spring.thrust`). Both are real pieces of
-physics and both are bigger than the scene.

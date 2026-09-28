@@ -34,7 +34,8 @@ down to the number of random numbers each engine consumes.
 **It is also the server.** The deployed web app is a TanStack Start application
 with Postgres, authentication and server routes — which is precisely the backend
 the native app will need for accounts, cloud saves and the workshop. The browser
-front end is scaffolding and will go; the server behind it is not.
+front end is scaffolding and will go; the server behind it is not. There will be no
+web or browser version of the app itself.
 
 ## Deployment
 
@@ -50,7 +51,8 @@ the same time, or the two will fight over the output location.
 
 ## Installing it
 
-Every push to `main` builds an unsigned `.ipa` and attaches it to a release.
+Every push to the project's main line (whatever GitHub shows as the default branch) builds an unsigned `.ipa`
+and attaches it to a release.
 
 **[Latest build →](https://github.com/2c2bhdhw9z-cell/Powder-Element-and-Particle-Sim/releases/latest)**
 
@@ -68,7 +70,7 @@ The simulation engine builds and tests anywhere, with no Apple hardware:
 
 ```bash
 cd native
-swift test              # 1,066 tests, Linux or macOS
+swift test              # 1,215 tests in 90 suites, Linux or macOS
 swift test -c release   # the optimiser is allowed to change floating-point results
 ```
 
@@ -81,12 +83,17 @@ xcodegen generate       # the .xcodeproj is generated, not committed
 open Crucible.xcodeproj
 ```
 
-Two workflows do this on every push:
+The checks:
 
 | Workflow | What it proves |
 | -------- | -------------- |
 | [Engine](.github/workflows/engine.yml) | The simulation behaves identically on Linux and on macOS, in debug and optimised builds. Also prints the benchmark, so performance claims come from measurement. |
 | [iOS app](.github/workflows/ipa.yml) | The app compiles, and produces an installable `.ipa`. |
+| [App tour](.github/workflows/tour.yml) | The app opens on a simulated iPhone and iPad and is used; fails on a crash, a hang or a blank world. |
+| [Server](.github/workflows/server.yml) | Every request the app makes, replayed against the real server code and tables. |
+| [Long runs](.github/workflows/long-runs.yml) | Every scene left running for thousands of moments, checking nothing impossible happens. |
+| [Quick check](.github/workflows/quick.yml) | Started by hand: one system, unoptimised, optionally one test — a few minutes instead of ten. |
+| [The world of the day](.github/workflows/daily.yml) | Draws the day's shared world every day with no phone involved and publishes it as a release. |
 
 Running the engine suite on two operating systems is not redundancy. The engine
 carries [its own trigonometry](native/Sources/CrucibleCore/Support/FDLibm.swift)
@@ -99,7 +106,7 @@ claim holds on the platform the app actually ships to.
 cd web
 npm install
 npm run dev             # vite, 0.0.0.0:8080
-npm test                # the oracle suite
+npm test                # the oracle suite: 93 script tests, then 151 engine tests
 ```
 
 ## Design intent
@@ -115,5 +122,8 @@ npm test                # the oracle suite
   all, so it is unit-testable in isolation on any platform.
 
 Further reading: [CRUCIBLE.md](CRUCIBLE.md) (the pitch),
+[METHOD.md](METHOD.md) (how it was built and checked),
+[PORT-STATUS.md](PORT-STATUS.md) (what is done and how it was verified),
+[docs/IF-THIS-STOPS.md](docs/IF-THIS-STOPS.md) (where everything lives),
 [docs/lab-ideas.md](docs/lab-ideas.md) (shipped / unshipped features),
 [web/DEBUG.md](web/DEBUG.md) (deep-dive brief on the reference implementation).

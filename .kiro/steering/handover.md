@@ -49,6 +49,13 @@ anything that arrived meanwhile, and refuses rather than guessing if that will n
 - **This file is shared.** Add to it rather than rewriting, and push at once. When chat one finishes something it adds a
   line under "Shipped"; that is how chat two knows what to tick off.
 
+### Done by chat two
+
+- `METHOD.md` (#34), and a first second opinion (#35) in `docs/second-opinion.md` — findings below.
+- `docs/lab-ideas.md`: what is built added to the shortlist, where Round 7 stands (checked against the repository),
+  the duplicated "Tried and not shipped" section removed. `PORT-STATUS.md` and the README: counts run and corrected
+  (1,215 engine, 151 reference, 93 script), all the checks listed, the old "never edit web/" rule marked superseded.
+
 ### Found by chat two
 
 - ~~The engine does not compile for a 32-bit machine (three constants too big for a whole number there).~~
@@ -80,6 +87,11 @@ Little people (`84e3937`) and the notebook (`31c1a16`):
   random numbers, so it changes where the sand lands. Also seen: five separate explosions set off while paused count
   as one chain of five.
 
+- **A note that disagrees with itself:** "Confirmed already built" above lists the *tiny planet*, but no such scene
+  exists — only the gravity toward the middle shipped, and `docs/lab-ideas.md` ("Tried and not shipped") records why
+  the world itself did not. The ideas list is right; the "confirmed" line is wrong. Do not rebuild the gravity; the
+  planet itself is still open, and is blocked on the physics that note describes.
+
 Layers (`afa9f4c`) and shape recipes (`71bbedc`):
 - Undo restores bodies but not the layer list, current layer or colour memory (`makeSnapshot`/`apply(_ snapshot:)` in
   `ParticleEngine.swift`). Undoing a delete leaves A's bodies counted as B's; undoing a colour leaves the layer
@@ -106,7 +118,7 @@ Layers (`afa9f4c`) and shape recipes (`71bbedc`):
 ## Commands
 
 ```
-cd native && swift build --build-tests && swift test --skip-build    # ~150 s, 1,205 tests / 89 suites
+cd native && swift build --build-tests && swift test --skip-build    # ~220 s, 1,215 tests / 90 suites (28 Sep)
 swift test --skip-build --filter <SuiteStruct>                       # one suite
 swift build -c release --product crucible-daily                      # the day's-world drawer
 swift run -c release --skip-build crucible-bench                     # ~17 min; use run_in_background
