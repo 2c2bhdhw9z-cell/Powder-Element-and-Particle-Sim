@@ -89,14 +89,16 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Checked with something other than the code that wrote them. The engine's PNG writer is arithmetic rather than a
-      # library, so "it produced bytes" is not evidence it produced a picture — `file` reading the size and colour type
-      # back out of the header is.
-      # Checked with something other than the code that wrote them. The engine's PNG writer is arithmetic rather than a
       # library, so "it produced bytes" is not evidence it produced a picture — and a correct PNG of a blank rectangle
       # is a correct PNG, which is the failure that actually happened here twice. See scripts/check-png.py.
+      # The swift:6.2 image ships without Python, so it is installed here first (the checker needs only the standard
+      # library). Without this the very first scheduled run failed with "python3: not found".
       - name: Check they are really pictures of something
         run: |
           set -eu
+          if ! command -v python3 >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq python3 >/dev/null
+          fi
           ls -l pictures
           python3 scripts/check-png.py pictures/*.png
 
