@@ -225,7 +225,11 @@ public struct ParticleState: Codable, Sendable {
     /// which were all flat.
     public var depthEnabled: Bool?
     public var depthRatio: Double?
+    /// Small crowds from older files, kept as readable parallel arrays.
     public var swarm: SwarmRecord?
+    /// Large crowds, packed losslessly rather than shortened to fit readable JSON arrays. Optional so every file from
+    /// before this format still decodes through ``swarm``.
+    public var packedSwarm: PackedSwarmRecord?
     /// Ribbons of light, each as three lists of places and a colour. Absent when none have been drawn.
     public var ribbons: [RibbonRecord]?
     /// How particle life's kinds feel about each other, when the field was showing it. Absent otherwise.
@@ -248,17 +252,20 @@ extension ParticleEngine {
     /// The widest or tallest a saved field may be, in the world's pixels.
     public static let largestWorldSide = 200_000.0
 
-    /// How many object bodies a save file may hold.
-    ///
-    /// Beyond this the file becomes unwieldy for no benefit — a scene with more bodies than
-    /// this is a swarm, and the swarm has its own, far more compact representation.
-    public static let saveBodyLimit = 12_000
-    /// How many swarm bodies a save file may hold.
+    /// Kept as a public compatibility name for older callers and tests. Object bodies are no longer shortened.
+    public static let saveBodyLimit = Swarm.maximumCount
+    /// Largest crowd kept in the old readable-array form. Larger crowds use ``PackedSwarmRecord`` without loss.
     public static let saveSwarmLimit = 24_000
 
-    /// Captures the whole field.
+    /// Captures the whole field. Every body is kept; a save that quietly loses bodies is not a save.
     public func captureState() -> ParticleState {
-        let saved = particles.prefix(Self.saveBodyLimit)
+        let saved = particles
+        let legacySwarm = swarm.count > 0 && swarm.count <= Self.saveSwarmLimit
+            ? swarmRecord(limit: swarm.count)
+            : nil
+        let packedSwarm = swarm.count > Self.saveSwarmLimit
+            ? PackedSwarmRecord.capture(swarm, width: width, height: height, depthEnabled: storedDepthEnabled)
+            : nil
         return ParticleState(
             width: width,
             height: height,
@@ -308,10 +315,9 @@ extension ParticleEngine {
             arrangement: storedArrangement,
             depthEnabled: storedDepthEnabled ? true : nil,
             depthRatio: storedDepthEnabled ? storedDepthRatio : nil,
-            swarm: swarm.count > 0 ? swarmRecord(limit: Self.saveSwarmLimit) : nil,
-            // Only springs whose two ends both survived the cap, since a position past the
-            // end of what was written is exactly the stale index that makes a reloaded
-            // scene shear itself apart.
+            swarm: legacySwarm,
+            packedSwarm: packedSwarm,
+            // Every object body is written, so every valid spring and structure index survives with it.
             ribbons: storedRibbons.isEmpty
                 ? nil
                 : storedRibbons.map { RibbonRecord(x: $0.pointsX, y: $0.pointsY, z: $0.pointsZ, c: $0.color) },
@@ -473,6 +479,21 @@ extension ParticleEngine {
         // world a million million pixels wide, and the arithmetic for that stopped the app.
         guard state.width <= Self.largestWorldSide, state.height <= Self.largestWorldSide else { return false }
 
+        // A packed crowd is checked completely before this engine is touched. A cut or altered save therefore leaves
+        // the world and its history alone rather than loading a believable-looking prefix of the crowd.
+        let packedSnapshot: Swarm.Snapshot?
+        if let packed = state.packedSwarm {
+            guard let decoded = packed.snapshot(width: state.width, height: state.height) else { return false }
+            packedSnapshot = decoded
+        } else {
+            packedSnapshot = nil
+        }
+        let savedSwarmCount = packedSnapshot?.count ?? state.swarm?.n ?? 0
+        let savedLimit = max(1_000, min(Swarm.maximumCount, state.maxParticles))
+        guard state.particles.count <= savedLimit, savedSwarmCount >= 0,
+              savedSwarmCount <= savedLimit - state.particles.count
+        else { return false }
+
         // The saved canvas size is applied. It was exported and then ignored, so a scene
         // captured on a large display dropped most of its bodies outside a smaller field.
         resize(width: state.width, height: state.height)
@@ -564,7 +585,9 @@ extension ParticleEngine {
         replaceParticles([])
         swarm.removeAll()
 
-        if let record = state.swarm, record.n > 0 {
+        if let packedSnapshot {
+            swarm.restore(from: packedSnapshot, budget: max(0, maxParticles - particles.count))
+        } else if let record = state.swarm, record.n > 0 {
             restoreSwarm(record)
         }
 
@@ -719,7 +742,7 @@ extension ParticleEngine {
         return true
     }
 
-    /// Every creature as saved, naming its joints by their place among the first `savedCount`.
+    /// Every creature as saved, naming its joints by their place among all saved object bodies.
     private func creatureRecords(savedCount: Int) -> [CreatureRecord] {
         var place: [Int: Int] = [:]
         for index in 0 ..< min(savedCount, particles.count) { place[particles[index].id] = index }
@@ -732,8 +755,7 @@ extension ParticleEngine {
         }
     }
 
-    /// Every jelly as saved, naming its bodies by their place among the first `savedCount`, which are all that are
-    /// written.
+    /// Every jelly as saved, naming its bodies by their place among all saved object bodies.
     private func jellyRecords(savedCount: Int) -> [JellyRecord] {
         var place: [Int: Int] = [:]
         for index in 0 ..< min(savedCount, particles.count) { place[particles[index].id] = index }

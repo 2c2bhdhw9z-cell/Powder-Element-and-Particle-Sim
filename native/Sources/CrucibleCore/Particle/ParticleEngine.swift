@@ -420,7 +420,7 @@ public final class ParticleEngine {
 
     private var undoStack: [Snapshot] = []
     private var redoStack: [Snapshot] = []
-    private let maximumUndoSteps = 20
+    private static let maximumUndoSteps = 20
     /// Set while a change made of several steps is under way. See ``pushUndo()``.
     var undoSuppressed = false
 
@@ -866,18 +866,34 @@ public final class ParticleEngine {
         public var forceLoops: [ParticleForceLoop] = []
         public var jellies: [ParticleJelly] = []
         public var creatures: [ParticleCreature] = []
+
+        /// Approximate heap memory owned by this complete entry. The large flat arrays dominate; small value and array
+        /// headers are intentionally ignored so calculating the budget does not itself allocate anything.
+        var estimatedByteCount: Int {
+            var bytes = particles.count * MemoryLayout<ParticleObject>.stride
+                + springs.count * MemoryLayout<Spring>.stride
+                + walls.count * MemoryLayout<ParticleWall>.stride
+                + emitters.count * MemoryLayout<ParticleEmitter>.stride
+                + (swarm?.estimatedByteCount ?? 0)
+            for loop in forceLoops { bytes += loop.points.count * MemoryLayout<ParticleFingerPoint>.stride }
+            for jelly in jellies {
+                bytes += jelly.ids.count * MemoryLayout<Int>.stride
+                    + (jelly.restX.count + jelly.restY.count) * MemoryLayout<Double>.stride
+            }
+            for creature in creatures { bytes += creature.ids.count * MemoryLayout<Int>.stride }
+            return bytes
+        }
     }
 
-    /// Largest swarm that is worth copying into an undo entry.
-    ///
-    /// Copying a million bodies on every brush stroke would cost more than the feature
-    /// is worth, so above this the swarm is left out and an undo restores the bodies
-    /// and structure but not the crowd.
-    private static let undoSwarmLimit = 200_000
+    /// Memory kept independently for Undo and Redo. A plain million-body crowd is about 20 MB; optional roles, depth,
+    /// lives, groups and sizes can raise one exact copy to about 78 MB. Old whole entries are discarded to stay near
+    /// this budget, but the newest complete entry is always retained even when it alone is larger. Nothing partial is
+    /// ever presented as undoable.
+    private static let historyByteBudget = 96 * 1_024 * 1_024
 
     /// The whole field kept exactly as it is — every body with its own identifier — to be put back later. What the
     /// world outside a world within is kept as: a saved file would renumber every body, and a body renumbered is a
-    /// different body, holding a different world. A crowd too big for an undo is left out here as it is there.
+    /// different body, holding a different world. This required state is always complete, regardless of history size.
     public func keepWorld() -> Snapshot { makeSnapshot() }
 
     /// Puts back a field kept by ``keepWorld()``. No undo point: nothing is lost by going back outside.
@@ -887,7 +903,7 @@ public final class ParticleEngine {
         Snapshot(
             particles: particles,
             springs: springs,
-            swarm: swarm.count > 0 && swarm.count <= Self.undoSwarmLimit ? swarm.snapshot() : nil,
+            swarm: swarm.count > 0 ? swarm.snapshot() : nil,
             flockEnabled: flockEnabled,
             nbodyEnabled: nbodyEnabled,
             fluidEnabled: fluidEnabled,
@@ -919,6 +935,14 @@ public final class ParticleEngine {
             jellies: storedJellies,
             creatures: storedCreatures
         )
+    }
+
+    private static func trimHistory(_ stack: inout [Snapshot]) {
+        while stack.count > maximumUndoSteps { stack.removeFirst() }
+        var bytes = stack.reduce(0) { $0 + $1.estimatedByteCount }
+        while stack.count > 1, bytes > historyByteBudget {
+            bytes -= stack.removeFirst().estimatedByteCount
+        }
     }
 
     private func apply(_ snapshot: Snapshot) {
@@ -975,7 +999,7 @@ public final class ParticleEngine {
         // describing a future that never happened.
         redoStack.removeAll(keepingCapacity: true)
         undoStack.append(makeSnapshot())
-        if undoStack.count > maximumUndoSteps { undoStack.removeFirst() }
+        Self.trimHistory(&undoStack)
     }
 
     public var canUndo: Bool { !undoStack.isEmpty }
@@ -985,7 +1009,7 @@ public final class ParticleEngine {
     public func undo() -> Bool {
         guard let previous = undoStack.popLast() else { return false }
         redoStack.append(makeSnapshot())
-        if redoStack.count > maximumUndoSteps { redoStack.removeFirst() }
+        Self.trimHistory(&redoStack)
         apply(previous)
         return true
     }
@@ -994,7 +1018,7 @@ public final class ParticleEngine {
     public func redo() -> Bool {
         guard let next = redoStack.popLast() else { return false }
         undoStack.append(makeSnapshot())
-        if undoStack.count > maximumUndoSteps { undoStack.removeFirst() }
+        Self.trimHistory(&undoStack)
         apply(next)
         return true
     }

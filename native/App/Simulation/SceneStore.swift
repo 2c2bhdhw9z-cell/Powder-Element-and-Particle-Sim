@@ -20,7 +20,7 @@ struct LabScene: Codable, Sendable {
     /// Any materials the person invented, so a scene using them still works on another phone.
     var customElements: [ElementDefinition]
 
-    static let currentVersion = 1
+    static let currentVersion = 2
 }
 
 /// Saved scenes on disk, and the autosave.

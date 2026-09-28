@@ -1804,6 +1804,24 @@ public final class Swarm {
         public var homeDepths: [Float] = []
         public var count: Int { colors.count }
 
+        /// Approximate heap bytes owned by this copy, used to keep undo history within a memory budget. Array object
+        /// headers are deliberately ignored; their few hundred bytes do not matter beside a crowd measured in MB.
+        public var estimatedByteCount: Int {
+            positions.count * MemoryLayout<Float>.stride
+                + velocities.count * MemoryLayout<Float>.stride
+                + colors.count * MemoryLayout<UInt32>.stride
+                + masses.count * MemoryLayout<Float>.stride
+                + lives.count * MemoryLayout<Float>.stride
+                + maxLives.count * MemoryLayout<Float>.stride
+                + roles.count * MemoryLayout<UInt8>.stride
+                + homes.count * MemoryLayout<Float>.stride
+                + sizes.count * MemoryLayout<Float>.stride
+                + groups.count * MemoryLayout<UInt8>.stride
+                + depths.count * MemoryLayout<Float>.stride
+                + depthVelocities.count * MemoryLayout<Float>.stride
+                + homeDepths.count * MemoryLayout<Float>.stride
+        }
+
         /// Moves every body in the copy by the same amount, and the places the held ones belong along with
         /// them — as ``Swarm/translate(dx:dy:)`` does for the live crowd, so a copy kept for undo stays where
         /// the crowd is when the world grows round it.
