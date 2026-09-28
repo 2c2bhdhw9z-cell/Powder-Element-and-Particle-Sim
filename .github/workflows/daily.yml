@@ -100,7 +100,12 @@ jobs:
             apt-get update -qq && apt-get install -y -qq python3 >/dev/null
           fi
           ls -l pictures
-          python3 scripts/check-png.py pictures/*.png
+          python3 scripts/check-png.py pictures/powder-2*.png pictures/field-*.png
+          # The heat picture of a calm world is honestly two colours: the dark background and everything at room
+          # temperature. 28 Sep 2026 (an ant farm, nothing hot or cold) failed the usual eight-colour rule for exactly
+          # that. It must still be a picture of the world rather than a blank rectangle, which the "not the background"
+          # share checks; two colours is the least a real one can have.
+          python3 scripts/check-png.py --min-colours 2 pictures/powder-heat-*.png
 
       - name: Keep them with the run
         uses: actions/upload-artifact@v4

@@ -476,11 +476,20 @@ final class CrucibleTour: XCTestCase {
         }
         play.tap()
         stillRunning(app, after: "playing the movie")
-        Thread.sleep(forTimeInterval: 3)
+        Thread.sleep(forTimeInterval: 1)
         picture(app, "42 The movie playing")
-        // Stopped early, then recorded from the start.
-        if element("movie.stop", in: app).waitForExistence(timeout: 5) {
-            tap("movie.stop", "stopping the movie", in: app)
+        // Stopped early if it is still playing, then recorded from the start. The whole movie is only seven seconds,
+        // and on a simulated phone each look at the screen takes a second or two — so by the time the walk reached
+        // "Stop" the movie had sometimes finished and the button had gone, which failed the walk though nothing was
+        // wrong. A movie that finished by itself is fine; one that never finishes is not, and is checked below.
+        let stop = element("movie.stop", in: app)
+        if stop.exists, stop.isHittable {
+            stop.tap()
+            stillRunning(app, after: "stopping the movie")
+        }
+        if !gone(stop, within: 30) {
+            XCTFail("the movie never stopped playing")
+            report(app, "The movie never stopped")
         }
         guard let record = find("movie.record", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the movie could not be recorded")
@@ -493,7 +502,7 @@ final class CrucibleTour: XCTestCase {
         let offered = app.buttons["Share the clip"]
         if offered.waitForExistence(timeout: 60) {
             picture(app, "43 The clip, offered to be sent")
-            app.swipeDown()
+            dismissShare(offered, in: app)
         } else {
             XCTFail("the recorded clip was never offered")
             report(app, "The clip was never offered")
@@ -774,7 +783,7 @@ final class CrucibleTour: XCTestCase {
         let offered = app.buttons["Share this moment in 3D"]
         if offered.waitForExistence(timeout: 20) {
             picture(app, "56 A 3D moment, offered to be sent")
-            app.swipeDown()
+            dismissShare(offered, in: app)
         } else {
             XCTFail("the 3D moment was never offered")
             report(app, "No 3D moment offered")
@@ -856,6 +865,35 @@ final class CrucibleTour: XCTestCase {
 
     private func stillRunning(_ app: XCUIApplication, after what: String) {
         XCTAssertTrue(isRunning(app), "the app closed by itself after \(what)")
+    }
+
+    /// Puts away the small sheet that offers a file to be sent.
+    ///
+    /// It used to be a swipe down the middle of the screen, which is not on the sheet at all — the sheet is a strip a
+    /// hundred and forty points tall at the bottom — so it stayed up, covered the tray, and the next button the walk
+    /// looked for ("Keep three seconds as a Live Photo") was reported missing when it was only underneath. Now: a tap on
+    /// the dimmed area outside it, which is how a person closes it, then a drag down on the sheet itself if that did
+    /// not work, and a failure that says so if neither did.
+    private func dismissShare(_ offered: XCUIElement, in app: XCUIApplication) {
+        guard isRunning(app) else { return }
+        let outside = element("PopoverDismissRegion", in: app)
+        if outside.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        }
+        if gone(offered, within: 5) { return }
+        guard offered.exists else { return }
+        let grip = offered.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        grip.press(forDuration: 0.05, thenDragTo: grip.withOffset(CGVector(dx: 0, dy: 400)))
+        if !gone(offered, within: 5) {
+            XCTFail("the sheet offering the file would not go away")
+            report(app, "Share sheet stuck")
+        }
+    }
+
+    /// Whether something has left the screen within a number of seconds.
+    private func gone(_ element: XCUIElement, within seconds: TimeInterval) -> Bool {
+        let absent = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [absent], timeout: seconds) == .completed
     }
 
     // MARK: - Finding things and touching them

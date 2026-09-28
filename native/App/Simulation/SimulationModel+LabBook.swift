@@ -56,6 +56,7 @@ extension SimulationModel {
         guard var run = labRun else { return }
         run.start(guessing: guess)
         labRun = run
+        labStartedAt = worldSeconds
         isRunning = true
         publishLabBook()
     }
@@ -86,15 +87,22 @@ extension SimulationModel {
         guard engine.frameCount - labLookedAt >= run.experiment.lookEvery else { return }
         labLookedAt = engine.frameCount
         let answeredNow = run.look(at: engine)
-        let offersHelp = run.readings.seconds >= run.experiment.patience
+        let helpNow = offersHelp(run)
         labRun = run
         if answeredNow {
             Haptics.firm()
             onLabBookAnswered?(run)
             publishLabBook()
-        } else if offersHelp != labBook?.offersHelp {
+        } else if helpNow != labBook?.offersHelp {
             publishLabBook()
         }
+    }
+
+    /// Whether somebody has had a fair go: the world's own seconds, or real seconds of it running, whichever comes
+    /// first. The world's seconds alone fall behind on a slow or hot phone, where a step takes longer than it should.
+    private func offersHelp(_ run: LabBookRun) -> Bool {
+        run.readings.seconds >= run.experiment.patience
+            || (run.hasStarted && worldSeconds - labStartedAt >= run.experiment.patience)
     }
 
     /// Copies what the card shows out of the running experiment.
@@ -113,7 +121,7 @@ extension SimulationModel {
             task: experiment.task,
             stage: stage,
             guess: run.guess,
-            offersHelp: run.readings.seconds >= experiment.patience,
+            offersHelp: offersHelp(run),
             wasShown: run.wasShown,
             verdict: run.verdict,
             guessedRight: run.guessedRight,

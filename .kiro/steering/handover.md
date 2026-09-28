@@ -213,6 +213,20 @@ floating labels, ten fingers, hourglass, sand on a drum, foxes and rabbits, part
 light painting, real down, camera focus, fly inside, slingshot, jelly pen, recorded force loops, arrangement morphing,
 popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.**
 
+## Status check, 28 September (later)
+
+Checked against the repository, not remembered: items 5 to 9 below are **all built** — parallel worlds (`710c5a5`),
+worlds within worlds (`796f666`), talk / wave / look / table (`9d9b2fa`), 3D moment and Live Photo (`218fb86`), lava
+lamp (`0bdc177`); red-and-blue glasses, the clock, photo colours, photo into powder and relax mode were built earlier.
+What is genuinely left: #10's iPad/sideways pictures, #12 the Field tray crash, #13 performance, and every fault in
+"Found by chat two" above (none fixed yet).
+
+Fixed in this check: the day's-world job never once passed (no Python in its machine, then a too-strict colour rule
+for a calm world's heat picture); the App tour's lab book, movie and Live Photo walks failed every run — "Show me" now
+also appears after that many *real* seconds (it waited on world time, which a slow phone falls behind on), the movie
+walk no longer fails when the seven-second movie ends before it presses Stop, and the share sheet is closed by tapping
+outside it instead of a swipe that missed it.
+
 ## Still to build, in this order
 
 1. ~~**Guided lab book**~~ — **shipped `d4a85bb`.** Hands-on experiments that set something up, let the player find the answer, then explain it

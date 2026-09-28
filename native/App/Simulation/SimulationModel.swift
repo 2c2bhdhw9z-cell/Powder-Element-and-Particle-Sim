@@ -466,6 +466,10 @@ final class SimulationModel {
     var labBook: LabBookCard?
     /// The engine moment the experiment was last looked at.
     @ObservationIgnored var labLookedAt = 0
+    /// The running clock (``worldSeconds``) when the guess was made, so help can also be offered by how long somebody
+    /// has actually waited. On a slow or hot phone the world's own seconds pass slower than real ones, and "Show me"
+    /// used to take minutes to appear — on a simulated phone it never did within the walkthrough's two and a half.
+    @ObservationIgnored var labStartedAt = 0.0
     /// Told when the world answers an experiment, so its progress can be written down.
     var onLabBookAnswered: ((LabBookRun) -> Void)?
 
