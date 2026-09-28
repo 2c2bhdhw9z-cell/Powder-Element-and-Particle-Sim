@@ -152,6 +152,8 @@ extension ParticleEngine {
         let localMaxSpeed = maxSpeed
         let localBoundary = boundaryMode
         let localMouseMode = mouseMode
+        // Whether any layer is locked. Worked out once, for the same reason as everything else hoisted out here.
+        let checkingLocks = anyLayerLocked
         let localMouseRadius = mouseRadius.isNaN ? 0 : mouseRadius
         let localBrushStrength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
         let localBrushUnit = brushUnit
@@ -280,7 +282,10 @@ extension ParticleEngine {
                 // gravity, a lattice's springs and a helix's pull have all acted — stopped only here, a frozen
                 // body crept downward at the pace of this moment's gravity.
                 var frozen = false
-                if mouseActive, let mouseX, let mouseY, !bodies[i].isFixed {
+                // A body on a locked layer is out of a finger's reach, like the crowd's. `layerAllowsTouching` is
+                // the one place that decides, so a tool added later is locked out without anybody remembering to.
+                if mouseActive, let mouseX, let mouseY, !bodies[i].isFixed,
+                   !checkingLocks || layerAllowsTouching(bodies[i].group) {
                     if localMouseMode == .painter {
                         // Unchanged, including how far it reaches: painting moves nothing, so there was nothing
                         // wrong with it, and the recorded comparison of a repainted helix still holds it exactly.
@@ -781,6 +786,9 @@ extension ParticleEngine {
         let reach = mouseRadius.isNaN ? 0 : mouseRadius
         if mouseActive {
             let strength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
+            // Which layers the finger cannot reach. Empty unless one is locked, and worked out once rather than per
+            // finger, since the kaleidoscope can turn one touch into twelve.
+            let locks = lockedLayerTable
             swarm.applyBrush(
                 mouseMode,
                 fingerX: fingerX,
@@ -788,7 +796,8 @@ extension ParticleEngine {
                 reach: reach,
                 strength: strength,
                 unit: brushUnit,
-                now: now
+                now: now,
+                lockedLayers: locks
             )
             // And again at every other place the tool is being applied — the other fingers on the glass, and the
             // kaleidoscope's copies of them. Nothing at all happens here while there are none, which is almost
@@ -823,7 +832,9 @@ extension ParticleEngine {
             deferAgeing: !storedWalls.isEmpty,
             freezeX: freezing ? fingerX : 0,
             freezeY: freezing ? fingerY : 0,
-            freezeReach: freezing ? reach : 0
+            freezeReach: freezing ? reach : 0,
+            layerWeights: layerWeightTable,
+            layerThinness: layerThinnessTable
         ))
 
         // After the move, because a wall is about where something has got to rather than where it was
@@ -842,6 +853,11 @@ extension ParticleEngine {
             }
             if swarm.hasMortalBodies { swarm.age(by: 1) }
         }
+        // Hidden layers are kept behind the rest of the crowd so the screen can draw fewer bodies rather than draw
+        // some of them invisibly. Removing a body swaps the last one into the gap, which can put a hidden body back
+        // among the shown — so the order is re-established here, after anything that could have removed one. Costs
+        // nothing at all unless a layer is hidden. See `ParticleLayers.swift`.
+        if storedLayers.count > 1 { restackLayers() }
     }
 
     /// Remembers where every swarm body is, so a wall can tell which side it came from.

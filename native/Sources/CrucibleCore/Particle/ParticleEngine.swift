@@ -283,6 +283,17 @@ public final class ParticleEngine {
     var storedMorphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
     /// A shape described by formula, with its own knobs. See `ParticleRecipeBox.swift`.
     var storedRecipe: ParticleRecipe?
+    /// Named groups of bodies, each with its own look and rules. Empty means the world has not been divided up, which
+    /// is what nearly every world is — see `ParticleLayers.swift`.
+    var storedLayers: [ParticleLayer] = []
+    var storedCurrentLayer = 0
+    /// How many of the crowd's bodies are drawn, once hidden layers have been moved behind the rest, and which
+    /// version of the crowd that was worked out for.
+    var storedShownSwarmCount = 0
+    var storedRestackedAt = -1
+    /// Which colour was last written into each layer's bodies, so touching a layer's other settings does not repaint
+    /// it — repainting an already-painted colour rounds, and rounding compounds. See `applyLayerTints()`.
+    var storedAppliedTints: [PackedColor?] = []
     /// Kinds that like and dislike each other. See `ParticleLife.swift`.
     var storedParticleLifeEnabled = false
     var storedParticleLifeRules: [[Double]] = []
@@ -664,8 +675,23 @@ public final class ParticleEngine {
         particle.z = z.isFinite ? z : 0
         particle.velocityZ = velocityZ.isFinite ? velocityZ : 0
         particle.originZ = originZ.isFinite ? originZ : 0
+        // Born into whichever layer is current, which is the whole of what makes layers feel like layers: you choose
+        // one and then work, rather than choosing one for every single thing you do.
+        particle.group = UInt8(currentLayer)
         particles.append(particle)
         return id
+    }
+
+    /// Adds a body already made, keeping its own identity but with an issued number.
+    ///
+    /// Used for copying — duplicating a layer — where everything about the body is meant to carry over except the
+    /// number, which must be its own or two bodies would answer to the same name.
+    func addCopy(of body: ParticleObject) {
+        guard particles.count + swarm.count < maxParticles else { return }
+        var made = body
+        made.id = nextSerial
+        nextSerial += 1
+        particles.append(made)
     }
 
     /// Removes every body matching the predicate, keeping springs consistent.

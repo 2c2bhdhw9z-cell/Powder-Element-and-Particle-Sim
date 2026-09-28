@@ -241,12 +241,19 @@ extension Swarm {
         reach: Double,
         strength: Double,
         unit: Double,
-        now: Double
+        now: Double,
+        lockedLayers: [Bool] = []
     ) {
         guard count > 0, ParticleBrush.touchesBodies(mode) else { return }
         let rush = ParticleBrush.rushColor.packedRGBA
+        // As in the flat pass: never read unless some layer is locked.
+        let checkingLocks = !lockedLayers.isEmpty && hasGroups
         for i in 0 ..< count {
             let pair = i * 2
+            if checkingLocks {
+                let group = Int(groups[i])
+                if group < lockedLayers.count, lockedLayers[group] { continue }
+            }
             let x = Double(positions[pair])
             let y = Double(positions[pair + 1])
             let z = Double(depths[i])

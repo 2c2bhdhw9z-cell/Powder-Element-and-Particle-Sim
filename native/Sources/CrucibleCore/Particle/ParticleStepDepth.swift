@@ -140,6 +140,9 @@ extension ParticleEngine {
         let localMaxSpeed = maxSpeed
         let localBoundary = boundaryMode
         let localMouseMode = mouseMode
+        // Whether any layer is locked. Worked out once: a per-body check that read the list every time would put a
+        // search into the innermost loop for something that is nearly always false.
+        let checkingLocks = anyLayerLocked
         let localMouseRadius = mouseRadius.isNaN ? 0 : mouseRadius
         let localBrushStrength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
         let localBrushUnit = brushUnit
@@ -262,7 +265,9 @@ extension ParticleEngine {
                 // MARK: The finger
 
                 var frozen = false
-                if let ray, !bodies[i].isFixed, ParticleBrush.touchesBodies(localMouseMode) {
+                // A body on a locked layer is out of a finger's reach, like the crowd's.
+                if let ray, !bodies[i].isFixed, ParticleBrush.touchesBodies(localMouseMode),
+                   !checkingLocks || layerAllowsTouching(bodies[i].group) {
                     let effect = ParticleBrush.effect(
                         localMouseMode,
                         atX: bodies[i].x,
@@ -647,13 +652,16 @@ extension ParticleEngine {
         let ray = mouseActive ? activeFingerRay : nil
         if let ray {
             let strength = ParticleBrush.defaultStrength * (mouseForceMultiplier.isFinite ? mouseForceMultiplier : 1)
+            // Which layers the finger cannot reach. Empty unless one is locked. See `ParticleLayer.locked`.
+            let locks = lockedLayerTable
             swarm.applyBrushInDepth(
                 mouseMode,
                 ray: ray,
                 reach: reach,
                 strength: strength,
                 unit: brushUnit,
-                now: now
+                now: now,
+                lockedLayers: locks
             )
             // And at every other place the tool is being applied. Each one becomes a line into the box of its own,
             // parallel to the view, which is what a second finger on the glass is. See `ParticleFingers.swift`.
@@ -664,7 +672,8 @@ extension ParticleEngine {
                     reach: reach,
                     strength: strength,
                     unit: brushUnit,
-                    now: now
+                    now: now,
+                    lockedLayers: locks
                 )
             }
         }
@@ -685,7 +694,9 @@ extension ParticleEngine {
             deferAgeing: !storedWalls.isEmpty,
             freezeReach: freezing ? reach : 0,
             depth: depth,
-            freezeRay: freezing ? ray : nil
+            freezeRay: freezing ? ray : nil,
+            layerWeights: layerWeightTable,
+            layerThinness: layerThinnessTable
         ))
 
         if !storedWalls.isEmpty {

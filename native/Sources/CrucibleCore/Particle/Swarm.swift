@@ -72,6 +72,17 @@ public final class Swarm {
     /// Whether any body has a size of its own, so a crowd with none sends no sizes to the screen.
     public private(set) var hasSizes = false
 
+    /// Which named group each body belongs to, nought being the one everything starts in.
+    ///
+    /// Kept apart from ``roles`` on purpose, though both are a byte per body and there are spare bits in the role.
+    /// A role is read in the innermost part of the step, and the fast path there is taken when the role is exactly
+    /// nought — so putting a group in those spare bits would push every body in a grouped world onto the slow branch,
+    /// for a number the step does not even want. See ``ParticleLayer``.
+    public private(set) var groups: UnsafeMutablePointer<UInt8>
+
+    /// Whether any body has been put in a group, so a world with no layers pays nothing at all.
+    public private(set) var hasGroups = false
+
     /// How far into the screen each body is, for the field in 3D. Nought for every body in a flat field.
     ///
     /// Kept apart from ``positions`` rather than making those triples, so that a flat field — every recorded
@@ -311,6 +322,8 @@ public final class Swarm {
         self.stillFor = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
         self.stillFor.initialize(repeating: 0, count: 1)
         self.roles = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        self.groups = UnsafeMutablePointer<UInt8>.allocate(capacity: 1)
+        self.groups.initialize(repeating: 0, count: 1)
         self.homes = UnsafeMutablePointer<Float>.allocate(capacity: Self.homeStride)
         self.roles.initialize(repeating: 0, count: 1)
         self.homes.initialize(repeating: 0, count: Self.homeStride)
@@ -338,6 +351,8 @@ public final class Swarm {
         maxLives.deallocate()
         roles.deinitialize(count: allocated)
         roles.deallocate()
+        groups.deinitialize(count: allocated)
+        groups.deallocate()
         asleep.deinitialize(count: allocated)
         asleep.deallocate()
         stillFor.deinitialize(count: allocated)
@@ -483,6 +498,8 @@ public final class Swarm {
         let newHomeDepths = UnsafeMutablePointer<Float>.allocate(capacity: target)
         newHomeDepths.initialize(repeating: 0, count: target)
         let newRoles = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        let newGroups = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
+        newGroups.initialize(repeating: 0, count: target)
         let newAsleep = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
         let newStillFor = UnsafeMutablePointer<UInt8>.allocate(capacity: target)
         newAsleep.initialize(repeating: 0, count: target)
@@ -507,6 +524,7 @@ public final class Swarm {
             newLives.update(from: lives, count: count)
             newMaxLives.update(from: maxLives, count: count)
             newRoles.update(from: roles, count: count)
+            newGroups.update(from: groups, count: count)
             newAsleep.update(from: asleep, count: count)
             newStillFor.update(from: stillFor, count: count)
             newSizes.update(from: sizes, count: count)
@@ -531,6 +549,8 @@ public final class Swarm {
         maxLives.deallocate()
         roles.deinitialize(count: previous)
         roles.deallocate()
+        groups.deinitialize(count: previous)
+        groups.deallocate()
         asleep.deinitialize(count: previous)
         asleep.deallocate()
         stillFor.deinitialize(count: previous)
@@ -562,6 +582,7 @@ public final class Swarm {
         lives = newLives
         maxLives = newMaxLives
         roles = newRoles
+        groups = newGroups
         homes = newHomes
         sizes = newSizes
         capacity = target
@@ -715,7 +736,8 @@ public final class Swarm {
         home: Home? = nil,
         size: Double = 0,
         z: Double = 0,
-        velocityZ: Double = 0
+        velocityZ: Double = 0,
+        group: UInt8 = 0
     ) -> Bool {
         guard count < min(Self.maximumCount, budget) else { return false }
         reserve(count + 1)
@@ -731,6 +753,8 @@ public final class Swarm {
         let ownSize = size.isFinite ? max(0, min(400, size)) : 0
         sizes[index] = Float(ownSize)
         if ownSize > 0 { hasSizes = true }
+        groups[index] = group
+        if group != 0 { hasGroups = true }
         depths[index] = JS.toFloat32(usableZ)
         depthVelocities[index] = JS.toFloat32(usableVelocityZ)
         if usableZ != 0 || usableVelocityZ != 0 || homeDepths[index] != 0 { hasDepth = true }
@@ -841,6 +865,69 @@ public final class Swarm {
         if count > 0 { hasDepth = true }
     }
 
+    /// Puts one body in a named group. See ``ParticleLayer``.
+    public func setGroup(_ group: UInt8, at index: Int) {
+        guard index >= 0, index < count else { return }
+        groups[index] = group
+        if group != 0 { hasGroups = true }
+    }
+
+    /// Swaps two bodies, everything about them together.
+    ///
+    /// The crowd's order carries no meaning — nothing holds a position in it between moments, which is why removing a
+    /// body swaps it with the last — so this is safe, and it is what lets hidden layers be moved out of the way
+    /// instead of drawn faintly. Every array a body has a place in has to move, which is why it is here and not
+    /// written out by the caller: a caller that forgot one would give a body somebody else's colour.
+    public func exchange(_ first: Int, _ second: Int) {
+        guard first >= 0, second >= 0, first < count, second < count, first != second else { return }
+        let a = first * 2
+        let b = second * 2
+        for offset in 0 ..< 2 {
+            let holdPosition = positions[a + offset]
+            positions[a + offset] = positions[b + offset]
+            positions[b + offset] = holdPosition
+            let holdVelocity = velocities[a + offset]
+            velocities[a + offset] = velocities[b + offset]
+            velocities[b + offset] = holdVelocity
+        }
+        swap(&colors[first], &colors[second])
+        swap(&masses[first], &masses[second])
+        swap(&lives[first], &lives[second])
+        swap(&maxLives[first], &maxLives[second])
+        swap(&roles[first], &roles[second])
+        swap(&groups[first], &groups[second])
+        swap(&sizes[first], &sizes[second])
+        swap(&depths[first], &depths[second])
+        swap(&depthVelocities[first], &depthVelocities[second])
+        swap(&homeDepths[first], &homeDepths[second])
+        swap(&asleep[first], &asleep[second])
+        swap(&stillFor[first], &stillFor[second])
+        let homeA = first * Self.homeStride
+        let homeB = second * Self.homeStride
+        for offset in 0 ..< Self.homeStride {
+            let hold = homes[homeA + offset]
+            homes[homeA + offset] = homes[homeB + offset]
+            homes[homeB + offset] = hold
+        }
+        if !restPlaces.isEmpty, (max(first, second) + 1) * 3 <= restPlaces.count {
+            for offset in 0 ..< 3 {
+                restPlaces.swapAt(first * 3 + offset, second * 3 + offset)
+            }
+        }
+    }
+
+    /// Removes one body, by moving the last one into its place.
+    ///
+    /// The same mechanism ``removeExpired()`` uses, offered on its own so a caller with its own reason to remove a body
+    /// — emptying a layer — does not have to give the body a lifespan of nought and wait.
+    public func remove(at index: Int) {
+        guard index >= 0, index < count else { return }
+        let last = count - 1
+        if index != last { exchange(index, last) }
+        count = last
+        generation += 1
+    }
+
     /// Sets one body's own size, as a diameter at the size slider's resting value. Nought means none.
     public func setSize(_ size: Double, at index: Int) {
         guard index >= 0, index < count else { return }
@@ -924,6 +1011,7 @@ public final class Swarm {
                     lives[index] = lives[last]
                     maxLives[index] = maxLives[last]
                     roles[index] = roles[last]
+                    groups[index] = groups[last]
                     sizes[index] = sizes[last]
                     depths[index] = depths[last]
                     depthVelocities[index] = depthVelocities[last]
@@ -998,6 +1086,14 @@ public final class Swarm {
         /// anything that appears inside the finger's circle, however far away — not only what is level with it.
         public var freezeRay: ParticleFingerRay?
 
+        /// How hard gravity pulls on each layer, and how much of its speed each layer keeps, as multipliers.
+        ///
+        /// Empty means every layer behaves the same, which is nearly every world — and in that case the step never
+        /// looks at a body's layer at all. Eight entries when it is not empty, so the lookup is an index rather than a
+        /// search. See ``ParticleLayer``.
+        public var layerWeights: [Double] = []
+        public var layerThinness: [Double] = []
+
         public init(
             width: Double,
             height: Double,
@@ -1015,8 +1111,12 @@ public final class Swarm {
             freezeY: Double = 0,
             freezeReach: Double = 0,
             depth: Double = 0,
-            freezeRay: ParticleFingerRay? = nil
+            freezeRay: ParticleFingerRay? = nil,
+            layerWeights: [Double] = [],
+            layerThinness: [Double] = []
         ) {
+            self.layerWeights = layerWeights
+            self.layerThinness = layerThinness
             self.depth = depth.isFinite ? max(0, depth) : 0
             self.freezeRay = freezeRay
             self.width = width
@@ -1075,6 +1175,11 @@ public final class Swarm {
         let freezesEverything = freezing && !options.freezeReach.isFinite
         let freezeReachSquared = freezing && !freezesEverything ? options.freezeReach * options.freezeReach : 0
         let sleeps = sleepEnabled
+        // Layers with rules of their own. Empty in nearly every world, and when it is empty a body's layer is never
+        // read — which is the point of checking here rather than per body.
+        let layered = !options.layerWeights.isEmpty && hasGroups
+        let layerWeights = options.layerWeights
+        let layerThinness = options.layerThinness
         for i in 0 ..< count {
             let pair = i * 2
 
@@ -1082,11 +1187,27 @@ public final class Swarm {
             // every body end to end and so saved nothing at all.
             if sleeps, asleep[i] != 0 { continue }
 
+            // What this body's layer does to gravity and to the air, or the plain answer when there are no layers.
+            var pullX = options.gravityX
+            var pullY = options.gravityY
+            var hold = damping
+            if layered {
+                let group = Int(groups[i])
+                if group < layerWeights.count {
+                    let weight = layerWeights[group]
+                    pullX *= weight
+                    pullY *= weight
+                    // Multiplied into what is *kept*, so a thinner layer keeps more of its speed. Never above one: a
+                    // body that gained speed from the air every moment would run away.
+                    hold = min(1, damping * layerThinness[group])
+                }
+            }
+
             let role = anyRoles ? roles[i] : 0
             if role == 0 {
-                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * damping + options.gravityX)
+                velocities[pair] = JS.toFloat32(velocities[pair].asDouble * hold + pullX)
                 velocities[pair + 1] = JS.toFloat32(
-                    velocities[pair + 1].asDouble * damping + options.gravityY
+                    velocities[pair + 1].asDouble * hold + pullY
                 )
             } else {
                 var velX = velocities[pair].asDouble
@@ -1124,8 +1245,8 @@ public final class Swarm {
                     velY = (velY + (homeY - positions[pair + 1].asDouble) * stiffness) * Self.holdFriction
                 }
                 if role & orbitsBit == 0 {
-                    velX = velX * damping + options.gravityX
-                    velY = velY * damping + options.gravityY
+                    velX = velX * hold + pullX
+                    velY = velY * hold + pullY
                 }
                 velocities[pair] = JS.toFloat32(velX)
                 velocities[pair + 1] = JS.toFloat32(velY)
@@ -1284,6 +1405,10 @@ public final class Swarm {
         let freezeReachSquared = freezing && !freezesEverything ? freezeReach * freezeReach : 0
 
         let sleeps = sleepEnabled
+        // As in the flat pass: never read unless some layer asks for different rules.
+        let layered = !options.layerWeights.isEmpty && hasGroups
+        let layerWeights = options.layerWeights
+        let layerThinness = options.layerThinness
         for i in 0 ..< count {
             let pair = i * 2
             // Asleep: left exactly where it is, as in the flat pass. The box walks each body through more work than the
@@ -1327,12 +1452,26 @@ public final class Swarm {
                 velZ = (velZ + (homeZ - depths[i].asDouble) * stiffness) * Self.holdFriction
             }
             if role & orbitsBit == 0 {
-                velX = velX * damping + options.gravityX
-                velY = velY * damping + options.gravityY
+                var pullX = options.gravityX
+                var pullY = options.gravityY
+                var pullZ = options.gravityZ
+                var hold = damping
+                if layered {
+                    let group = Int(groups[i])
+                    if group < layerWeights.count {
+                        let weight = layerWeights[group]
+                        pullX *= weight
+                        pullY *= weight
+                        pullZ *= weight
+                        hold = min(1, damping * layerThinness[group])
+                    }
+                }
+                velX = velX * hold + pullX
+                velY = velY * hold + pullY
                 // Into the box as well as down it. Nought unless the phone has been laid flat, in which case down
                 // really is into the screen and this is what says so — before this, a field tipped flat had its
                 // matter slide to one wall instead of settling on the back of the box.
-                velZ = velZ * damping + options.gravityZ
+                velZ = velZ * hold + pullZ
             }
 
             if freezing {
@@ -1656,6 +1795,8 @@ public final class Swarm {
         public var homes: [Float] = []
         /// Sizes of their own, left empty when no body has one.
         public var sizes: [Float] = []
+        /// Which group each body is in, left empty when every body is in the first one.
+        public var groups: [UInt8] = []
         /// How far into the screen each body is, how fast it is moving that way, and how far in its place in a
         /// shape is. All three left empty in a flat field.
         public var depths: [Float] = []
@@ -1696,6 +1837,7 @@ public final class Swarm {
             roles: [UInt8] = [],
             homes: [Float] = [],
             sizes: [Float] = [],
+            groups: [UInt8] = [],
             depths: [Float] = [],
             depthVelocities: [Float] = [],
             homeDepths: [Float] = []
@@ -1709,6 +1851,7 @@ public final class Swarm {
             self.roles = roles
             self.homes = homes
             self.sizes = sizes
+            self.groups = groups
             self.depths = depths
             self.depthVelocities = depthVelocities
             self.homeDepths = homeDepths
@@ -1733,6 +1876,7 @@ public final class Swarm {
             roles: hasRoles ? Array(UnsafeBufferPointer(start: roles, count: taken)) : [],
             homes: hasRoles ? Array(UnsafeBufferPointer(start: homes, count: taken * Self.homeStride)) : [],
             sizes: hasSizes ? Array(UnsafeBufferPointer(start: sizes, count: taken)) : [],
+            groups: hasGroups ? Array(UnsafeBufferPointer(start: groups, count: taken)) : [],
             depths: hasDepth ? Array(UnsafeBufferPointer(start: depths, count: taken)) : [],
             depthVelocities: hasDepth ? Array(UnsafeBufferPointer(start: depthVelocities, count: taken)) : [],
             homeDepths: hasDepth ? Array(UnsafeBufferPointer(start: homeDepths, count: taken)) : []
@@ -1820,6 +1964,18 @@ public final class Swarm {
             }
         } else {
             roles.update(repeating: 0, count: actual)
+        }
+        hasGroups = false
+        if !snapshot.groups.isEmpty {
+            for index in 0 ..< actual {
+                let raw = index < snapshot.groups.count ? snapshot.groups[index] : 0
+                // Only groups a layer could exist for, so a file from a build with more layers cannot leave bodies
+                // belonging to a layer this one has no name, colour or rules for.
+                groups[index] = raw < ParticleLayer.most ? raw : 0
+                if groups[index] != 0 { hasGroups = true }
+            }
+        } else {
+            groups.update(repeating: 0, count: actual)
         }
         hasSizes = false
         if !snapshot.sizes.isEmpty {

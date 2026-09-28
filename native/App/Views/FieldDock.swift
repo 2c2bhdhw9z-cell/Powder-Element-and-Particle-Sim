@@ -289,6 +289,7 @@ struct FieldDock: View {
             }
             morphControls
             recipeControls
+            layerControls
             if let details = model.arrangementDetails {
                 Text(details.about(inDepth: model.depthEnabled))
                     .font(.labBody(10))
@@ -463,6 +464,160 @@ struct FieldDock: View {
                     .font(.labBody(10))
                     .foregroundStyle(Palette.subtleForeground)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Several worlds in one world: named groups with their own colour and rules.
+    private var layerControls: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text("Layers")
+                    .font(.labBody(11, .semiBold))
+                    .foregroundStyle(Palette.foreground)
+                Spacer(minLength: 8)
+                Button {
+                    Haptics.firm()
+                    model.addLayer()
+                } label: {
+                    Text("Add")
+                        .font(.labBody(11, .semiBold))
+                        .foregroundStyle(Palette.primaryForeground)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(Palette.primary))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("layer.add")
+            }
+
+            ForEach(Array(model.layers.enumerated()), id: \.offset) { pair in
+                layerRow(pair.offset, pair.element)
+            }
+
+            Text(model.hasLayers
+                ? "New things go on the layer with the dot beside it. Hidden layers keep running; locked ones "
+                    + "keep running too, they just cannot be pushed."
+                : "Keep parts of a world apart: a still globe on one layer, a storm on another. Each gets its "
+                    + "own colour, its own weight and its own air.")
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// One layer: which one is current, its name and count, and what can be done to it.
+    @ViewBuilder
+    private func layerRow(_ index: Int, _ layer: ParticleLayer) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                // Choosing the layer is the whole row's tap, so the small controls beside it are the only things that
+                // do anything else.
+                Button {
+                    Haptics.tap()
+                    model.currentLayer = index
+                } label: {
+                    HStack(spacing: 6) {
+                        // Built from the three channels rather than from the packed number: the engine packs red in
+                        // the lowest byte, so handing the packed value over as a hex colour would show every layer's
+                        // red and blue the wrong way round.
+                        Circle()
+                            .fill(layer.tint.map {
+                                Color(
+                                    red: Double($0.r) / 255,
+                                    green: Double($0.g) / 255,
+                                    blue: Double($0.b) / 255
+                                )
+                            } ?? Palette.muted)
+                            .frame(width: 9, height: 9)
+                            .overlay {
+                                Circle()
+                                    .strokeBorder(
+                                        model.currentLayer == index ? Palette.foreground : .clear, lineWidth: 1.5)
+                                    .frame(width: 14, height: 14)
+                            }
+                        Text(layer.name)
+                            .font(.labBody(11, model.currentLayer == index ? .semiBold : .regular))
+                            .foregroundStyle(layer.shown ? Palette.foreground : Palette.subtleForeground)
+                            .lineLimit(1)
+                        Text("\(model.bodiesInLayer(index))")
+                            .font(.labNumeric(10))
+                            .foregroundStyle(Palette.subtleForeground)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("layer.choose.\(index)")
+
+                Spacer(minLength: 4)
+
+                Button {
+                    Haptics.tap()
+                    model.showLayer(index, !layer.shown)
+                } label: {
+                    Image(systemName: layer.shown ? "eye" : "eye.slash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(layer.shown ? Palette.foreground : Palette.subtleForeground)
+                        .frame(width: 26, height: 24)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("layer.show.\(index)")
+
+                Button {
+                    Haptics.tap()
+                    model.lockLayer(index, !layer.locked)
+                } label: {
+                    Image(systemName: layer.locked ? "lock" : "lock.open")
+                        .font(.system(size: 12))
+                        .foregroundStyle(layer.locked ? Palette.warn : Palette.subtleForeground)
+                        .frame(width: 26, height: 24)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("layer.lock.\(index)")
+
+                Menu {
+                    Button("Copy it") { model.duplicateLayer(index) }
+                        .accessibilityIdentifier("layer.copy.\(index)")
+                    Button("Empty it") { model.emptyLayer(index) }
+                        .accessibilityIdentifier("layer.empty.\(index)")
+                    if index > 0 {
+                        Button("Pour into the one above") { model.mergeLayerDown(index) }
+                            .accessibilityIdentifier("layer.merge.\(index)")
+                        Button("Delete it", role: .destructive) { model.deleteLayer(index) }
+                            .accessibilityIdentifier("layer.delete.\(index)")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.subtleForeground)
+                        .frame(width: 26, height: 24)
+                }
+                .accessibilityIdentifier("layer.more.\(index)")
+            }
+
+            // Its two rules, only for the layer being worked on, so eight layers do not become sixteen sliders.
+            if model.currentLayer == index, model.hasLayers {
+                inlineSlider(
+                    "Weight",
+                    Binding(
+                        get: { model.layers.indices.contains(index) ? model.layers[index].weight : 1 },
+                        set: { model.setLayerWeight(index, $0) }
+                    ),
+                    -2 ... 2,
+                    step: 0.05,
+                    format: {
+                        $0 == 0 ? "weightless" : ($0 < 0 ? "up, ×\(abs($0).formatted(.number.precision(.fractionLength(2))))" : "×\($0.formatted(.number.precision(.fractionLength(2))))")
+                    }
+                )
+                inlineSlider(
+                    "Air",
+                    Binding(
+                        get: { model.layers.indices.contains(index) ? model.layers[index].thinness : 1 },
+                        set: { model.setLayerThinness(index, $0) }
+                    ),
+                    0.5 ... 1.5,
+                    step: 0.01,
+                    format: { $0 < 0.99 ? "thicker" : ($0 > 1.01 ? "thinner" : "the world's") }
+                )
             }
         }
     }

@@ -167,12 +167,20 @@ extension Swarm {
         reach: Double,
         strength: Double,
         unit: Double,
-        now: Double
+        now: Double,
+        lockedLayers: [Bool] = []
     ) {
         guard count > 0, ParticleBrush.touchesBodies(mode), fingerX.isFinite, fingerY.isFinite else { return }
         let rush = ParticleBrush.rushColor.packedRGBA
+        // Layers a finger may not touch. Empty in every world that has not locked one, and in that case a body's layer
+        // is never read — locking costs nothing until it is used. See `ParticleLayer.locked`.
+        let checkingLocks = !lockedLayers.isEmpty && hasGroups
         for i in 0 ..< count {
             let pair = i * 2
+            if checkingLocks {
+                let group = Int(groups[i])
+                if group < lockedLayers.count, lockedLayers[group] { continue }
+            }
             let x = Double(positions[pair])
             let y = Double(positions[pair + 1])
             guard x.isFinite, y.isFinite else { continue }

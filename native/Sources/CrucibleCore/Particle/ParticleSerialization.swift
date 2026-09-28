@@ -54,6 +54,9 @@ public struct ParticleRecord: Codable, Sendable {
     public var z: Double?
     public var vz: Double?
     public var oz: Double?
+    /// Which layer it is on. Absent when it is on the first one, which is everything in a world nobody has
+    /// divided up — and in files written before there were layers.
+    public var layer: UInt8?
 }
 
 /// A spring, as saved: two positions in the body list, a rest length and a stiffness.
@@ -128,6 +131,8 @@ public struct SwarmRecord: Codable, Sendable {
     public var z: [Float]?
     public var vz: [Float]?
     public var hz: [Float]?
+    /// Which layer each body is on. Absent when every body is on the first one.
+    public var layer: [UInt8]?
 }
 
 /// A whole particle field, as saved.
@@ -220,6 +225,10 @@ public struct ParticleState: Codable, Sendable {
     /// Jellies made with the jelly pen. Absent when there are none.
     public var jellies: [JellyRecord]?
     public var springs: [SpringRecord]?
+    /// The world's named layers, when it has more than one. Absent otherwise, which is nearly every world.
+    public var layers: [ParticleLayer]?
+    /// Which layer new bodies were going into.
+    public var layerAt: Int?
     public var particles: [ParticleRecord]
 }
 
@@ -324,6 +333,8 @@ extension ParticleEngine {
                         tz: $0.jets ? $0.thrustZ : nil
                     )
                 },
+            layers: storedLayers.count > 1 ? storedLayers : nil,
+            layerAt: storedLayers.count > 1 ? storedCurrentLayer : nil,
             // Every number made writable on the way out. A save file is text, and text has no way to say
             // "not a number" — so one corrupt body used to make the whole save fail, and because the failure
             // was swallowed, autosave simply stopped working with nothing on screen to say so.
@@ -348,7 +359,8 @@ extension ParticleEngine {
                     helix: body.helixStrand,
                     z: storedDepthEnabled && body.z.isFinite && body.z != 0 ? body.z : nil,
                     vz: storedDepthEnabled && body.velocityZ.isFinite && body.velocityZ != 0 ? body.velocityZ : nil,
-                    oz: storedDepthEnabled && body.originZ.isFinite && body.originZ != 0 ? body.originZ : nil
+                    oz: storedDepthEnabled && body.originZ.isFinite && body.originZ != 0 ? body.originZ : nil,
+                    layer: body.group == 0 ? nil : body.group
                 )
             }
         )
@@ -398,6 +410,10 @@ extension ParticleEngine {
         if swarm.hasSizes {
             ownSizes = (0 ..< taken).map { swarm.sizes[$0] }
         }
+        var layerTags: [UInt8] = []
+        if swarm.hasGroups {
+            layerTags = (0 ..< taken).map { swarm.groups[$0] }
+        }
         var depths: [Float]?
         var depthVelocities: [Float]?
         var homeDepths: [Float]?
@@ -421,7 +437,8 @@ extension ParticleEngine {
             size: ownSizes.isEmpty ? nil : ownSizes,
             z: depths,
             vz: depthVelocities,
-            hz: homeDepths
+            hz: homeDepths,
+            layer: layerTags.isEmpty ? nil : layerTags
         )
     }
 
@@ -573,6 +590,24 @@ extension ParticleEngine {
                 originZ: storedDepthEnabled ? (record.oz.flatMap { $0.isFinite ? place($0) : nil } ?? 0) : 0
             )
         }
+
+        // The layers themselves, before the bodies are asked which one they are on — a body pointing at a layer that
+        // does not exist would be a body with nobody's colour and nobody's rules. So the list is read first, and a tag
+        // is only kept where there is a layer for it.
+        let savedLayers = (state.layers ?? []).prefix(ParticleLayer.most).map(\.sanitized)
+        storedLayers = savedLayers.count > 1 ? Array(savedLayers) : []
+        storedCurrentLayer = min(max(0, state.layerAt ?? 0), max(0, layers.count - 1))
+        if storedLayers.count > 1 {
+            let most = UInt8(storedLayers.count)
+            for (index, record) in state.particles.enumerated() where index < particles.count {
+                let tag = record.layer ?? 0
+                particles[index].group = tag < most ? tag : 0
+            }
+        }
+        // Where the hidden bodies are has to be worked out for the loaded crowd, not inherited from whatever the field
+        // held before. Without this a world with a hidden layer opened as an empty field: the count of bodies to draw
+        // was still nought from before anything was loaded, so the screen drew none of them.
+        restackLayers()
 
         storedArrangement = state.arrangement.flatMap { ParticleArrangement.named($0)?.id }
         arrangementAge = 0
@@ -733,6 +768,9 @@ extension ParticleEngine {
                 let value = i < saved.count ? saved[i] : 0
                 return value.isFinite ? max(0, min(400, value)) : 0
             }
+        }
+        if let saved = record.layer, !saved.isEmpty {
+            snapshot.groups = (0 ..< taken).map { $0 < saved.count ? saved[$0] : 0 }
         }
         // Depth only into a field that is in 3D. A flat field reading a 3D file's depths would be drawing flat
         // bodies that behave as though they were somewhere else.

@@ -63,6 +63,11 @@ constant float kNearLimit = 0.2;
 constant float kMinDepthScale = 0.35;
 constant float kMaxDepthScale = 2.8;
 
+// Anywhere outside everything the card draws, so a thing placed here is simply not drawn. Used by the flat
+// passes to leave out a body on a hidden layer, and by the passes with depth to leave out whatever this pass
+// is not for — so it is declared here, above the first of them, rather than beside either.
+constant float4 kNotDrawn = float4(0.0, 0.0, 2.0, 1.0);
+
 // World coordinates into the space the GPU draws in, through the camera.
 //
 // The world's vertical axis grows downward, the way a screen is described and the way every
@@ -156,6 +161,10 @@ vertex PointOut bodyVertex(uint index [[vertex_id]],
     PointOut out;
     float depthScale;
     out.position = worldToClip(positions[index], uniforms, depthScale);
+    // A size of nought means "not drawn", which is how a body on a hidden layer is left out. Sent outside the
+    // picture rather than drawn small: the size below is clamped to at least one pixel, so nought would otherwise
+    // come out as a visible dot. See `ParticleLayer.shown`.
+    if (sizes[index] <= 0.0) { out.position = kNotDrawn; }
     // The zoom is already in the point size, as in `particleVertex`. Capped below the hardware's own
     // ceiling on a point's size, so a large body zoomed right in is drawn large rather than not at all.
     out.size = clamp(sizes[index] * uniforms.pointSize
@@ -842,8 +851,6 @@ struct DepthPlacement {
     float depth;
 };
 
-// Anywhere outside everything the card draws, so a thing placed here is simply not drawn.
-constant float4 kNotDrawn = float4(0.0, 0.0, 2.0, 1.0);
 
 static inline DepthPlacement placeInDepth(float2 world, float z,
                                           constant FieldUniforms &u, constant DepthUniforms &d) {
@@ -934,7 +941,8 @@ vertex PointOut bodyVertexInDepth(uint index [[vertex_id]],
     float blur = depth.asShadow > 0.5 ? 0.0 : outOfFocus(placed.depth, depth);
     float grow = focusGrowth(blur, depth);
     PointOut out;
-    out.position = drawnThisPass(blur, depth) ? placed.position : kNotDrawn;
+    // A size of nought means "not drawn" — a body on a hidden layer. See `ParticleLayer.shown`.
+    out.position = drawnThisPass(blur, depth) && sizes[index] > 0.0 ? placed.position : kNotDrawn;
     out.size = clamp(sizes[index] * uniforms.pointSize * placed.scale * grow, 1.0, 511.0);
     out.color = unpackColor(colors[index]);
     if (depth.colorsByDistance > 0.5) { out.color.rgb = distanceColour(placed.depth); }

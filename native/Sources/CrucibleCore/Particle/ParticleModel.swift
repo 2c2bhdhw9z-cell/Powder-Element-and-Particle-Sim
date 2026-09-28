@@ -259,6 +259,12 @@ public struct ParticleObject: Sendable, Hashable {
     /// Which strand of the helix preset it belongs to: `1` or `-1`.
     public var helixStrand: Double?
 
+    /// Which named group it belongs to, nought being the one everything starts in. See ``ParticleLayer``.
+    ///
+    /// A byte rather than a name, because this whole value is copied wholesale every time the world is kept for undo —
+    /// a string here would mean an allocation per body per undo, for something that is one of at most eight things.
+    public var group: UInt8 = 0
+
     public var kind: ParticleKind
     public var trail: TrailBuffer
 

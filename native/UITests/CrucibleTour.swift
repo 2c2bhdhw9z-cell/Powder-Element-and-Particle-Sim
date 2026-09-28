@@ -188,6 +188,96 @@ final class CrucibleTour: XCTestCase {
         picture(app, "25 The shape, shoved")
     }
 
+    /// Layers: added, chosen, hidden, locked, and taken away again.
+    ///
+    /// Every one of these rearranges what is drawn or what a finger may touch, and the list of layers is a list of rows
+    /// that appear and disappear — which is where a list-shaped interface usually comes apart. Deleting the one being
+    /// looked at is the specific case: the row goes, and anything still pointing at it is pointing at nothing.
+    func testZLayers() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        let field = element("world.field", in: app)
+
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard isRunning(app) else { return }
+
+        guard let add = find("layer.add", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("the button that adds a layer was not in the tray")
+            report(app, "Add, for layers, was not in the tray")
+            return
+        }
+        add.tap()
+        stillRunning(app, after: "adding a layer")
+        picture(app, "26 Two layers")
+
+        // Something on the new layer, so hiding it has something to hide.
+        guard isRunning(app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        guard isRunning(app) else { return }
+        drag(across: field, from: CGVector(dx: 0.25, dy: 0.3), to: CGVector(dx: 0.75, dy: 0.7))
+        stillRunning(app, after: "drawing on the second layer")
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard isRunning(app) else { return }
+
+        for (id, what) in [
+            ("layer.show.1", "hiding the second layer"),
+            ("layer.show.1", "showing it again"),
+            ("layer.lock.1", "locking the second layer"),
+            ("layer.choose.0", "choosing the first layer"),
+            ("layer.choose.1", "choosing the second layer"),
+        ] {
+            guard isRunning(app) else { return }
+            guard let control = find(id, in: app, scrollingWithin: trayArea(app)) else {
+                XCTFail("\(id) was not in the tray")
+                report(app, "\(id) was not in the tray")
+                continue
+            }
+            control.tap()
+            stillRunning(app, after: what)
+        }
+        picture(app, "27 Layers, hidden and locked")
+
+        // Its own two sliders, which only appear for the layer being worked on.
+        guard isRunning(app) else { return }
+        if let weight = find("slider.Weight", in: app, kind: .slider, scrollingWithin: trayArea(app)) {
+            weight.adjust(toNormalizedSliderPosition: 0.2)
+            stillRunning(app, after: "making a layer lighter")
+            picture(app, "28 A layer with its own weight")
+        } else {
+            XCTFail("a layer's weight slider was not in the tray")
+            report(app, "A layer's weight slider was not in the tray")
+        }
+
+        // Copying, and then deleting the very layer being looked at — the case that breaks a list.
+        guard isRunning(app) else { return }
+        if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
+            more.tap()
+            let copy = app.buttons["layer.copy.1"]
+            if copy.waitForExistence(timeout: 3) {
+                copy.tap()
+                stillRunning(app, after: "copying a layer")
+            } else {
+                app.tap()
+            }
+        }
+        guard isRunning(app) else { return }
+        if let more = find("layer.more.1", in: app, scrollingWithin: trayArea(app)) {
+            more.tap()
+            let remove = app.buttons["layer.delete.1"]
+            if remove.waitForExistence(timeout: 3) {
+                remove.tap()
+                stillRunning(app, after: "deleting the layer being looked at")
+            } else {
+                app.tap()
+            }
+        }
+        picture(app, "29 After deleting a layer")
+        guard isRunning(app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        stillRunning(app, after: "closing the tray after working with layers")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

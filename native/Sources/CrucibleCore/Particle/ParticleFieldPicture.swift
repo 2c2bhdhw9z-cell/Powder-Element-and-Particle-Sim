@@ -85,9 +85,12 @@ extension ParticleEngine {
 
             // The crowd first, so the object bodies sit on top of it — the same order the screen draws them in.
             let crowd = swarm
-            if crowd.count > 0 {
+            // Only as many as are shown. Hidden layers are kept at the back of the crowd, so this is a count rather
+            // than a test per body — see `ParticleEngine.restackLayers()`.
+            let drawn = shownSwarmCount
+            if drawn > 0 {
                 let everyOne = max(1.0, particleSize)
-                for index in 0 ..< crowd.count {
+                for index in 0 ..< drawn {
                     let x = Double(crowd.positions[index * 2])
                     let y = Double(crowd.positions[index * 2 + 1])
                     guard x.isFinite, y.isFinite else { continue }
@@ -103,7 +106,11 @@ extension ParticleEngine {
             }
 
             let density = densityGridIfNeeded()
+            let all = layers
             for body in particles {
+                // A named body on a hidden layer is simply not drawn. There is no reordering to lean on here: the
+                // named bodies are a list with springs into it, and moving them about would shear the springs.
+                if all.count > 1, Int(body.group) < all.count, !all[Int(body.group)].shown { continue }
                 // Skipped rather than converted, as in the pixel renderer: a body at an impossible coordinate would
                 // otherwise pile into the corner and read as a bright dot that is really a fault.
                 guard body.x.isFinite, body.y.isFinite else { continue }

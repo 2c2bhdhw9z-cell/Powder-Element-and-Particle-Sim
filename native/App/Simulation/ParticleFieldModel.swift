@@ -1488,6 +1488,16 @@ final class ParticleFieldModel {
             let radius = body.radius.isFinite && body.radius > 0 ? body.radius : 1
             sizes[index] = Float(max(1, min(96, radius * 2 * sizeScale)))
         }
+        // Named bodies on a hidden layer are drawn at no size at all, which the shader discards. Not reordered, as the
+        // crowd is: these are a list with springs pointing into it by position, and moving them would shear the
+        // springs. See `ParticleLayers.swift`.
+        if engine.hasLayers {
+            let all = engine.layers
+            for (index, body) in bodies.enumerated() {
+                let group = Int(body.group)
+                if group < all.count, !all[group].shown { sizes[index] = 0 }
+            }
+        }
         if inDepth {
             if depths.bodies.count < bodies.count {
                 depths.bodies.append(contentsOf: repeatElement(0, count: bodies.count - depths.bodies.count))
@@ -1524,7 +1534,10 @@ final class ParticleFieldModel {
 
         // The swarm is already stored as the GPU wants it — interleaved pairs of single
         // precision floats — so it is copied straight across rather than converted.
-        let swarmCount = engine.swarm.count
+        // Only the bodies that are shown. Hidden layers are kept at the back of the crowd by the engine, so hiding one
+        // is a smaller number here rather than half a million colours rewritten every frame — which is what dimming
+        // them would have cost, and would have put back the copy that was deliberately removed.
+        let swarmCount = engine.shownSwarmCount
         if swarmColors.count < swarmCount {
             swarmColors.append(
                 contentsOf: repeatElement(0, count: swarmCount - swarmColors.count)
@@ -2917,6 +2930,117 @@ final class ParticleFieldModel {
         }
         additionNote = nil
         afterArrangementChange()
+    }
+
+    // MARK: - Layers
+
+    /// The world's layers. There is always at least one.
+    var layers: [ParticleLayer] {
+        observeEngine()
+        return engine.layers
+    }
+
+    /// Whether the world has been divided up at all.
+    var hasLayers: Bool {
+        observeEngine()
+        return engine.hasLayers
+    }
+
+    /// Which layer new bodies go into.
+    var currentLayer: Int {
+        get { observeEngine(); return engine.currentLayer }
+        set { engine.currentLayer = newValue; engineDidChange() }
+    }
+
+    /// The colours a new layer is offered, so a layer looks like something without anybody choosing a colour.
+    ///
+    /// Six that are easy to tell apart at a glance and on a small screen, which is what a layer's colour is for. Taken
+    /// in turn as layers are added rather than at random: two layers the same colour would defeat the point.
+    static let layerColors: [PackedColor] = [
+        PackedColor(r: 0x7A, g: 0xB8, b: 0xFF),
+        PackedColor(r: 0xFF, g: 0x9E, b: 0x6B),
+        PackedColor(r: 0x8E, g: 0xE0, b: 0xA8),
+        PackedColor(r: 0xE6, g: 0x8E, b: 0xD0),
+        PackedColor(r: 0xFF, g: 0xE0, b: 0x7A),
+        PackedColor(r: 0xA8, g: 0xA0, b: 0xFF),
+    ]
+
+    /// How many bodies are on one layer.
+    func bodiesInLayer(_ index: Int) -> Int {
+        observeEngine()
+        return engine.bodiesInLayer(index)
+    }
+
+    /// Adds a layer and makes it the one new bodies go into.
+    func addLayer() {
+        let colour = Self.layerColors[engine.layers.count % Self.layerColors.count]
+        guard engine.addLayer(named: "Layer \(engine.layers.count + 1)", tint: colour) != nil else {
+            additionNote = "Eight layers is as many as a world can have."
+            engineDidChange()
+            return
+        }
+        additionNote = nil
+        engineDidChange()
+    }
+
+    func showLayer(_ index: Int, _ shown: Bool) {
+        _ = engine.showLayer(index, shown)
+        engineDidChange()
+    }
+
+    func lockLayer(_ index: Int, _ locked: Bool) {
+        _ = engine.lockLayer(index, locked)
+        engineDidChange()
+    }
+
+    func renameLayer(_ index: Int, to name: String) {
+        guard index >= 0, index < engine.layers.count else { return }
+        var layer = engine.layers[index]
+        layer.name = name
+        _ = engine.setLayer(index, to: layer)
+        engineDidChange()
+    }
+
+    /// Changes one of a layer's two rules.
+    func setLayerWeight(_ index: Int, _ weight: Double) {
+        guard index >= 0, index < engine.layers.count else { return }
+        var layer = engine.layers[index]
+        layer.weight = weight
+        _ = engine.setLayer(index, to: layer)
+        engineDidChange()
+    }
+
+    func setLayerThinness(_ index: Int, _ thinness: Double) {
+        guard index >= 0, index < engine.layers.count else { return }
+        var layer = engine.layers[index]
+        layer.thinness = thinness
+        _ = engine.setLayer(index, to: layer)
+        engineDidChange()
+    }
+
+    func duplicateLayer(_ index: Int) {
+        guard engine.duplicateLayer(index) != nil else {
+            additionNote = "There was no room for another layer, or nothing on that one to copy."
+            engineDidChange()
+            return
+        }
+        additionNote = nil
+        engineDidChange()
+    }
+
+    func emptyLayer(_ index: Int) {
+        _ = engine.emptyLayer(index)
+        engineDidChange()
+    }
+
+    func mergeLayerDown(_ index: Int) {
+        _ = engine.mergeLayer(index, into: index - 1)
+        engineDidChange()
+    }
+
+    func deleteLayer(_ index: Int) {
+        _ = engine.deleteLayer(index)
+        engineDidChange()
     }
 
     // MARK: - Shapes described by formula
