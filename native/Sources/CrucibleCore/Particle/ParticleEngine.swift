@@ -872,6 +872,14 @@ public final class ParticleEngine {
     /// and structure but not the crowd.
     private static let undoSwarmLimit = 200_000
 
+    /// The whole field kept exactly as it is — every body with its own identifier — to be put back later. What the
+    /// world outside a world within is kept as: a saved file would renumber every body, and a body renumbered is a
+    /// different body, holding a different world. A crowd too big for an undo is left out here as it is there.
+    public func keepWorld() -> Snapshot { makeSnapshot() }
+
+    /// Puts back a field kept by ``keepWorld()``. No undo point: nothing is lost by going back outside.
+    public func putBack(_ kept: Snapshot) { apply(kept) }
+
     private func makeSnapshot() -> Snapshot {
         Snapshot(
             particles: particles,

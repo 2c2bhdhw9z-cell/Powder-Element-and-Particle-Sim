@@ -852,6 +852,18 @@ final class ParticleFieldModel {
     /// The camera is added here rather than by the engine, because the engine does not have one — it
     /// knows nothing about views or screens, and that is deliberate.
     func captureState() -> ParticleState {
+        // Inside a body, what is kept is still the field itself. Saved from inside, the next launch would open in the
+        // world within with no world outside to come back out to.
+        if let outermost = worldsOutside.first {
+            let scratch = ParticleEngine(width: engine.width, height: engine.height, seed: 1)
+            scratch.screenWidth = engine.screenWidth
+            scratch.screenHeight = engine.screenHeight
+            scratch.putBack(outermost.kept)
+            var state = scratch.captureState()
+            state.camera = outermost.camera
+            state.movie = outermost.movie.isEmpty ? nil : outermost.movie
+            return state
+        }
         var state = engine.captureState()
         state.camera = storedCamera
         state.movie = movie.isEmpty ? nil : movie
@@ -866,6 +878,11 @@ final class ParticleFieldModel {
         // An undo point first, so loading the wrong scene is recoverable.
         recordUndoPoint()
         let applied = engine.apply(state)
+        // A world opened from a file is the field itself, not the inside of anything.
+        if applied {
+            worldsOutside = []
+            worldWithin = nil
+        }
         if applied {
             // A file with no camera in it was written before there was one to save, and the right
             // reading of that is the resting view rather than whatever the last scene happened to
@@ -1924,6 +1941,13 @@ final class ParticleFieldModel {
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
         // Drawing a creature takes the finger from every tool: the stroke is a bone or a muscle, not a push.
         if beginCreatureStroke(atFractionX: fx, fractionY: fy) { return }
+        // So does looking inside a body: the touch is a choice of which one, not a push.
+        if lookInside(atFractionX: fx, fractionY: fy) {
+            touchActive = false
+            lookedInsideThisTouch = true
+            return
+        }
+        lookedInsideThisTouch = false
         strokeFromX = nil
         strokeFromY = nil
         turnFromX = nil
@@ -1952,6 +1976,7 @@ final class ParticleFieldModel {
 
     func updateTouch(atFractionX fx: Double, fractionY fy: Double) {
         if continueCreatureStroke(atFractionX: fx, fractionY: fy) { return }
+        if lookedInsideThisTouch { return }
         touchFractionX = fx
         touchFractionY = fy
         // The lens reads instead of pushing: the two want the same finger, and a tool that moved what you were
@@ -2054,6 +2079,10 @@ final class ParticleFieldModel {
 
     func endTouch() {
         if endCreatureStroke() { return }
+        if lookedInsideThisTouch {
+            lookedInsideThisTouch = false
+            return
+        }
         // A tap leaves no ribbon: a mark has to have gone somewhere to be a mark.
         if engine.mouseMode == .light { engine.finishRibbon() }
         // An outline becomes a jelly when the finger lifts, closed from where it ended back to where it began.
@@ -2877,7 +2906,107 @@ final class ParticleFieldModel {
         stopTurntable()
     }
 
+    // MARK: - Worlds within worlds
+
+    /// One world outside the one on screen, kept exactly so coming back out finds it as it was left.
+    struct WorldOutside {
+        var kept: ParticleEngine.Snapshot
+        var camera: ParticleCamera
+        var movie: ParticleMovie
+        /// What this world is, for saying where you are: nothing for the field itself.
+        var inside: WorldWithin?
+    }
+
+    /// The worlds outside this one, outermost first. Empty in the field itself.
+    private(set) var worldsOutside: [WorldOutside] = []
+    /// The world on screen, when it is inside a body.
+    private(set) var worldWithin: WorldWithin?
+    /// Whether the next touch on a body goes inside it.
+    var isLookingInside = false
+    /// Why the last touch did not go inside anything.
+    var insideProblem: String?
+    /// The moment of going in, for the view to show a body opening up: where, in points, and in what colour.
+    private(set) var diveFlash: (x: Double, y: Double, hue: Double, id: Int)?
+
+    /// Where you are, in words: "Inside a Galaxy, inside a Flock".
+    var whereInside: String? {
+        guard worldWithin != nil else { return nil }
+        let names = (worldsOutside.compactMap(\.inside) + [worldWithin].compactMap { $0 }).map(\.name)
+        return names.map { "inside a \($0)" }.joined(separator: ", ").capitalisedFirst
+    }
+
+    /// Goes inside whatever body is under a finger, if the next touch was meant to.
+    ///
+    /// - Returns: whether looking inside took the touch.
+    private func lookInside(atFractionX fx: Double, fractionY fy: Double) -> Bool {
+        guard isLookingInside, !engine.depthEnabled else { return false }
+        let place = worldPlace(atFractionX: fx, fractionY: fy)
+        // A fingertip's width in the world, whatever the zoom.
+        let reach = 22 * viewScale / max(0.1, storedCamera.pictureScale)
+        guard let body = engine.body(nearX: place.x, y: place.y, within: reach) else {
+            insideProblem = "There is no body there to look inside. Tap right on one."
+            return true
+        }
+        let hue = Self.hue(of: body.color)
+        // In the field itself a body is known by its identifier. In a world within, the bodies are laid out afresh on
+        // each visit, so by its place in the list, which is the same every time.
+        let key = worldWithin == nil ? body.id : (engine.particles.firstIndex { $0.id == body.id } ?? 0)
+        let inside = ParticleEngine.worldWithin(
+            bodyID: key, hue: hue, depth: worldsOutside.count + 1, outerSeed: worldWithin?.seed ?? 0
+        )
+        stopMovie()
+        isBuildingCreature = false
+        worldsOutside.append(WorldOutside(kept: engine.keepWorld(), camera: storedCamera, movie: movie, inside: worldWithin))
+        engine.enter(inside)
+        worldWithin = inside
+        movie = ParticleMovie()
+        camera = .identity
+        applyReach()
+        isLookingInside = false
+        insideProblem = nil
+        diveFlash = (fx, fy, hue, (diveFlash?.id ?? 0) + 1)
+        Haptics.firm()
+        afterArrangementChange()
+        return true
+    }
+
+    /// Comes back out into the world this one is inside, as it was left.
+    func backOut() {
+        guard let outside = worldsOutside.popLast() else { return }
+        stopMovie()
+        engine.putBack(outside.kept)
+        worldWithin = outside.inside
+        movie = outside.movie
+        camera = outside.camera
+        applyReach()
+        isLookingInside = false
+        Haptics.tap()
+        afterArrangementChange()
+    }
+
+    /// Comes all the way back out to the field itself.
+    func backOutAll() {
+        while !worldsOutside.isEmpty { backOut() }
+    }
+
+    /// A body's colour as a hue, for the world inside it.
+    static func hue(of colour: PackedColor) -> Double {
+        let r = Double(colour.r) / 255, g = Double(colour.g) / 255, b = Double(colour.b) / 255
+        let high = max(r, g, b), low = min(r, g, b)
+        let spread = high - low
+        guard spread > 1e-9 else { return 0 }
+        var hue: Double
+        if high == r { hue = ((g - b) / spread).truncatingRemainder(dividingBy: 6) }
+        else if high == g { hue = (b - r) / spread + 2 }
+        else { hue = (r - g) / spread + 4 }
+        hue *= 60
+        return hue < 0 ? hue + 360 : hue
+    }
+
     // MARK: - Creatures
+
+    /// Whether the touch under way began by going inside a body, so the rest of it does nothing.
+    @ObservationIgnored private var lookedInsideThisTouch = false
 
     /// Whether a finger on the world is drawing a creature's bones and muscles rather than using the chosen tool.
     var isBuildingCreature = false {
@@ -4264,5 +4393,13 @@ final class ParticleFieldModel {
             manualGravityY = engine.gravityY
             bodyCount = engine.bodyCount
         }
+    }
+}
+
+extension String {
+    /// With its first letter a capital.
+    var capitalisedFirst: String {
+        guard let first else { return self }
+        return first.uppercased() + dropFirst()
     }
 }

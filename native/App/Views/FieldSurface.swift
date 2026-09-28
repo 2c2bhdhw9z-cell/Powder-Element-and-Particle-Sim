@@ -23,6 +23,8 @@ struct FieldWithLabels: View {
             .overlay(alignment: .bottom) { MovieCaptionView(model: model) }
             // A creature being drawn, before it is alive.
             .overlay { CreaturePlanOverlay(model: model) }
+            // A body opening up, as the world inside it arrives.
+            .overlay { DiveFlash(model: model) }
             .overlay(alignment: .topLeading) {
                 if model.showsLabels {
                     ZStack(alignment: .topLeading) {

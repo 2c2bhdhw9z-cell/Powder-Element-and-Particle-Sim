@@ -825,6 +825,14 @@ struct ContentView: View {
                         .animation(.easeOut(duration: 0.2), value: powder.labBook)
                 }
             }
+            // Where you are inside the field, and the way back out, in the same place for the same reason.
+            .overlay(alignment: .top) {
+                if which == .field, which == chamber {
+                    WorldWithinBanner(model: field)
+                        .padding(.top, topClearance + 96)
+                        .animation(.easeOut(duration: 0.2), value: field.whereInside)
+                }
+            }
             // The rewind's slider and the lasso's actions, along the bottom of the world just above the tray — where
             // the thumb already is, and away from the tools at the top.
             .overlay(alignment: .bottom) {

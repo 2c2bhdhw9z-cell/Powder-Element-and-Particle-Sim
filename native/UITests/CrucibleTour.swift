@@ -647,6 +647,63 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "going back to one world")
     }
 
+    /// Worlds within worlds: a galaxy, a dive into the black hole at its middle, a dive into something inside that,
+    /// and all the way back out.
+    ///
+    /// Going in swaps the whole field for another and keeps the old one aside; coming out swaps it back. Two swaps in
+    /// and two out is where anything the field forgot to keep, or kept twice, would show.
+    func testWorldsWithin() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        let field = element("world.field", in: app)
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let galaxy = find("arrangement.galaxy", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the galaxy was not in the tray")
+            report(app, "No galaxy chip")
+            return
+        }
+        galaxy.tap()
+        guard let look = find("within.look", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("looking inside a body was not offered")
+            report(app, "No look-inside button")
+            return
+        }
+        look.tap()
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        guard isRunning(app) else { return }
+        // The black hole sits in the middle of the galaxy, and holds still there.
+        drag(across: field, from: CGVector(dx: 0.5, dy: 0.5), to: CGVector(dx: 0.52, dy: 0.5))
+        stillRunning(app, after: "going inside a body")
+        guard element("within.back", in: app).waitForExistence(timeout: 10) else {
+            XCTFail("going inside a body did not say where it was")
+            report(app, "No way back out")
+            return
+        }
+        picture(app, "50 Inside a body")
+        expectDrawn(field, "the world inside a body", in: app)
+
+        // And inside something in there: whatever is nearest the middle.
+        tap("fieldTray.handle", "the Field tray's handle, inside", in: app)
+        if let again = find("within.look", in: app, scrollingIn: trayScroll(in: app)) { again.tap() }
+        tap("fieldTray.handle", "the Field tray's handle, to close it inside", in: app)
+        drag(across: field, from: CGVector(dx: 0.5, dy: 0.5), to: CGVector(dx: 0.52, dy: 0.5))
+        stillRunning(app, after: "going inside a body inside a body")
+        picture(app, "51 Two worlds down, or one if nothing was there")
+
+        if element("within.backAll", in: app).exists {
+            tap("within.backAll", "coming all the way back out", in: app)
+        } else {
+            tap("within.back", "coming back out", in: app)
+        }
+        stillRunning(app, after: "coming back out")
+        if element("within.back", in: app).exists {
+            XCTFail("coming all the way out left the field still inside something")
+            report(app, "Still inside")
+        }
+        picture(app, "52 Back in the galaxy")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {
