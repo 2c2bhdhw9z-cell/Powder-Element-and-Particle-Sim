@@ -61,6 +61,8 @@ struct ContentView: View {
     @State private var isDockOpen = false
     /// The last body batch chosen in the Field tray. Shared by its compact and overlay presentations.
     @State private var fieldBatch = 10_000
+    /// Whether the Field's controls open as the list menu or as the one scrolling tray. Chosen at the top of either.
+    @AppStorage(FieldDock.listMenuKey) private var fieldUsesListMenu = true
     @State private var showingScenes = false
     @State private var showingNotebook = false
     @State private var showingLabBook = false
@@ -306,7 +308,7 @@ struct ContentView: View {
                     // but it belongs to the world's overlay rather than being positioned above the dock with an
                     // inverted alignment guide. It therefore cannot participate in dock or world measurement.
                     .overlay(alignment: .bottom) {
-                        if chamber == .field, isDockOpen {
+                        if chamber == .field, isDockOpen, !fieldUsesListMenu {
                             fieldDock(presentation: .tray)
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                                 .zIndex(2)
@@ -342,6 +344,13 @@ struct ContentView: View {
             // down with it: the play button and the clear button ended up inside the home-indicator strip,
             // where iOS takes the upward swipe and pressing them is a gamble.
             .ignoresSafeArea(edges: .top)
+            // The list-menu way of showing the Field's controls: a short list of parts over everything, and one
+            // part's controls at a time. It is not part of the dock's layout, so it cannot resize the world.
+            .overlay {
+                if chamber == .field, isDockOpen, fieldUsesListMenu {
+                    fieldDock(presentation: .menu)
+                }
+            }
             // The introduction, over everything, on the first launch and whenever it is asked for again.
             //
             // A layer rather than a screen the system presents. It was the latter, and it quietly broke every panel in
@@ -1319,20 +1328,30 @@ struct ContentView: View {
         }
     }
 
-    /// The fixed dock and the world-overlay tray share the same model, open state, actions and batch choice.
+    /// The fixed dock, the world-overlay tray and the list menu share the same model, open state, actions and batch choice.
     private func fieldDock(presentation: FieldDock.Presentation) -> FieldDock {
         FieldDock(
             model: field,
             isOpen: $isDockOpen,
             batch: $fieldBatch,
             presentation: presentation,
-            onShowPresets: { showingPresets = true },
+            onShowPresets: {
+                if fieldUsesListMenu { isDockOpen = false }
+                showingPresets = true
+            },
             // Its own sheet, not the powder world's. Almost nothing carries over between them — there are no cells
             // here, no temperature and no wind — so sharing one would be a list of controls that mostly did not apply.
-            onShowSettings: { showingFieldSettings = true },
+            onShowSettings: {
+                if fieldUsesListMenu { isDockOpen = false }
+                showingFieldSettings = true
+            },
             today: Self.today,
-            onSettleEverything: { _ = bridge?.settleEverything() },
+            onSettleEverything: {
+                if fieldUsesListMenu { isDockOpen = false }
+                _ = bridge?.settleEverything()
+            },
             onShowPowderInTheBox: {
+                if fieldUsesListMenu { isDockOpen = false }
                 breadcrumbs.record("showed the powder world in the box")
                 _ = bridge?.showPowderInTheBox()
             }

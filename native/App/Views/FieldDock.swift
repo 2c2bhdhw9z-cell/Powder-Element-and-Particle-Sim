@@ -12,7 +12,94 @@ struct FieldDock: View {
     enum Presentation {
         case dock
         case tray
+        /// The list menu: a short list of parts, and one part's controls at a time.
+        case menu
     }
+
+    /// Where the choice between the one scrolling tray and the list menu is kept. Shared with ContentView.
+    static let listMenuKey = "fieldControlsUseListMenu"
+
+    /// A Field menu used to insert every control into one enormous overlay above the dock. That path still terminated
+    /// a real iPhone after lighter animation and lazy layout were tried. The replacement opens this static list first
+    /// and constructs exactly one control page only after it is chosen.
+    private enum MenuPage: String, CaseIterable {
+        case arrangements
+        case morph
+        case formula
+        case layers
+        case words
+        case creatures
+        case worlds
+        case bodies
+        case touch
+        case physics
+        case threeD
+        case view
+        case appearance
+        case movie
+        case actions
+
+        var title: String {
+            switch self {
+            case .arrangements: "Arrangements"
+            case .morph: "Morph between shapes"
+            case .formula: "Shape from a formula"
+            case .layers: "Layers"
+            case .words: "Words"
+            case .creatures: "Creatures"
+            case .worlds: "Worlds within worlds"
+            case .bodies: "Bodies and population"
+            case .touch: "Fingers and loops"
+            case .physics: "Physics"
+            case .threeD: "3D"
+            case .view: "View and camera"
+            case .appearance: "Colour and appearance"
+            case .movie: "Movie and keepsakes"
+            case .actions: "More actions"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .arrangements: "Ready-made fields and today's shared shape"
+            case .morph: "Turn one arrangement into another"
+            case .formula: "Make a living shape from equations"
+            case .layers: "Separate, hide, lock and colour parts"
+            case .words: "Spell with bodies"
+            case .creatures: "Build bones, joints and muscles"
+            case .worlds: "Look inside a body"
+            case .bodies: "Add bodies, set their size and reach"
+            case .touch: "More fingers, repeating gestures and show mode"
+            case .physics: "Collisions, trails, fluids, forces and wind"
+            case .threeD: "Turn the field into a box and look around it"
+            case .view: "Detail, tilt, spin and fit"
+            case .appearance: "Palettes, shapes, backdrops and glow"
+            case .movie: "Camera stops, clips, 3D moments and Live Photos"
+            case .actions: "Presets, bridges, wells and Field settings"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .arrangements: "square.grid.2x2"
+            case .morph: "arrow.triangle.2.circlepath"
+            case .formula: "function"
+            case .layers: "square.3.layers.3d"
+            case .words: "textformat"
+            case .creatures: "figure.walk"
+            case .worlds: "circle.circle"
+            case .bodies: "circle.hexagongrid"
+            case .touch: "hand.draw"
+            case .physics: "atom"
+            case .threeD: "cube"
+            case .view: "viewfinder"
+            case .appearance: "paintpalette"
+            case .movie: "film"
+            case .actions: "ellipsis.circle"
+            }
+        }
+    }
+
 
     let model: ParticleFieldModel
     @Binding var isOpen: Bool
@@ -78,6 +165,7 @@ struct FieldDock: View {
     /// The top-to-bottom order of the original single scrolling tray. Supplying these through a `ForEach` gives the
     /// lazy stack real rows to request as they approach the screen, instead of one giant result-builder expression.
     private enum ExpandedSection: CaseIterable, Hashable {
+        case style
         case destinations
         case cost
         case depth
@@ -104,6 +192,12 @@ struct FieldDock: View {
     /// Opens the unusually large Field tray without animating its insertion. On real phones, animating the
     /// complete control tree can briefly require enough layout and accessibility work to terminate the app.
     /// Closing is cheap because the tree has already been laid out, so it can keep the familiar movement.
+    /// The one control page the list menu has built, or nil for its list of parts.
+    @State private var selectedPage: MenuPage? = nil
+
+    /// Whether the Field's controls open as the list menu (true) or as the one scrolling tray (false).
+    @AppStorage(FieldDock.listMenuKey) private var usesListMenu = true
+
     private func setOpen(_ open: Bool) {
         guard isOpen != open else { return }
         if open {
@@ -127,6 +221,8 @@ struct FieldDock: View {
         case .tray:
             expanded
                 .solidPanel(in: Rectangle())
+        case .menu:
+            menu
         }
     }
 
@@ -1383,52 +1479,286 @@ struct FieldDock: View {
         }
     }
 
-    @ViewBuilder
-    private func expandedSection(_ section: ExpandedSection) -> some View {
+    /// Each section is wrapped on its own so SwiftUI never has to hold every section's type as one giant nested view.
+    private func expandedSection(_ section: ExpandedSection) -> AnyView {
         switch section {
+        case .style:
+            AnyView(styleSwitchRow(toListMenu: true))
         case .destinations:
-            destinations
+            AnyView(destinations)
         case .cost:
-            costWarning
+            AnyView(costWarning)
         case .depth:
-            depthControls
+            AnyView(depthControls)
         case .fingers:
-            fingerControls
+            AnyView(fingerControls)
         case .loops:
-            loopControls
+            AnyView(loopControls)
         case .arrangements:
-            presetChips
+            AnyView(presetChips)
         case .morph:
-            morphControls
+            AnyView(morphControls)
         case .formula:
-            recipeControls
+            AnyView(recipeControls)
         case .layers:
-            layerControls
+            AnyView(layerControls)
         case .arrangementDetails:
-            arrangementDescription
+            AnyView(arrangementDescription)
         case .word:
-            wordControls
+            AnyView(wordControls)
         case .creatures:
-            FieldCreatureControls(model: model)
+            AnyView(FieldCreatureControls(model: model))
         case .worldsWithin:
-            FieldWithinControls(model: model)
+            AnyView(FieldWithinControls(model: model))
         case .bodyControls:
-            primaryBodyControls
+            AnyView(primaryBodyControls)
         case .physics:
-            physics
+            AnyView(physics)
         case .colourModes:
-            colourModes
+            AnyView(colourModes)
         case .colourRamps:
-            colourRamps
+            AnyView(colourRamps)
         case .shapes:
-            shapeChoices
+            AnyView(shapeChoices)
         case .backdrop:
-            backdropChoices
+            AnyView(backdropChoices)
         case .view:
-            viewControls
+            AnyView(viewControls)
         case .movie:
-            FieldMovieControls(model: model)
+            AnyView(FieldMovieControls(model: model))
         }
+    }
+
+    /// A separate modal rather than another child of the dock. Its first screen is deliberately static: tapping the
+    /// arrow constructs no sliders, dynamic ranges, custom layouts or simulation-dependent labels.
+    private var menu: some View {
+        GeometryReader { screen in
+            let safeHorizontal = screen.safeAreaInsets.leading + screen.safeAreaInsets.trailing
+            let safeVertical = screen.safeAreaInsets.top + screen.safeAreaInsets.bottom
+            let width = min(680, max(1, screen.size.width - safeHorizontal - 20))
+            let height = min(760, max(1, screen.size.height - safeVertical - 20))
+
+            ZStack {
+                Color.black.opacity(0.72)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { setOpen(false) }
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 0) {
+                    menuHeader
+                    Rectangle().fill(Palette.border).frame(height: 1)
+                    ScrollView {
+                        Group {
+                            if let selectedPage {
+                                menuPage(selectedPage)
+                                    .accessibilityIdentifier("fieldTray.section.\(selectedPage.rawValue)")
+                            } else {
+                                menuChooser
+                            }
+                        }
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .id(selectedPage?.rawValue ?? "root")
+                    .labScrollEdges()
+                }
+                .frame(width: width, height: height)
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(Palette.elevated)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Palette.borderStrong, lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .accessibilityAddTraits(.isModal)
+            }
+            .frame(width: screen.size.width, height: screen.size.height)
+        }
+        .accessibilityIdentifier("fieldTray.modal")
+        .accessibilityAction(.escape) { setOpen(false) }
+    }
+
+    private var menuHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            if selectedPage != nil {
+                Button {
+                    selectedPage = nil
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.labBody(14, .medium))
+                        .foregroundStyle(Palette.muted)
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(Color.white.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Back to Field controls")
+                .accessibilityIdentifier("fieldTray.categories")
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(selectedPage?.title ?? "Particle field")
+                    .font(.labDisplay(16))
+                    .tracking(-0.3)
+                    .foregroundStyle(Palette.foreground)
+                    .accessibilityIdentifier("sheet.title")
+                Text(selectedPage?.detail ?? "Choose one part to change")
+                    .font(.labBody(11))
+                    .foregroundStyle(Palette.muted)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+            Button {
+                setOpen(false)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.labBody(14, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("sheet.close")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var menuChooser: some View {
+        LazyVStack(spacing: 8) {
+            styleSwitchRow(toListMenu: false)
+            ForEach(MenuPage.allCases, id: \.self) { page in
+                Button {
+                    selectedPage = page
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: page.symbol)
+                            .font(.labBody(15, .medium))
+                            .foregroundStyle(Palette.primary)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(page.title)
+                                .font(.labBody(13, .semiBold))
+                                .foregroundStyle(Palette.foreground)
+                            Text(page.detail)
+                                .font(.labBody(10))
+                                .foregroundStyle(Palette.subtleForeground)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.labBody(11, .medium))
+                            .foregroundStyle(Palette.subtleForeground)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("fieldTray.category.\(page.rawValue)")
+            }
+        }
+        .accessibilityIdentifier("fieldTray.root")
+    }
+
+    /// This switch is the construction boundary the old LazyVStack was not. SwiftUI evaluates only the selected
+    /// branch, so no page can make the first arrow tap instantiate the other fourteen pages.
+    private func menuPage(_ page: MenuPage) -> AnyView {
+        switch page {
+        case .arrangements:
+            AnyView(presetChips)
+        case .morph:
+            AnyView(morphControls)
+        case .formula:
+            AnyView(recipeControls)
+        case .layers:
+            AnyView(layerControls)
+        case .words:
+            AnyView(wordControls)
+        case .creatures:
+            AnyView(FieldCreatureControls(model: model))
+        case .worlds:
+            AnyView(FieldWithinControls(model: model))
+        case .bodies:
+            AnyView(primaryBodyControls)
+        case .touch:
+            AnyView(
+                VStack(alignment: .leading, spacing: 18) {
+                    fingerControls
+                    loopControls
+                }
+            )
+        case .physics:
+            AnyView(
+                VStack(alignment: .leading, spacing: 14) {
+                    costWarning
+                    physics
+                }
+            )
+        case .threeD:
+            AnyView(depthControls)
+        case .view:
+            AnyView(viewControls)
+        case .appearance:
+            AnyView(
+                VStack(alignment: .leading, spacing: 18) {
+                    colourModes
+                    colourRamps
+                    shapeChoices
+                    backdropChoices
+                }
+            )
+        case .movie:
+            AnyView(FieldMovieControls(model: model))
+        case .actions:
+            AnyView(destinations)
+        }
+    }
+
+    /// The way to swap between the list menu and the one scrolling tray. Shown at the top of both, so whichever one
+    /// is open, the other is one tap away. The choice is remembered.
+    private func styleSwitchRow(toListMenu: Bool) -> some View {
+        Button {
+            Haptics.selection()
+            selectedPage = nil
+            usesListMenu = toListMenu
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: toListMenu ? "list.bullet" : "rectangle.bottomthird.inset.filled")
+                    .font(.labBody(13, .medium))
+                    .foregroundStyle(Palette.primary)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(toListMenu ? "Show as a list menu" : "Show as one scrolling tray")
+                        .font(.labBody(12, .semiBold))
+                        .foregroundStyle(Palette.foreground)
+                    Text(toListMenu ? "One part at a time" : "Everything in one tray, like before")
+                        .font(.labBody(10))
+                        .foregroundStyle(Palette.subtleForeground)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.labBody(11, .medium))
+                    .foregroundStyle(Palette.subtleForeground)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
+                    .stroke(Palette.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(toListMenu ? "fieldTray.useListMenu" : "fieldTray.useTray")
     }
 
     /// Population and the few always-visible body controls, kept together exactly as they were in the old tray.
@@ -1476,277 +1806,10 @@ struct FieldDock: View {
         }
     }
 
-    /// The kinds of physics, each with its own numbers directly underneath it.
-    ///
-    /// Underneath, and not in a separate panel. Every one of these used to be a bare switch with everything
-    /// about how it behaved written into the code as a constant — and when the numbers did arrive they
-    /// arrived somewhere else, which is the same fault wearing a different hat. A switch you can turn on and
-    /// then not adjust is somebody else's decision presented as a choice.
-    ///
-    /// Each set of numbers appears only when its switch is on, because five sliders that do nothing are
-    /// worse than no sliders.
+    /// The kinds of physics. Built as many small separate views in `FieldPhysicsControls.swift`, because as one
+    /// giant view here it closed the app on a real iPhone as soon as it was shown.
     private var physics: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("PHYSICS")
-                .font(.labBody(10, .semiBold))
-                .tracking(0.8)
-                .foregroundStyle(Palette.subtleForeground)
-
-            switchAndNumbers(
-                "Collide — bodies push each other apart",
-                isOn: Binding(get: { model.collisionsEnabled }, set: { model.collisionsEnabled = $0 })
-            ) {
-                inlineSlider("How wide they count as", \.contactSize, 0 ... 24, step: 0.5) {
-                    $0 <= 0 ? "automatic" : "\($0.formatted(.number.precision(.fractionLength(1)))) px"
-                }
-                inlineSlider("Bounciness", \.contactBounciness, 0 ... 1, step: 0.02)
-                inlineSlider("Friction", \.contactFriction, 0 ... 1, step: 0.02)
-                inlineSlider("Firmness", \.contactPasses, 1 ... 6, step: 1) {
-                    "\(Int($0)) pass\(Int($0) == 1 ? "" : "es")"
-                }
-            }
-
-            switchAndNumbers(
-                "Trails — bodies leave a fading streak",
-                isOn: Binding(get: { model.showTrails }, set: { model.showTrails = $0 })
-            ) {
-                // The length control, phrased as length rather than as the fade it actually is — a slider
-                // that gets shorter as you drag it right is a puzzle, not a control.
-                inlineSlider("How long they last", \.trailFade, 0.01 ... 1, step: 0.01) {
-                    "\(Int((1 / max(0.01, $0)).rounded())) frames"
-                }
-                inlineSlider("How solid", \.trailOpacity, 0.02 ... 1, step: 0.02)
-                inlineSlider("How thick", \.trailWidth, 0.1 ... 3, step: 0.1)
-                // A different thing from the trail behind a body: a trail says where it has been, a streak
-                // says how fast it is going now. A field of fast bodies drawn as dots reads as a static
-                // scatter however quickly it is moving, because a dot has no direction.
-                inlineSlider("Stretch with speed", \.streakLength, 0 ... 16, step: 0.5) {
-                    $0 == 0 ? "round dots" : "\($0.formatted(.number.precision(.fractionLength(1)))) moments"
-                }
-            }
-
-            switchAndNumbers(
-                "Fluid — the crowd holds itself apart, and holds a surface",
-                isOn: Binding(get: { model.fluidEnabled }, set: { model.fluidEnabled = $0 })
-            ) {
-                // Spacing rather than the crowding figure it is stored as. Crowding is bodies per square
-                // pixel, which is a real quantity and a useless thing to drag.
-                inlineSlider(
-                    "Spacing",
-                    Binding(
-                        get: { (1 / max(1e-6, model.fluidRestDensity)).squareRoot() },
-                        set: { model.fluidRestDensity = 1 / max(1e-6, $0 * $0) }
-                    ),
-                    2 ... 20,
-                    step: 0.5
-                ) { "\($0.formatted(.number.precision(.fractionLength(1)))) px" }
-                inlineSlider("Reach", \.fluidSmoothing, 4 ... 48, step: 1) {
-                    "\(Int($0)) px"
-                }
-                inlineSlider("Springiness", \.fluidStiffness, 0 ... 8, step: 0.1)
-                inlineSlider("Thickness", \.fluidViscosity, 0 ... 0.6, step: 0.01)
-                inlineSlider("Beading", \.fluidCohesion, 0 ... 1.2, step: 0.05)
-            }
-
-            switchAndNumbers(
-                "Flock — bodies steer by their neighbours",
-                isOn: Binding(get: { model.flockEnabled }, set: { model.flockEnabled = $0 })
-            ) {
-                inlineSlider("Keep apart", \.flockSeparation, 0 ... 1, step: 0.01)
-                inlineSlider("Match direction", \.flockAlignment, 0 ... 0.3, step: 0.005)
-                inlineSlider("Stay together", \.flockCohesion, 0 ... 0.02, step: 0.0005) {
-                    $0.formatted(.number.precision(.fractionLength(4)))
-                }
-                inlineSlider("How far they see", \.flockVision, 10 ... 300, step: 5) {
-                    "\(Int($0)) px"
-                }
-                inlineSlider("Personal space", \.flockPersonalSpace, 2 ... 200, step: 2) {
-                    "\(Int($0)) px"
-                }
-                inlineSlider("How many take part", \.flockLimit, 20 ... 1200, step: 20) {
-                    Int($0).formattedWithSeparators
-                }
-            }
-
-            switchAndNumbers(
-                "Gravity between bodies — everything pulls on everything",
-                isOn: Binding(get: { model.nbodyEnabled }, set: { model.nbodyEnabled = $0 })
-            ) {
-                inlineSlider("Strength", \.bodyGravityStrength, 0 ... 12, step: 0.1)
-                inlineSlider("Closest approach", \.bodyGravitySoftening, 1 ... 60, step: 1) {
-                    "\(Int($0)) px"
-                }
-            }
-
-            // The two drawn things. Shown whenever there is something drawn, or the tool is in hand —
-            // otherwise the numbers for a wall would be hidden precisely when somebody was drawing one.
-            if model.mouseMode == .current || model.hasPaintedCurrent {
-                drawnSection(
-                    "Painted wind",
-                    detail: model.hasPaintedCurrent
-                        ? "Drag across the field to paint which way the crowd should go."
-                        : "Drag across the field to paint. Nothing is painted yet.",
-                    clearTitle: "Wipe the wind",
-                    canClear: model.hasPaintedCurrent,
-                    clear: { model.clearCurrent() }
-                ) {
-                    inlineSlider("How hard it pushes", \.currentStrength, 0 ... 6, step: 0.05)
-                    inlineSlider("Brush width", \.currentBrushRadius, 0.02 ... 0.6, step: 0.01)
-                    inlineSlider("Brush strength", \.currentBrushStrength, 0.02 ... 1, step: 0.02)
-                    inlineSlider("How finely", \.currentResolution, 4 ... 64, step: 4) {
-                        "\(Int($0)) across"
-                    }
-                }
-            }
-
-            if model.mouseMode == .source || model.emitterCount > 0 {
-                drawnSection(
-                    "Sources",
-                    detail: model.emitterCount > 0
-                        ? "\(model.emitterCount) pouring. Drag on the field to place another, aimed the way "
-                            + "you drag."
-                        : "Drag on the field to place one, aimed the way you drag. It keeps pouring after you "
-                            + "let go.",
-                    clearTitle: "Remove them all",
-                    canClear: model.emitterCount > 0,
-                    clear: { model.clearEmitters() }
-                ) {
-                    inlineSlider("How fast it pours", \.sourceRate, 0 ... 1_200, step: 10) {
-                        "\(Int($0))/s"
-                    }
-                    inlineSlider("How wide a fan", \.sourceSpread, 0 ... 3.14, step: 0.02) {
-                        "\(Int($0 * 57.2958))°"
-                    }
-                    inlineSlider("How fast they leave", \.sourceSpeed, 0 ... 30, step: 0.5)
-                    inlineSlider("Speed varies by", \.sourceSpeedVariation, 0 ... 1, step: 0.02)
-                    inlineSlider("How long they last", \.sourceLifespan, 0 ... 600, step: 10) {
-                        $0 <= 0 ? "forever" : "\(Int($0)) moments"
-                    }
-                    inlineSlider("How heavy", \.sourceWeight, 0.05 ... 12, step: 0.05)
-                    inlineSlider("Colour", \.sourceHue, -1 ... 359, step: 1) {
-                        $0 < 0 ? "a mixture" : "\(Int($0))°"
-                    }
-
-                    // One row per source, so a stray one can be stopped or removed without clearing them all.
-                    if model.emitterCount > 0 {
-                        ForEach(Array(model.emitterSummaries.enumerated()), id: \.offset) { entry in
-                            HStack(spacing: 8) {
-                                Text(entry.element)
-                                    .font(.labBody(10))
-                                    .foregroundStyle(Palette.subtleForeground)
-                                Spacer(minLength: 8)
-                                Button {
-                                    model.setEmitterRunning(
-                                        entry.element.hasSuffix("stopped"),
-                                        at: entry.offset
-                                    )
-                                } label: {
-                                    Image(
-                                        systemName: entry.element.hasSuffix("stopped")
-                                            ? "play.fill"
-                                            : "pause.fill"
-                                    )
-                                    .font(.labBody(10, .semiBold))
-                                    .foregroundStyle(Palette.muted)
-                                    .frame(width: 24, height: 24)
-                                    .background(Circle().fill(Color.white.opacity(0.08)))
-                                }
-                                .buttonStyle(.plain)
-                                Button {
-                                    model.removeEmitter(at: entry.offset)
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.labBody(10, .semiBold))
-                                        .foregroundStyle(Palette.muted)
-                                        .frame(width: 24, height: 24)
-                                        .background(Circle().fill(Color.white.opacity(0.08)))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(.vertical, 1)
-                        }
-                    }
-                }
-            }
-
-            if model.mouseMode == .wall || model.wallCount > 0 {
-                drawnSection(
-                    "Walls",
-                    detail: model.wallCount > 0
-                        ? "\(model.wallCount) drawn. Drag across the field to add another."
-                        : "Drag across the field to draw one.",
-                    clearTitle: "Remove them all",
-                    canClear: model.wallCount > 0,
-                    clear: { model.clearWalls() }
-                ) {
-                    inlineSlider("Bounciness", \.wallBounciness, 0 ... 1, step: 0.02)
-                    inlineSlider("Friction", \.wallFriction, 0 ... 1, step: 0.02)
-                    inlineSlider("Thickness", \.wallThickness, 1 ... 20, step: 0.5) {
-                        "\($0.formatted(.number.precision(.fractionLength(1)))) px"
-                    }
-                }
-            }
-
-            switchAndNumbers(
-                "Wind — eddies and channels filling the field",
-                isOn: Binding(get: { model.flowEnabled }, set: { model.flowEnabled = $0 })
-            ) {
-                inlineSlider("Strength", \.flowStrength, 0 ... 3, step: 0.05)
-                inlineSlider("Eddy size", \.flowScale, 20 ... 600, step: 10) { "\(Int($0)) px" }
-                inlineSlider("How fast it changes", \.flowDrift, 0 ... 1, step: 0.02) {
-                    $0 == 0 ? "still" : $0.formatted(.number.precision(.fractionLength(2)))
-                }
-            }
-        }
-    }
-
-    /// A drawn thing: what it is, how much of it there is, its numbers, and a way to remove it.
-    ///
-    /// No switch, because these are not switched on — they exist because somebody drew them, and the only
-    /// two questions are how they behave and how to get rid of them.
-    @ViewBuilder
-    private func drawnSection(
-        _ title: String,
-        detail: String,
-        clearTitle: String,
-        canClear: Bool,
-        clear: @escaping () -> Void,
-        @ViewBuilder numbers: () -> some View
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.labBody(11, .semiBold))
-                        .foregroundStyle(Palette.foreground)
-                    Text(detail)
-                        .font(.labBody(10))
-                        .foregroundStyle(Palette.subtleForeground)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                if canClear {
-                    Button(action: clear) {
-                        Text(clearTitle)
-                            .font(.labBody(10, .semiBold))
-                            .foregroundStyle(Palette.warn)
-                            .padding(.horizontal, 9)
-                            .frame(height: 26)
-                            .background(Capsule().fill(Palette.warn.opacity(0.14)))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                numbers()
-            }
-            .padding(.leading, 10)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(Palette.primary.opacity(0.35))
-                    .frame(width: 1.5)
-            }
-        }
+        FieldPhysicsControls(model: model)
     }
 
     /// A switch, with its own numbers folded in underneath it while it is on.

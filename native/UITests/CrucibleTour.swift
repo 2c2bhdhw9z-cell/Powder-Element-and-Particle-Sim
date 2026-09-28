@@ -884,7 +884,8 @@ final class CrucibleTour: XCTestCase {
         // anyway: every step after one checks the app is still there.
         continueAfterFailure = true
         let app = XCUIApplication()
-        app.launchArguments = ["--fresh-start"]
+        // The walk goes through the one scrolling Field tray. The app itself opens the list menu unless told otherwise.
+        app.launchArguments = ["--fresh-start", "-fieldControlsUseListMenu", "NO"]
         app.launch()
         // Every run starts as if the app were newly installed, so the introduction is the first thing on screen.
         let skip = app.descendants(matching: .any)["welcome.skip"].firstMatch

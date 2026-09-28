@@ -290,3 +290,13 @@ failed to launch the app and then froze inside Xcode for four hours; it was canc
 Waiting on the owner, so not to be started: Vercel's Production Branch and server variables (#6), TestFlight and the
 paid account (#11, #12, #49),
 anything needing an app extension (#44 to #46), "say 1.0" (#29), where the public face lives (#19).
+
+## Field controls: both styles (28 September, late)
+
+The owner wants **both** ways of opening the Field's controls, with a choice: the list menu ("Particle field — Choose
+one part to change") and the original one scrolling tray. `FieldDock.Presentation` has `.dock`, `.tray` and `.menu`;
+the choice is `@AppStorage(FieldDock.listMenuKey)` (default: list menu) and a swap row sits at the top of each. The App
+tour launches with `-fieldControlsUseListMenu NO` so it keeps walking the tray. The Physics part closed the app on a
+real iPhone from both styles (never on the simulator). It now lives in `App/Views/FieldPhysicsControls.swift` as many
+small separate views with range-clamped sliders and safe number text; every tray section and menu page is also wrapped
+separately. Not yet confirmed on the owner's phone.
