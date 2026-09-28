@@ -7,96 +7,16 @@ import SwiftUI
 /// but the contents are different in kind. There is nothing to paint with here — a touch applies
 /// a force — so the row of things is a row of *tools* rather than of materials.
 struct FieldDock: View {
-    /// The compact controls stay in the screen layout. The menu is a separate full-screen overlay supplied by
-    /// ContentView, so opening it cannot take part in measuring or resizing the world underneath.
+    /// The compact dock stays in the screen layout. The expanded tray is drawn over the world's bottom edge by
+    /// ContentView, so it keeps the original appearance without the crash-prone inverted dock alignment guide.
     enum Presentation {
         case dock
-        case menu
-    }
-
-    /// A Field menu used to insert every control into one enormous overlay above the dock. That path still terminated
-    /// a real iPhone after lighter animation and lazy layout were tried. The replacement opens this static list first
-    /// and constructs exactly one control page only after it is chosen.
-    private enum MenuPage: String, CaseIterable {
-        case arrangements
-        case morph
-        case formula
-        case layers
-        case words
-        case creatures
-        case worlds
-        case bodies
-        case touch
-        case physics
-        case threeD
-        case view
-        case appearance
-        case movie
-        case actions
-
-        var title: String {
-            switch self {
-            case .arrangements: "Arrangements"
-            case .morph: "Morph between shapes"
-            case .formula: "Shape from a formula"
-            case .layers: "Layers"
-            case .words: "Words"
-            case .creatures: "Creatures"
-            case .worlds: "Worlds within worlds"
-            case .bodies: "Bodies and population"
-            case .touch: "Fingers and loops"
-            case .physics: "Physics"
-            case .threeD: "3D"
-            case .view: "View and camera"
-            case .appearance: "Colour and appearance"
-            case .movie: "Movie and keepsakes"
-            case .actions: "More actions"
-            }
-        }
-
-        var detail: String {
-            switch self {
-            case .arrangements: "Ready-made fields and today's shared shape"
-            case .morph: "Turn one arrangement into another"
-            case .formula: "Make a living shape from equations"
-            case .layers: "Separate, hide, lock and colour parts"
-            case .words: "Spell with bodies"
-            case .creatures: "Build bones, joints and muscles"
-            case .worlds: "Look inside a body"
-            case .bodies: "Add bodies, set their size and reach"
-            case .touch: "More fingers, repeating gestures and show mode"
-            case .physics: "Collisions, trails, fluids, forces and wind"
-            case .threeD: "Turn the field into a box and look around it"
-            case .view: "Detail, tilt, spin and fit"
-            case .appearance: "Palettes, shapes, backdrops and glow"
-            case .movie: "Camera stops, clips, 3D moments and Live Photos"
-            case .actions: "Presets, bridges, wells and Field settings"
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .arrangements: "square.grid.2x2"
-            case .morph: "arrow.triangle.2.circlepath"
-            case .formula: "function"
-            case .layers: "square.3.layers.3d"
-            case .words: "textformat"
-            case .creatures: "figure.walk"
-            case .worlds: "circle.circle"
-            case .bodies: "circle.hexagongrid"
-            case .touch: "hand.draw"
-            case .physics: "atom"
-            case .threeD: "cube"
-            case .view: "viewfinder"
-            case .appearance: "paintpalette"
-            case .movie: "film"
-            case .actions: "ellipsis.circle"
-            }
-        }
+        case tray
     }
 
     let model: ParticleFieldModel
     @Binding var isOpen: Bool
+    @Binding private var batch: Int
     let presentation: Presentation
     let onShowPresets: () -> Void
     let onShowSettings: () -> Void
@@ -110,6 +30,7 @@ struct FieldDock: View {
     init(
         model: ParticleFieldModel,
         isOpen: Binding<Bool>,
+        batch: Binding<Int>,
         presentation: Presentation = .dock,
         onShowPresets: @escaping () -> Void,
         onShowSettings: @escaping () -> Void,
@@ -119,6 +40,7 @@ struct FieldDock: View {
     ) {
         self.model = model
         _isOpen = isOpen
+        _batch = batch
         self.presentation = presentation
         self.onShowPresets = onShowPresets
         self.onShowSettings = onShowSettings
@@ -153,15 +75,43 @@ struct FieldDock: View {
     /// The tools that only make sense on a flat field.
     private static let flatOnly: Set<ParticleMouseMode> = [.slingshot, .jelly]
 
-    /// Changes only presentation state. The control menu itself is a root overlay, so no transition or dock layout
-    /// participates in opening it.
+    /// The top-to-bottom order of the original single scrolling tray. Supplying these through a `ForEach` gives the
+    /// lazy stack real rows to request as they approach the screen, instead of one giant result-builder expression.
+    private enum ExpandedSection: CaseIterable, Hashable {
+        case destinations
+        case cost
+        case depth
+        case fingers
+        case loops
+        case arrangements
+        case morph
+        case formula
+        case layers
+        case arrangementDetails
+        case word
+        case creatures
+        case worldsWithin
+        case bodyControls
+        case physics
+        case colourModes
+        case colourRamps
+        case shapes
+        case backdrop
+        case view
+        case movie
+    }
+
+    /// Opens the unusually large Field tray without animating its insertion. On real phones, animating the
+    /// complete control tree can briefly require enough layout and accessibility work to terminate the app.
+    /// Closing is cheap because the tree has already been laid out, so it can keep the familiar movement.
     private func setOpen(_ open: Bool) {
         guard isOpen != open else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            if !open { selectedPage = nil }
-            isOpen = open
+        if open {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { isOpen = true }
+        } else {
+            withAnimation(.easeOut(duration: 0.22)) { isOpen = false }
         }
     }
 
@@ -174,8 +124,9 @@ struct FieldDock: View {
         switch presentation {
         case .dock:
             compactDock
-        case .menu:
-            menu
+        case .tray:
+            expanded
+                .solidPanel(in: Rectangle())
         }
     }
 
@@ -294,14 +245,11 @@ struct FieldDock: View {
         .padding(.bottom, 4)
     }
 
-    /// The one control page the modal has constructed, or nil for its static chooser.
-    @State private var selectedPage: MenuPage? = nil
-
-    /// How many bodies a tap of the add button scatters in.
-    @State private var batch = 10_000
-
     /// Which addition chip is lit for a moment, having just been pressed.
     @State private var flashing: String?
+    /// Only the first small group is even offered to SwiftUI when the tray opens. More rows are appended as the
+    /// bottom approaches, preserving one continuous list without one opening tap constructing the whole laboratory.
+    @State private var expandedSectionLimit = 5
 
     /// Lights a chip briefly, for a button that adds something rather than choosing it.
     ///
@@ -423,12 +371,16 @@ struct FieldDock: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if let details = model.arrangementDetails {
-                Text(details.about(inDepth: model.depthEnabled))
-                    .font(.labBody(10))
-                    .foregroundStyle(Palette.subtleForeground)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        }
+    }
+
+    @ViewBuilder
+    private var arrangementDescription: some View {
+        if let details = model.arrangementDetails {
+            Text(details.about(inDepth: model.depthEnabled))
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -566,37 +518,22 @@ struct FieldDock: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            // The recipe's own knobs. A counting knob's slider clicks whole numbers; a smooth one does not. A
-            // malformed imported recipe is described rather than allowed to construct an invalid ClosedRange and
-            // terminate the app.
+            // The recipe's own knobs. A counting knob's slider clicks whole numbers; a smooth one does not.
             ForEach(model.recipeDraft.knobs, id: \.symbol) { knob in
-                let width = knob.high - knob.low
-                if knob.low.isFinite, knob.high.isFinite, width.isFinite, width > 0 {
-                    let fallbackStep = width / 100 > 0 ? width / 100 : width
-                    let requestedStep = knob.step > 0 ? knob.step : fallbackStep
-                    let safeStep = requestedStep.isFinite && requestedStep > 0
-                        ? min(width, requestedStep)
-                        : fallbackStep
-                    inlineSlider(
-                        knob.name,
-                        Binding(
-                            get: { model.recipeKnobValue(knob.symbol) },
-                            set: { model.turnRecipeKnob(knob.symbol, to: $0) }
-                        ),
-                        knob.low ... knob.high,
-                        step: safeStep,
-                        format: {
-                            knob.step >= 1
-                                ? $0.formatted(.number.precision(.fractionLength(0)))
-                                : $0.formatted(.number.precision(.fractionLength(2)))
-                        }
-                    )
-                } else {
-                    Text("\(knob.name) has an invalid range in this recipe.")
-                        .font(.labBody(10))
-                        .foregroundStyle(Palette.warn)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                inlineSlider(
+                    knob.name,
+                    Binding(
+                        get: { model.recipeKnobValue(knob.symbol) },
+                        set: { model.turnRecipeKnob(knob.symbol, to: $0) }
+                    ),
+                    knob.low ... knob.high,
+                    step: knob.step > 0 ? knob.step : (knob.high - knob.low) / 100,
+                    format: {
+                        knob.step >= 1
+                            ? "\(Int($0.rounded()))"
+                            : $0.formatted(.number.precision(.fractionLength(2)))
+                    }
+                )
             }
 
             if let problem = model.recipeProblem {
@@ -1404,150 +1341,61 @@ struct FieldDock: View {
         .buttonStyle(.plain)
     }
 
-    /// A separate modal rather than another child of the dock. Its first screen is deliberately static: tapping the
-    /// arrow constructs no sliders, dynamic ranges, custom layouts or simulation-dependent labels.
-    private var menu: some View {
-        GeometryReader { screen in
-            let safeHorizontal = screen.safeAreaInsets.leading + screen.safeAreaInsets.trailing
-            let safeVertical = screen.safeAreaInsets.top + screen.safeAreaInsets.bottom
-            let width = min(680, max(1, screen.size.width - safeHorizontal - 20))
-            let height = min(760, max(1, screen.size.height - safeVertical - 20))
+    /// Scrolling, with a floor under it, for the reason written out on the powder tray's equivalent: a
+    /// tray taller than the screen has to give somewhere, and without a minimum height the thing that
+    /// gives is whatever has no height of its own — silently, and all the way to nothing.
+    private var expanded: some View {
+        ScrollView {
+            expandedContents
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+        }
+        .frame(minHeight: 220, maxHeight: 380)
+        .scrollBounceBehavior(.basedOnSize)
+        .labScrollEdges()
+        .accessibilityIdentifier("fieldTray.expanded")
+    }
 
-            ZStack {
-                Color.black.opacity(0.72)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { setOpen(false) }
+    private var expandedContents: some View {
+        // This is still the original one-piece scrolling tray. The structural difference is under the surface:
+        // `ForEach` supplies real lazy rows, and the switch builds only the row SwiftUI asks to display. The previous
+        // list named every large computed view directly, which let opening evaluate the entire control graph at once.
+        LazyVStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(ExpandedSection.allCases.prefix(expandedSectionLimit)), id: \.self) { section in
+                expandedSection(section)
+                    .id(section)
+            }
+            if expandedSectionLimit < ExpandedSection.allCases.count {
+                Color.clear
+                    .frame(height: 1)
+                    .id(expandedSectionLimit)
                     .accessibilityHidden(true)
-
-                VStack(spacing: 0) {
-                    menuHeader
-                    Rectangle().fill(Palette.border).frame(height: 1)
-                    ScrollView {
-                        Group {
-                            if let selectedPage {
-                                menuPage(selectedPage)
-                                    .accessibilityIdentifier("fieldTray.section.\(selectedPage.rawValue)")
-                            } else {
-                                menuChooser
-                            }
+                    .onAppear {
+                        // Move this work out of the layout pass that noticed the end of the current chunk.
+                        Task { @MainActor in
+                            expandedSectionLimit = min(
+                                ExpandedSection.allCases.count,
+                                expandedSectionLimit + 4
+                            )
                         }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .id(selectedPage?.rawValue ?? "root")
-                    .labScrollEdges()
-                }
-                .frame(width: width, height: height)
-                .background(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(Palette.elevated)
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Palette.borderStrong, lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .accessibilityAddTraits(.isModal)
-            }
-            .frame(width: screen.size.width, height: screen.size.height)
-        }
-        .accessibilityIdentifier("fieldTray.modal")
-        .accessibilityAction(.escape) { setOpen(false) }
-    }
-
-    private var menuHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
-            if selectedPage != nil {
-                Button {
-                    selectedPage = nil
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.labBody(14, .medium))
-                        .foregroundStyle(Palette.muted)
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(Color.white.opacity(0.08)))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back to Field controls")
-                .accessibilityIdentifier("fieldTray.categories")
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(selectedPage?.title ?? "Particle field")
-                    .font(.labDisplay(16))
-                    .tracking(-0.3)
-                    .foregroundStyle(Palette.foreground)
-                    .accessibilityIdentifier("sheet.title")
-                Text(selectedPage?.detail ?? "Choose one part to change")
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.muted)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 0)
-            Button {
-                setOpen(false)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.labBody(14, .medium))
-                    .foregroundStyle(Palette.muted)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(Color.white.opacity(0.08)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close")
-            .accessibilityIdentifier("sheet.close")
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-    }
-
-    private var menuChooser: some View {
-        LazyVStack(spacing: 8) {
-            ForEach(MenuPage.allCases, id: \.self) { page in
-                Button {
-                    selectedPage = page
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: page.symbol)
-                            .font(.labBody(15, .medium))
-                            .foregroundStyle(Palette.primary)
-                            .frame(width: 28)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(page.title)
-                                .font(.labBody(13, .semiBold))
-                                .foregroundStyle(Palette.foreground)
-                            Text(page.detail)
-                                .font(.labBody(10))
-                                .foregroundStyle(Palette.subtleForeground)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.labBody(11, .medium))
-                            .foregroundStyle(Palette.subtleForeground)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.medium, style: .continuous)
-                            .fill(Color.white.opacity(0.06))
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("fieldTray.category.\(page.rawValue)")
             }
         }
-        .accessibilityIdentifier("fieldTray.root")
     }
 
-    /// This switch is the construction boundary the old LazyVStack was not. SwiftUI evaluates only the selected
-    /// branch, so no page can make the first arrow tap instantiate the other fourteen pages.
     @ViewBuilder
-    private func menuPage(_ page: MenuPage) -> some View {
-        switch page {
+    private func expandedSection(_ section: ExpandedSection) -> some View {
+        switch section {
+        case .destinations:
+            destinations
+        case .cost:
+            costWarning
+        case .depth:
+            depthControls
+        case .fingers:
+            fingerControls
+        case .loops:
+            loopControls
         case .arrangements:
             presetChips
         case .morph:
@@ -1556,43 +1404,35 @@ struct FieldDock: View {
             recipeControls
         case .layers:
             layerControls
-        case .words:
+        case .arrangementDetails:
+            arrangementDescription
+        case .word:
             wordControls
         case .creatures:
             FieldCreatureControls(model: model)
-        case .worlds:
+        case .worldsWithin:
             FieldWithinControls(model: model)
-        case .bodies:
-            bodyControls
-        case .touch:
-            VStack(alignment: .leading, spacing: 18) {
-                fingerControls
-                loopControls
-            }
+        case .bodyControls:
+            primaryBodyControls
         case .physics:
-            VStack(alignment: .leading, spacing: 14) {
-                costWarning
-                physics
-            }
-        case .threeD:
-            depthControls
+            physics
+        case .colourModes:
+            colourModes
+        case .colourRamps:
+            colourRamps
+        case .shapes:
+            shapeChoices
+        case .backdrop:
+            backdropChoices
         case .view:
             viewControls
-        case .appearance:
-            VStack(alignment: .leading, spacing: 18) {
-                colourModes
-                colourRamps
-                shapeChoices
-                backdropChoices
-            }
         case .movie:
             FieldMovieControls(model: model)
-        case .actions:
-            destinations
         }
     }
 
-    private var bodyControls: some View {
+    /// Population and the few always-visible body controls, kept together exactly as they were in the old tray.
+    private var primaryBodyControls: some View {
         VStack(alignment: .leading, spacing: 14) {
             population
             labelledSlider(
@@ -1966,18 +1806,17 @@ struct FieldDock: View {
         step: Double,
         format: @escaping (Double) -> String = { $0.formatted(.number.precision(.fractionLength(2))) }
     ) -> some View {
-        let held = finiteBinding(value, in: range)
-        return VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 8) {
                 Text(label)
                     .font(.labBody(11))
                     .foregroundStyle(Palette.muted)
                 Spacer(minLength: 8)
-                Text(format(held.wrappedValue))
+                Text(format(value.wrappedValue))
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.subtleForeground)
             }
-            Slider(value: held, in: range, step: step) { Text(label) }
+            Slider(value: value, in: range, step: step) { Text(label) }
                 .tint(Palette.primary)
                 // Named the same way the panel's sliders are, so the walk-through can find any of these too. Without
                 // it every slider in this tray was invisible to the walk, and a tray that crashes when a slider moves
@@ -1985,22 +1824,6 @@ struct FieldDock: View {
                 .accessibilityIdentifier("slider.\(label)")
         }
         .padding(.vertical, 1)
-    }
-
-    /// SwiftUI's Slider requires a finite value inside its range. Saved or imported worlds are data, not a reason to
-    /// violate that precondition: show the nearest safe value and write only safe values back.
-    private func finiteBinding(_ value: Binding<Double>, in range: ClosedRange<Double>) -> Binding<Double> {
-        Binding(
-            get: {
-                let current = value.wrappedValue
-                guard current.isFinite else { return range.lowerBound }
-                return min(range.upperBound, max(range.lowerBound, current))
-            },
-            set: { proposed in
-                guard proposed.isFinite else { return }
-                value.wrappedValue = min(range.upperBound, max(range.lowerBound, proposed))
-            }
-        )
     }
 
     /// What the field sits on, and how brightly it glows.
@@ -2541,11 +2364,7 @@ struct FieldDock: View {
     }
 
     private var transport: some View {
-        let reach = finiteBinding(
-            Binding(get: { model.reachShare }, set: { model.reachShare = $0 }),
-            in: ParticleFieldModel.reachShareRange
-        )
-        return HStack(spacing: 12) {
+        HStack(spacing: 12) {
             Button {
                 Haptics.tap()
                 model.isRunning.toggle()
@@ -2567,17 +2386,17 @@ struct FieldDock: View {
                     .font(.labBody(12))
                     .foregroundStyle(Palette.subtleForeground)
                 Slider(
-                    value: reach,
+                    value: Binding(get: { model.reachShare }, set: { model.reachShare = $0 }),
                     in: ParticleFieldModel.reachShareRange
                 )
                 .tint(Palette.primary)
-                Text(Self.reachLabel(reach.wrappedValue, long: false))
+                Text(Self.reachLabel(model.reachShare, long: false))
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.muted)
                     .frame(width: 30, alignment: .trailing)
             }
             .accessibilityLabel("How far a touch reaches")
-            .accessibilityValue(Self.reachLabel(reach.wrappedValue, long: true))
+            .accessibilityValue(Self.reachLabel(model.reachShare, long: true))
 
             iconButton("trash", "Clear") {
                 Haptics.firm()
@@ -2595,18 +2414,17 @@ struct FieldDock: View {
         range: ClosedRange<Double>,
         display: @escaping (Double) -> String
     ) -> some View {
-        let held = finiteBinding(value, in: range)
-        return VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(title)
                     .font(.labBody(12))
                     .foregroundStyle(Palette.muted)
                 Spacer()
-                Text(display(held.wrappedValue))
+                Text(display(value.wrappedValue))
                     .font(.labNumeric(11))
                     .foregroundStyle(Palette.subtleForeground)
             }
-            Slider(value: held, in: range)
+            Slider(value: value, in: range)
                 .tint(Palette.primary)
         }
     }
@@ -2629,13 +2447,8 @@ struct FieldDock: View {
 
     /// The reach in words: how much of the screen's height the circle is, or that it reaches everything.
     static func reachLabel(_ share: Double, long: Bool) -> String {
-        guard share.isFinite else { return long ? "the usual reach" : "—" }
-        let held = min(
-            ParticleFieldModel.reachShareRange.upperBound,
-            max(ParticleFieldModel.reachShareRange.lowerBound, share)
-        )
-        if held >= ParticleFieldModel.wholeFieldReachShare { return long ? "whole field" : "all" }
-        let percent = "\(Int((held * 100).rounded()))%"
+        if share >= ParticleFieldModel.wholeFieldReachShare { return long ? "whole field" : "all" }
+        let percent = "\(Int((share * 100).rounded()))%"
         return long ? "\(percent) of the screen" : percent
     }
 }

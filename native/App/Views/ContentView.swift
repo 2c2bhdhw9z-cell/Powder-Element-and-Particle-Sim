@@ -59,6 +59,8 @@ struct ContentView: View {
     @State private var room: RoomBridge?
 
     @State private var isDockOpen = false
+    /// The last body batch chosen in the Field tray. Shared by its compact and overlay presentations.
+    @State private var fieldBatch = 10_000
     @State private var showingScenes = false
     @State private var showingNotebook = false
     @State private var showingLabBook = false
@@ -296,14 +298,20 @@ struct ContentView: View {
                                 .background(Palette.background)
                         }
                     }
-                    // The note that something was written down, at the foot of the world and never over the tray.
-                    //
-                    // It used to hang off the whole screen ninety-six points up, which on every phone put it on top of
-                    // the tray — exactly where a thumb is. Reaching for a tool while the starting world was busy
-                    // finding fire and obsidian opened the notebook instead, and the walkthrough caught it doing so.
-                    // Pinned to the world, it can only ever cover world.
+                    // The note stays below the Field tray. It can be pressed when the world is clear, but it cannot
+                    // intercept a drag or button inside an open tray.
                     .overlay(alignment: .bottom) { discoveryNote }
                     .animation(.easeOut(duration: 0.25), value: notebook.justFound)
+                    // The expanded Field tray looks and behaves as before — a single panel rising over the world —
+                    // but it belongs to the world's overlay rather than being positioned above the dock with an
+                    // inverted alignment guide. It therefore cannot participate in dock or world measurement.
+                    .overlay(alignment: .bottom) {
+                        if chamber == .field, isDockOpen {
+                            fieldDock(presentation: .tray)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                .zIndex(2)
+                        }
+                    }
 
                     dock
                 }
@@ -334,14 +342,6 @@ struct ContentView: View {
             // down with it: the play button and the clear button ended up inside the home-indicator strip,
             // where iOS takes the upward swipe and pressing them is a gamble.
             .ignoresSafeArea(edges: .top)
-            // The Field's full control menu is not part of the dock's layout. The old upward dock overlay still
-            // terminated a real iPhone after its animation was removed and its stack was made lazy. This root layer
-            // opens a tiny static category chooser first, cannot resize the world, and builds only the chosen page.
-            .overlay {
-                if chamber == .field, isDockOpen {
-                    fieldDock(presentation: .menu)
-                }
-            }
             // The introduction, over everything, on the first launch and whenever it is asked for again.
             //
             // A layer rather than a screen the system presents. It was the latter, and it quietly broke every panel in
@@ -1319,30 +1319,20 @@ struct ContentView: View {
         }
     }
 
-    /// Both FieldDock presentations receive exactly the same actions. The compact one owns the arrow and handle;
-    /// the modal one owns the category chooser and selected controls.
+    /// The fixed dock and the world-overlay tray share the same model, open state, actions and batch choice.
     private func fieldDock(presentation: FieldDock.Presentation) -> FieldDock {
         FieldDock(
             model: field,
             isOpen: $isDockOpen,
+            batch: $fieldBatch,
             presentation: presentation,
-            onShowPresets: {
-                isDockOpen = false
-                showingPresets = true
-            },
+            onShowPresets: { showingPresets = true },
             // Its own sheet, not the powder world's. Almost nothing carries over between them — there are no cells
             // here, no temperature and no wind — so sharing one would be a list of controls that mostly did not apply.
-            onShowSettings: {
-                isDockOpen = false
-                showingFieldSettings = true
-            },
+            onShowSettings: { showingFieldSettings = true },
             today: Self.today,
-            onSettleEverything: {
-                isDockOpen = false
-                _ = bridge?.settleEverything()
-            },
+            onSettleEverything: { _ = bridge?.settleEverything() },
             onShowPowderInTheBox: {
-                isDockOpen = false
                 breadcrumbs.record("showed the powder world in the box")
                 _ = bridge?.showPowderInTheBox()
             }

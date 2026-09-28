@@ -104,35 +104,29 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "turning the phone upright again")
     }
 
-    /// The particle field's replacement menu, opened by its handle and then by the arrow reported to close the real
-    /// app. Opening must show only the small category chooser; no heavy control page exists until one is chosen.
+    /// The particle field's tray, opened by its handle and then by its arrow. The arrow is last, because it is the
+    /// one reported to close the app — and the whole point of the walk is to catch that.
     func testZFieldTray() {
         let app = launch()
         tap("header.chamber.field", "the Field chamber", in: app)
         guard isRunning(app) else { return }
 
-        guard openFieldMenu(using: "fieldTray.handle", in: app) else { return }
-        XCTAssertFalse(element("recipe.make", in: app).exists, "formula controls were built before their page was chosen")
-        picture(app, "20 Field controls, opened by its handle")
-        tap("sheet.close", "the Field controls' close button", in: app)
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard element("fieldTray.expanded", in: app).waitForExistence(timeout: 10) else {
+            XCTFail("the Field tray did not open from its handle")
+            return
+        }
+        picture(app, "20 Field tray, opened by its handle")
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
 
-        guard openFieldMenu(using: "fieldTray.arrow", in: app) else { return }
-        XCTAssertFalse(element("layer.add", in: app).exists, "layer controls were built before their page was chosen")
-        picture(app, "21 Field controls, opened by its arrow")
-        for page in [
-            "arrangements", "morph", "formula", "layers", "words", "creatures", "worlds", "bodies",
-            "touch", "physics", "threeD", "view", "appearance", "movie", "actions",
-        ] {
-            guard openFieldPage(page, fromOpenMenu: true, in: app) != nil else { return }
-            tap("fieldTray.categories", "back from the \(page) Field controls", in: app)
-            guard element("fieldTray.root", in: app).waitForExistence(timeout: 10) else {
-                XCTFail("returning from \(page) did not restore the Field categories")
-                report(app, "No categories after \(page)")
-                return
-            }
+        tap("fieldTray.arrow", "the Field tray's arrow", in: app)
+        guard element("fieldTray.expanded", in: app).waitForExistence(timeout: 10) else {
+            XCTFail("the Field tray did not open from its arrow")
+            return
         }
-        closeFieldMenu(in: app)
+        picture(app, "21 Field tray, opened by its arrow")
+        tap("fieldTray.arrow", "the Field tray's arrow, to close it", in: app)
     }
 
     /// A shape described by a formula, made, and then reshaped by its own slider.
@@ -146,9 +140,10 @@ final class CrucibleTour: XCTestCase {
         guard isRunning(app) else { return }
         let field = element("world.field", in: app)
 
-        guard let fieldScroll = openFieldPage("formula", in: app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard isRunning(app) else { return }
 
-        guard let make = find("recipe.make", in: app, scrollingIn: fieldScroll) else {
+        guard let make = find("recipe.make", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the Make button for a shape from a formula was not in the tray")
             report(app, "Make, for a shape from a formula, was not in the tray")
             return
@@ -161,7 +156,7 @@ final class CrucibleTour: XCTestCase {
         // knobs are how big it is and how many petals it has. Checked here rather than after the loop below, because
         // which recipe the loop ends on depends on which menu items this screen size can reach — and a check whose
         // subject depends on the screen is a check that fails for the wrong reason.
-        if let petals = find("slider.Petals", in: app, kind: .slider, scrollingIn: fieldScroll) {
+        if let petals = find("slider.Petals", in: app, kind: .slider, scrollingIn: trayScroll(in: app)) {
             petals.adjust(toNormalizedSliderPosition: 0.9)
             stillRunning(app, after: "turning a shape's own knob")
             petals.adjust(toNormalizedSliderPosition: 0.1)
@@ -176,7 +171,7 @@ final class CrucibleTour: XCTestCase {
         // rather than on somebody's phone.
         for name in ["Lissajous", "Spirograph", "Heart", "Ripples", "Star", "Knot", "Grid that bends"] {
             guard isRunning(app) else { return }
-            guard let picker = find("recipe.pick", in: app, scrollingIn: fieldScroll) else { break }
+            guard let picker = find("recipe.pick", in: app, scrollingIn: trayScroll(in: app)) else { break }
             picker.tap()
             let choice = app.buttons["recipe.choice.\(name)"]
             // Hittable as well as present. A menu of ten on a small screen puts some of its items where there is no
@@ -191,7 +186,7 @@ final class CrucibleTour: XCTestCase {
                     XCTFail("tapping \(name) did not choose it")
                     report(app, "Recipe was not chosen")
                 }
-                if let again = find("recipe.make", in: app, scrollingIn: fieldScroll) {
+                if let again = find("recipe.make", in: app, scrollingIn: trayScroll(in: app)) {
                     again.tap()
                     stillRunning(app, after: "making \(name)")
                 }
@@ -205,8 +200,9 @@ final class CrucibleTour: XCTestCase {
         picture(app, "24 The last shape from a formula")
 
         guard isRunning(app) else { return }
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
+        // And it is still a field that can be pushed about, which is the whole point of the shape having physics.
         drag(across: field, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.7, dy: 0.45))
         stillRunning(app, after: "shoving a shape made from a formula")
         picture(app, "25 The shape, shoved")
@@ -223,10 +219,12 @@ final class CrucibleTour: XCTestCase {
         guard isRunning(app) else { return }
         let field = element("world.field", in: app)
 
-        guard var layersScroll = openFieldPage("layers", in: app) else { return }
-        guard let add = find("layer.add", in: app, scrollingIn: layersScroll) else {
-            XCTFail("the button that adds a layer was not in the Field controls")
-            report(app, "Add, for layers, was not in the Field controls")
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard isRunning(app) else { return }
+
+        guard let add = find("layer.add", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the button that adds a layer was not in the tray")
+            report(app, "Add, for layers, was not in the tray")
             return
         }
         add.tap()
@@ -235,12 +233,12 @@ final class CrucibleTour: XCTestCase {
 
         // Something on the new layer, so hiding it has something to hide.
         guard isRunning(app) else { return }
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
         drag(across: field, from: CGVector(dx: 0.25, dy: 0.3), to: CGVector(dx: 0.75, dy: 0.7))
         stillRunning(app, after: "drawing on the second layer")
-        guard let reopened = openFieldPage("layers", in: app) else { return }
-        layersScroll = reopened
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard isRunning(app) else { return }
 
         for (id, what) in [
             ("layer.show.1", "hiding the second layer"),
@@ -250,9 +248,9 @@ final class CrucibleTour: XCTestCase {
             ("layer.choose.1", "choosing the second layer"),
         ] {
             guard isRunning(app) else { return }
-            guard let control = find(id, in: app, scrollingIn: layersScroll) else {
-                XCTFail("\(id) was not in the Field controls")
-                report(app, "\(id) was not in the Field controls")
+            guard let control = find(id, in: app, scrollingIn: trayScroll(in: app)) else {
+                XCTFail("\(id) was not in the tray")
+                report(app, "\(id) was not in the tray")
                 continue
             }
             control.tap()
@@ -262,18 +260,18 @@ final class CrucibleTour: XCTestCase {
 
         // Its own two sliders, which only appear for the layer being worked on.
         guard isRunning(app) else { return }
-        if let weight = find("slider.Weight", in: app, kind: .slider, scrollingIn: layersScroll) {
+        if let weight = find("slider.Weight", in: app, kind: .slider, scrollingIn: trayScroll(in: app)) {
             weight.adjust(toNormalizedSliderPosition: 0.2)
             stillRunning(app, after: "making a layer lighter")
             picture(app, "28 A layer with its own weight")
         } else {
-            XCTFail("a layer's weight slider was not in the Field controls")
-            report(app, "A layer's weight slider was not in the Field controls")
+            XCTFail("a layer's weight slider was not in the tray")
+            report(app, "A layer's weight slider was not in the tray")
         }
 
         // Copying, and then deleting the very layer being looked at — the case that breaks a list.
         guard isRunning(app) else { return }
-        if let more = find("layer.more.1", in: app, scrollingIn: layersScroll) {
+        if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let copy = app.buttons["layer.copy.1"]
             if copy.waitForExistence(timeout: 3), tapIfReallyPossible(copy, in: app) {
@@ -284,7 +282,7 @@ final class CrucibleTour: XCTestCase {
             }
         }
         guard isRunning(app) else { return }
-        if let more = find("layer.more.1", in: app, scrollingIn: layersScroll) {
+        if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let remove = app.buttons["layer.delete.1"]
             if remove.waitForExistence(timeout: 3), tapIfReallyPossible(remove, in: app) {
@@ -296,8 +294,8 @@ final class CrucibleTour: XCTestCase {
         }
         picture(app, "29 After deleting a layer")
         guard isRunning(app) else { return }
-        closeFieldMenu(in: app)
-        stillRunning(app, after: "closing the Field controls after working with layers")
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        stillRunning(app, after: "closing the tray after working with layers")
     }
 
     /// The notebook: opened, read, and emptied.
@@ -449,8 +447,8 @@ final class CrucibleTour: XCTestCase {
         guard isRunning(app) else { return }
         let field = element("world.field", in: app)
 
-        guard var movieScroll = openFieldPage("movie", in: app) else { return }
-        guard let add = find("movie.add", in: app, kind: .any, scrollingIn: movieScroll) else {
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let add = find("movie.add", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the movie studio was not in the tray")
             report(app, "The movie studio was not in the tray")
             return
@@ -459,13 +457,12 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "adding the first stop")
 
         // Somewhere else to look from: closer in.
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
         field.pinch(withScale: 2.2, velocity: 1.5)
         stillRunning(app, after: "zooming in for the second stop")
-        guard let reopened = openFieldPage("movie", in: app) else { return }
-        movieScroll = reopened
-        guard let again = find("movie.add", in: app, kind: .any, scrollingIn: movieScroll) else {
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard let again = find("movie.add", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the movie studio's add button went away")
             report(app, "No second add")
             return
@@ -473,7 +470,7 @@ final class CrucibleTour: XCTestCase {
         again.tap()
         stillRunning(app, after: "adding the second stop")
 
-        if let caption = find("movie.caption.1", in: app, kind: .textField, scrollingIn: movieScroll) {
+        if let caption = find("movie.caption.1", in: app, kind: .textField, scrollingIn: trayScroll(in: app)) {
             caption.tap()
             caption.typeText("Closer\n")
             stillRunning(app, after: "writing a caption")
@@ -483,7 +480,7 @@ final class CrucibleTour: XCTestCase {
         }
         picture(app, "41 A movie of two stops")
 
-        guard let play = find("movie.play", in: app, kind: .any, scrollingIn: movieScroll) else {
+        guard let play = find("movie.play", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the movie could not be played")
             report(app, "No play button for the movie")
             return
@@ -505,7 +502,7 @@ final class CrucibleTour: XCTestCase {
             XCTFail("the movie never stopped playing")
             report(app, "The movie never stopped")
         }
-        guard let record = find("movie.record", in: app, kind: .any, scrollingIn: movieScroll) else {
+        guard let record = find("movie.record", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the movie could not be recorded")
             report(app, "No record button for the movie")
             return
@@ -574,22 +571,22 @@ final class CrucibleTour: XCTestCase {
         guard isRunning(app) else { return }
         let field = element("world.field", in: app)
 
-        guard var creatureScroll = openFieldPage("creatures", in: app) else { return }
-        guard let walker = find("creature.ready.walker", in: app, scrollingIn: creatureScroll) else {
-            XCTFail("the ready-made creatures were not in the Field controls")
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let walker = find("creature.ready.walker", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the ready-made creatures were not in the tray")
             report(app, "No ready-made creatures")
             return
         }
         walker.tap()
         stillRunning(app, after: "putting a walker down")
-        guard let build = find("creature.build", in: app, scrollingIn: creatureScroll) else {
+        guard let build = find("creature.build", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("building a creature was not offered")
             report(app, "No creature building")
             return
         }
         build.tap()
         stillRunning(app, after: "starting to build a creature")
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
         picture(app, "45 A walker, and a creature about to be drawn")
 
@@ -600,26 +597,24 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "drawing a triangle of bones")
         picture(app, "46 A creature drawn")
 
-        guard let reopened = openFieldPage("creatures", in: app) else { return }
-        creatureScroll = reopened
-        guard let live = find("creature.live", in: app, scrollingIn: creatureScroll) else {
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard let live = find("creature.live", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("a drawn creature could not be brought to life")
             report(app, "No bring-to-life button")
             return
         }
         live.tap()
         stillRunning(app, after: "bringing a creature to life")
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         Thread.sleep(forTimeInterval: 4)
         picture(app, "47 Creatures alive")
 
-        guard let finalScroll = openFieldPage("creatures", in: app) else { return }
-        creatureScroll = finalScroll
+        tap("fieldTray.handle", "the Field tray's handle once more", in: app)
         if element("creature.report", in: app).waitForExistence(timeout: 5) == false {
             XCTFail("nothing said how the creatures were getting on")
             report(app, "No creature report")
         }
-        if let away = find("creature.removeAll", in: app, scrollingIn: creatureScroll) {
+        if let away = find("creature.removeAll", in: app, scrollingIn: trayScroll(in: app)) {
             away.tap()
             stillRunning(app, after: "taking the creatures away")
         }
@@ -682,27 +677,26 @@ final class CrucibleTour: XCTestCase {
         tap("header.chamber.field", "the Field chamber", in: app)
         guard isRunning(app) else { return }
         let field = element("world.field", in: app)
-
-        guard let arrangementsScroll = openFieldPage("arrangements", in: app) else { return }
-        guard let galaxy = find("arrangement.galaxy", in: app, scrollingIn: arrangementsScroll) else {
-            XCTFail("the galaxy was not in the Field controls")
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let galaxy = find("arrangement.galaxy", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the galaxy was not in the tray")
             report(app, "No galaxy chip")
             return
         }
         galaxy.tap()
-        tap("fieldTray.categories", "back to the Field categories", in: app)
-        guard let worldsScroll = openFieldPage("worlds", fromOpenMenu: true, in: app) else { return }
-        guard let look = find("within.look", in: app, scrollingIn: worldsScroll) else {
+        guard let look = find("within.look", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("looking inside a body was not offered")
             report(app, "No look-inside button")
             return
         }
         look.tap()
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         guard isRunning(app) else { return }
-
-        // The black hole is held at the galaxy's middle. The modal never changes the world's size, so the first
-        // centre attempt should now be enough; the nearby fallbacks still make this robust to a moving field.
+        // The black hole sits in the middle of the galaxy and holds still there — but the galaxy is not always in the
+        // middle of the screen. It is laid out while the tray is open, in the smaller world above it, and closing the
+        // tray grows the world without moving anything (handover #12), so the hole ends up about a third of the way
+        // down on a phone. A missed tap only says "no body there" and waits for another, so the walk tries down the
+        // middle, the way somebody would, rather than failing on where the hole happens to be.
         var inside = false
         for down in [0.5, 0.3, 0.4, 0.35, 0.45, 0.25, 0.55, 0.6] {
             guard isRunning(app) else { return }
@@ -715,7 +709,9 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "going inside a body")
         guard inside else {
             XCTFail("going inside a body did not say where it was")
-            _ = openFieldPage("worlds", in: app)
+            // With the tray open, so the written-out screen includes the tray's own note on why ("There is no body
+            // there…"), which is under the tray's handle and was not on screen when this first failed on a tablet.
+            tap("fieldTray.handle", "the Field tray's handle, to read why", in: app)
             report(app, "No way back out")
             return
         }
@@ -723,11 +719,9 @@ final class CrucibleTour: XCTestCase {
         expectDrawn(field, "the world inside a body", in: app)
 
         // And inside something in there: whatever is nearest the middle.
-        if let innerScroll = openFieldPage("worlds", in: app),
-           let again = find("within.look", in: app, scrollingIn: innerScroll) {
-            again.tap()
-        }
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, inside", in: app)
+        if let again = find("within.look", in: app, scrollingIn: trayScroll(in: app)) { again.tap() }
+        tap("fieldTray.handle", "the Field tray's handle, to close it inside", in: app)
         drag(across: field, from: CGVector(dx: 0.5, dy: 0.5), to: CGVector(dx: 0.52, dy: 0.5))
         stillRunning(app, after: "going inside a body inside a body")
         picture(app, "51 Two worlds down, or one if nothing was there")
@@ -805,8 +799,8 @@ final class CrucibleTour: XCTestCase {
         let app = launch()
         tap("header.chamber.field", "the Field chamber", in: app)
         guard isRunning(app) else { return }
-        guard var movieScroll = openFieldPage("movie", in: app) else { return }
-        guard let moment = find("movie.moment3d", in: app, scrollingIn: movieScroll) else {
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let moment = find("movie.moment3d", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("sending a 3D moment was not offered")
             report(app, "No 3D moment button")
             return
@@ -821,13 +815,7 @@ final class CrucibleTour: XCTestCase {
             report(app, "No 3D moment offered")
         }
         guard isRunning(app) else { return }
-        guard let refreshedScroll = panelScroll(in: app) else {
-            XCTFail("the Movie controls did not return after sharing a 3D moment")
-            report(app, "No Movie controls after sharing")
-            return
-        }
-        movieScroll = refreshedScroll
-        guard let live = find("movie.live", in: app, scrollingIn: movieScroll) else {
+        guard let live = find("movie.live", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("keeping a Live Photo was not offered")
             report(app, "No Live Photo button")
             return
@@ -875,14 +863,14 @@ final class CrucibleTour: XCTestCase {
         let app = launch()
         tap("header.chamber.field", "the Field chamber", in: app)
         guard isRunning(app) else { return }
-        guard let arrangementsScroll = openFieldPage("arrangements", in: app) else { return }
-        guard let lamp = find("arrangement.lavalamp", in: app, scrollingIn: arrangementsScroll) else {
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let lamp = find("arrangement.lavalamp", in: app, scrollingIn: trayScroll(in: app)) else {
             XCTFail("the lava lamp was not in the tray")
             report(app, "No lava lamp")
             return
         }
         lamp.tap()
-        closeFieldMenu(in: app)
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
         Thread.sleep(forTimeInterval: 5)
         stillRunning(app, after: "watching the lava lamp")
         expectDrawn(element("world.field", in: app), "the lava lamp", in: app)
@@ -956,58 +944,6 @@ final class CrucibleTour: XCTestCase {
         app.descendants(matching: .any)[id].firstMatch
     }
 
-    /// Opens the Field's lightweight category chooser through the same compact controls a person uses.
-    @discardableResult
-    private func openFieldMenu(using opener: String = "fieldTray.handle", in app: XCUIApplication) -> Bool {
-        tap(opener, opener == "fieldTray.arrow" ? "the Field controls arrow" : "the Field controls handle", in: app)
-        guard isRunning(app) else { return false }
-        let root = element("fieldTray.root", in: app)
-        guard root.waitForExistence(timeout: 10) else {
-            XCTFail("the Field category chooser did not open")
-            report(app, "No Field category chooser")
-            return false
-        }
-        return true
-    }
-
-    /// Chooses one Field control page. Passing `fromOpenMenu` avoids tapping the obscured dock a second time.
-    @discardableResult
-    private func openFieldPage(
-        _ page: String,
-        fromOpenMenu: Bool = false,
-        in app: XCUIApplication
-    ) -> XCUIElement? {
-        if !fromOpenMenu, !openFieldMenu(in: app) { return nil }
-        guard let choice = find("fieldTray.category.\(page)", in: app, scrollingIn: panelScroll(in: app)) else {
-            XCTFail("the \(page) Field category was not in the chooser")
-            report(app, "No \(page) Field category")
-            return nil
-        }
-        choice.tap()
-        stillRunning(app, after: "opening the \(page) Field controls")
-        let section = element("fieldTray.section.\(page)", in: app)
-        guard section.waitForExistence(timeout: 10) else {
-            XCTFail("the \(page) Field controls did not appear")
-            report(app, "No \(page) Field controls")
-            return nil
-        }
-        guard let scroll = panelScroll(in: app) else {
-            XCTFail("the \(page) Field page had no usable scrolling area")
-            report(app, "No scroll for \(page) Field controls")
-            return nil
-        }
-        return scroll
-    }
-
-    private func closeFieldMenu(in app: XCUIApplication) {
-        tap("sheet.close", "the Field controls' close button", in: app)
-        let modal = element("fieldTray.modal", in: app)
-        if !gone(modal, within: 10) {
-            XCTFail("the Field controls did not close")
-            report(app, "Field controls stayed open")
-        }
-    }
-
     /// Taps the thing with a name, having waited for it, and checks the app survived.
     private func tap(_ id: String, _ what: String, in app: XCUIApplication) {
         guard isRunning(app) else { return }
@@ -1069,10 +1005,35 @@ final class CrucibleTour: XCTestCase {
     /// Where to drag to scroll the open tray: near the bottom of the screen, upwards a little.
     ///
     /// Still a place rather than an element, because a tray holds several scrolling strips — the materials run
-    /// sideways, the tools run down — and a drag at the bottom of the screen reaches whichever is under it. The Field
-    /// controls no longer use this screen-relative helper; their modal is found by its own title and frame.
+    /// sideways, the tools run down — and a drag at the bottom of the screen reaches whichever is under it. Good enough
+    /// for the buttons, which sit in the part that is always on screen. Not good enough for a slider further down: see
+    /// `trayScroll`.
     private func trayArea(_ app: XCUIApplication) -> (from: CGVector, to: CGVector) {
         (CGVector(dx: 0.5, dy: 0.86), CGVector(dx: 0.5, dy: 0.72))
+    }
+
+    /// The scrolling part of an open tray.
+    ///
+    /// The tallest scrolling area in the lower half of the screen. The same reasoning as `panelScroll`, and it exists
+    /// for the same reason that one had to be rewritten: dragging at a fixed fraction of the screen catches whatever
+    /// happens to be under that fraction, which for the field tray was a strip of chips rather than the tray's own
+    /// contents — so a slider a few hundred pixels down was reported missing when it was merely below the fold.
+    private func trayScroll(in app: XCUIApplication) -> XCUIElement? {
+        let window = app.windows.element(boundBy: 0)
+        guard window.exists else { return nil }
+        let middle = window.frame.midY
+        var best: XCUIElement?
+        var tallest: CGFloat = 0
+        let scrolls = app.scrollViews
+        for index in 0 ..< scrolls.count {
+            let scroll = scrolls.element(boundBy: index)
+            guard scroll.exists else { continue }
+            let frame = scroll.frame
+            guard frame.midY > middle, frame.height > tallest else { continue }
+            tallest = frame.height
+            best = scroll
+        }
+        return best
     }
 
     /// Taps a system menu item when it really has a usable place on screen.
@@ -1175,8 +1136,14 @@ final class CrucibleTour: XCTestCase {
 
     /// Moves a scrolling area on by about half of itself, and no further.
     ///
-    /// A controlled drag stops where the finger stops, unlike a flick that can throw a long panel past the control
-    /// being sought between two checks.
+    /// ## Why not a swipe
+    ///
+    /// A swipe is a flick, and a flick carries on after the finger has gone. In the field tray — three hundred points
+    /// tall showing a list three and a half thousand points long — each flick threw the list about a thousand points,
+    /// so the slider being looked for went from below the window to above it between two looks and was never seen in
+    /// it. The walk then reported that the slider "was not in the tray" when it had flown straight past. A slow drag
+    /// that holds still at the end stops dead where the finger stops, so every part of the list passes through the
+    /// window at least once.
     private func step(_ scroll: XCUIElement, down: Bool) {
         // In the right-hand margin, where there are no sliders: a drag that begins on a slider moves the slider.
         let low = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.985, dy: 0.8))
