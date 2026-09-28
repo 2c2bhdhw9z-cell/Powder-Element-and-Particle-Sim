@@ -1201,6 +1201,15 @@ public final class Swarm {
         let layered = !options.layerWeights.isEmpty
         let layerWeights = options.layerWeights
         let layerThinness = options.layerThinness
+        // The crowd's memory, held in locals for the loop. The same memory — these are pointers — but read from the
+        // object on every line they cost a fetch and, in a checked build, an access check each, which a profiler put
+        // at a large share of the whole step. Nothing in the loop moves or regrows them.
+        let positions = self.positions
+        let velocities = self.velocities
+        let asleep = self.asleep
+        let groups = self.groups
+        let roles = self.roles
+        let homes = self.homes
         for i in 0 ..< count {
             let pair = i * 2
 
@@ -1677,6 +1686,11 @@ public final class Swarm {
             ? max(3.2, cell * 0.88)
             : max(1, min(contact.size, cell * 0.98))
         let diameterSquared = diameter * diameter
+        // Held in locals for the loops, as in `step`: the same memory, without a fetch and a check on every line.
+        let positions = self.positions
+        let velocities = self.velocities
+        let masses = self.masses
+        let asleep = self.asleep
 
         var i = 0
         while i < bodies {

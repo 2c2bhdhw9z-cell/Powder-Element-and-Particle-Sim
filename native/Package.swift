@@ -30,6 +30,12 @@ let package = Package(
             name: "CrucibleCore",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
+                // Speed. In a release build Swift checks, at run time, every read and write of a class's stored
+                // property for two overlapping accesses. Measured with a profiler on the speed cases, that bookkeeping
+                // was about 38% of all the time spent — more than the physics itself. Debug builds and every test
+                // run keep the check on, so an overlapping access is still caught before it ships; only the shipped
+                // build stops paying for it on every cell and every body.
+                .unsafeFlags(["-enforce-exclusivity=unchecked"], .when(configuration: .release)),
             ]
         ),
         // Drawing letters, and nothing else.
