@@ -573,13 +573,8 @@ physics and both are bigger than the scene.
 
 ---
 
-**Lava lamp** (Round 5). Not shipped, and for a plainer reason than the tiny planet: the particle field has no heat.
-A lava lamp is one thing — warm matter rises, cools at the top, sinks, warms again — and every part of that cycle is
-temperature. Two weights of liquid gives the rising half honestly, through the pressure between them, and then the
-blobs simply stay at the top for ever, because nothing can cool them. The powder world has temperature and would do
-this readily; the particle field would need it adding, and a temperature is a per-body number with a whole set of
-rules behind it rather than a scene's worth of work.
-
-Everything short of that was considered and rejected as dishonest: a timer that sinks blobs on a schedule, a
-height-dependent push, a slow wobble in gravity. Each would look approximately right and none would be a lava lamp —
-they would be an animation of one, which is the thing this field is built not to be.
+**Lava lamp** (Round 5). **Shipped in `0bdc177`.** The earlier attempt below was rightly rejected because two
+fixed weights of liquid could rise but never cool and return. The shipped version added warmth specifically to each
+wax blob: it warms at the bulb, rises, cools at the top, sinks, and changes from deep red to orange. Its checks leave
+it running for a minute and a half and require the blobs to cross the middle at least ten times. It works as jellies in
+a flat field and sprung balls in 3D.

@@ -4,6 +4,7 @@
   "sideEffects": false,
   "type": "module",
   "overrides": {
+    "js-yaml": "4.3.2",
     "nf3": "0.3.17"
   },
   "scripts": {

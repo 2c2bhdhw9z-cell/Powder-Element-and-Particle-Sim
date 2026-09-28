@@ -14,8 +14,8 @@ rediscovered the hard way.
 
 **Everything below this line is code and is finished. This section is not.**
 
-The app cannot know where its server is, and the server needs four things set before it can keep
-anything. Neither can be done from a sandbox.
+The app cannot know where its server is, and the server needs the settings below before it can keep
+anything. Neither can be done from this sandbox.
 
 ### 1. Tell the app where the server is
 

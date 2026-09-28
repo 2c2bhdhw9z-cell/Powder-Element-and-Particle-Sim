@@ -113,8 +113,9 @@ everything downstream diverges even though the logic looks equivalent.
 
 Beyond translating the test suite, whole worlds are run in both engines and
 compared cell by cell. `Tests/CrucibleCoreTests/Fixtures/web-powder-golden.json`
-holds **31 scenarios** produced by the web engine, and the native engine must
-reproduce, for every one of them:
+holds **38 scenarios** produced by the web engine. Thirty-six are reproduced in
+full; two reference behaviours proved wrong and were replaced with direct tests of
+the intended behaviour. The full comparisons check:
 
 - every cell's element,
 - every cell's temperature,
@@ -282,22 +283,20 @@ rather than a compile error. They are handled in `Support/JSMath.swift`:
 
 The two chambers get different treatment, because they have different shapes.
 
-**The powder grid runs on the CPU, across cores.** Its update walks cells in a
+**The powder grid runs on one CPU core.** Its update walks cells in a
 specific order — bottom row upward, alternating left-to-right and right-to-left
 each row to cancel sideways drift — and marks each cell as already-moved so
 nothing moves twice per tick. That ordering is not an implementation detail; it
-*is* how the sand feels. Handing it to the GPU means thousands of cells deciding
-simultaneously with no turn-taking, so two grains both claim the same empty space
-and grains merge or clone. Reproducing correct behavior on a GPU requires a
-fundamentally different algorithm and a visibly different result. Rewritten in
-Swift over raw memory instead of a single JavaScript thread, the sequential
-version is expected to be dramatically faster anyway — and the ordering survives
-intact.
+*is* how the sand feels. Splitting it across cores or handing it to the GPU means
+thousands of cells deciding simultaneously with no turn-taking, so two grains can
+claim the same empty space and grains merge or clone. Doing that safely requires a
+fundamentally different algorithm and a visibly different result. The current
+sequential Swift version keeps the verified behaviour intact.
 
-**The particle field runs on the GPU via Metal compute.** This one is genuinely
-parallel: independent bodies, no turn-taking required. The web version already
-has working GPU compute kernels for it, which serve as a written reference to
-translate into Metal Shading Language.
+**The particle field's physics also runs on the CPU.** Its million-body capacity
+comes from the crowd's bounded-neighbour rules and flat arrays, not GPU compute.
+Moving it to the GPU was considered and rejected because it would lose exact
+replay, the cross-platform checks, and the same-seed agreement used by sharing.
 
 **Both are drawn by Metal**, which is where the bulk of the rendering win is
 regardless of where the physics runs.
@@ -305,9 +304,9 @@ regardless of where the physics runs.
 ### Measured so far
 
 Numbers come from `swift run -c release crucible-bench`, not from estimates. These
-were taken on the Linux development machine, **single-threaded**, with no
-multi-core work done yet — they are a floor and a regression baseline, not a
-prediction of phone performance. Each grid is 30% full of a mix of sand, water,
+were taken on the Linux development machine, **single-threaded by design**. They
+are a regression baseline, not a prediction of phone performance. Each grid is
+30% full of a mix of sand, water,
 stone and smoke, with the full chemistry running.
 
 | Grid                              | Cells     | ms per tick | Ticks/sec |
@@ -318,8 +317,8 @@ stone and smoke, with the full chemistry running.
 
 For context, the web version targets **30 frames per second** at roughly the first
 of those sizes. So the straight single-threaded rewrite already has a wide margin
-there, clears 60 at the middle size, and one-cell-per-pixel is the case that needs
-the planned multi-core work.
+there, clears 60 at the middle size, and one-cell-per-pixel is the case where
+resolution and frame rate have to be traded against one another.
 
 Cost tracks occupied cells, so a sparsely filled world is much cheaper than these
 figures suggest. The real targets get re-measured on the device once the app shell

@@ -142,7 +142,7 @@ import of point clouds. This is a real box: every body has a depth, and the phys
 | Particle field: model, swarm, forces, integration, boundaries, springs, flock, all 20 spawners | complete | 29 scenarios, every body + springs + swarm + draw counts; 10 retired and replaced by tests of intent (above) |
 | Particle field in 3D: depth, physics, the finger's line, every arrangement, the view | complete | 44 tests of intent, including the projection and the finger coming back along the same line; the drawing builds in CI |
 | Own sine, cosine, powers | complete | several thousand recorded values, bit-exact |
-| Saving, loading, undo, multiplayer wire format | complete | round trips + wire payload byte-identical across 38 scenarios |
+| Saving, loading, undo, multiplayer wire format | core port complete; newer feature gaps open | original round trips + wire payload byte-identical across 38 scenarios; see the audit below |
 | Health inspection and repair tools, both chambers | complete | 25 behavioural tests |
 | All 13 built-in powder scenes | rewritten | native tests: rolling ground, layering, varied trees, a different world per seed, laid out at 8 sizes |
 | Powder renderer | complete | 16 frames, pixel for pixel |
@@ -165,7 +165,7 @@ import of point clouds. This is a real box: every body has a depth, and the phys
 | Cloud saves, the workshop, signing in | complete | 45 engine tests on the replies and the addresses, 13 on the server's routing; the account check is asserted for every operation |
 | CI: engine on Linux + macOS, unsigned `.ipa` as a release asset | complete | green |
 
-**1,215 engine tests in 90 suites, 151 reference tests, 93 script tests** — counted by running them on 28 September
+**1,288 engine tests in 100 suites, 151 reference tests, 93 script tests** — counted by running them on 28 September
 2026, all passing on Linux. The checks run the engine suite on Linux and macOS, in debug and optimised builds.
 
 Since this table was written the app has gained a great deal more — 3D, the lab tools, layers, shape recipes, little
@@ -173,10 +173,15 @@ people, the notebook, the guided lab book, the television and more. [docs/lab-id
 list, and the handover note in `.kiro/steering/` says what shipped in which commit. A second opinion on four of those
 features found faults, recorded in [docs/second-opinion.md](docs/second-opinion.md).
 
-**The port is complete.** Everything the web version does, the app now does — including the online
-half. What is left is not code: the server has to be configured before anything can actually be
-kept on it, and only the owner can do that. The list is at the top of
-[ONLINE-PLAN.md](ONLINE-PLAN.md).
+**The original web-to-native port is complete; the app is not finished.** The native app now does everything the old
+web version did, including the online half, and has grown far beyond it. A full audit on 28 September found newer work
+that the original completion table does not cover: little people are omitted from saving and undo; layers and formula
+recipes have proven state faults; very large particle worlds are silently shortened when saved and can be emptied by
+undo; the Field tray can close the app on a real device and opening trays resizes the world; and the final performance
+pass remains. These are listed in the handover and [second opinion](docs/second-opinion.md).
+
+The server code is also built, but the live service is not configured to keep data or sign people in. Only the owner
+can supply those settings; the list is at the top of [ONLINE-PLAN.md](ONLINE-PLAN.md).
 
 ---
 
@@ -261,10 +266,11 @@ about eighty bugs. The choice to put to the user is between:
 3. full resolution at 120 fps, by processing cells in a different order — faster, and no
    longer quite their simulation.
 
-### 2. App features — done
+### 2. Original app-feature checklist — done; later faults remain
 
-Nothing local is outstanding. For the record, the last few were: the inspect chip on the canvas,
-Fahrenheit, the performance history behind the frame-rate chip, and split view.
+The original checklist is complete. For the record, its last few items were the inspect chip on the canvas,
+Fahrenheit, the performance history behind the frame-rate chip, and split view. Features added afterwards are much
+larger, and the current handover—not this historical section—is the authority on their open faults.
 
 Split view is worth a note. It looked like the least important thing on the list and turned out to
 be the opposite: the two chambers affect one another — explosions throw sparks across, resting

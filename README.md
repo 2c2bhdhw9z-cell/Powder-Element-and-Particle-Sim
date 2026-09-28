@@ -27,9 +27,10 @@ Two reasons, and the second one outlives the first.
 how sand piles, when lava crusts over, how an orbit decays. That behaviour only
 exists as the accumulated result of a long series of small tuning decisions, and
 the only way to carry it across to Swift intact is to run the same world in both
-implementations and compare every cell and every body. Two golden fixtures do
-exactly that: 38 powder scenarios and 39 particle scenarios, matched exactly,
-down to the number of random numbers each engine consumes.
+implementations and compare every cell and every body. Recorded fixtures cover
+38 powder scenarios and 39 particle scenarios. Most match exactly; cases where
+the old reference itself was wrong were replaced with tests of what the behaviour
+should be. Both kinds also check how many random numbers the engine consumes.
 
 **It is also the server.** The deployed web app is a TanStack Start application
 with Postgres, authentication and server routes — which is precisely the backend
@@ -48,6 +49,10 @@ That file exists so the Vercel project needs no dashboard configuration. If you
 would rather set the project's **Root Directory** to `web` in the Vercel
 dashboard, that is the more conventional arrangement — delete `vercel.json` at
 the same time, or the two will fight over the output location.
+
+One Vercel dashboard setting still matters: **Production Branch** must be the same
+as GitHub's current default branch. It is not at the moment, so new commits are
+building as previews while the public server remains on an older version.
 
 ## Installing it
 
@@ -70,7 +75,7 @@ The simulation engine builds and tests anywhere, with no Apple hardware:
 
 ```bash
 cd native
-swift test              # 1,215 tests in 90 suites, Linux or macOS
+swift test              # 1,288 tests in 100 suites, Linux or macOS
 swift test -c release   # the optimiser is allowed to change floating-point results
 ```
 
@@ -112,10 +117,10 @@ npm test                # the oracle suite: 93 script tests, then 151 engine tes
 ## Design intent
 
 - **Target device:** iPhone 17 Pro Max. Mobile-first, iOS glass look.
-- **Performance:** the web version targets ~30 FPS and is capped by a
-  single JavaScript thread. The native version targets the display's full
-  refresh rate, using multiple CPU cores for the powder grid and the GPU via
-  Metal for the particle field.
+- **Performance:** the web reference targets ~30 FPS and is capped by a
+  single JavaScript thread. The native app targets the display's full refresh
+  rate. Its deterministic physics stays on one CPU core; Metal uses the GPU to
+  draw both chambers without copying the finished picture back through the CPU.
 - **Architecture principle (carried over from the web version):** the engine
   owns only state and orchestration; each physics subsystem is a plain module
   operating on a context interface. The simulation core has no UI dependency at

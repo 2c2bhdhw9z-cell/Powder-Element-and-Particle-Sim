@@ -54,7 +54,8 @@ anything that arrived meanwhile, and refuses rather than guessing if that will n
 - `METHOD.md` (#34), and a first second opinion (#35) in `docs/second-opinion.md` — findings below.
 - `docs/lab-ideas.md`: what is built added to the shortlist, where Round 7 stands (checked against the repository),
   the duplicated "Tried and not shipped" section removed. `PORT-STATUS.md` and the README: counts run and corrected
-  (1,215 engine, 151 reference, 93 script), all the checks listed, the old "never edit web/" rule marked superseded.
+  (then 1,215 engine tests; now 1,288 in 100 suites, plus 151 reference and 93 script tests), all the checks
+  listed, the old "never edit web/" rule marked superseded.
 
 ### Found by chat two
 
@@ -118,7 +119,7 @@ Layers (`afa9f4c`) and shape recipes (`71bbedc`):
 ## Commands
 
 ```
-cd native && swift build --build-tests && swift test --skip-build    # ~220 s, 1,215 tests / 90 suites (28 Sep)
+cd native && swift build --build-tests && swift test --skip-build    # ~230 s, 1,288 tests / 100 suites (28 Sep)
 swift test --skip-build --filter <SuiteStruct>                       # one suite
 swift build -c release --product crucible-daily                      # the day's-world drawer
 swift run -c release --skip-build crucible-bench                     # ~17 min; use run_in_background
@@ -157,7 +158,8 @@ failure via its own `report(_:_:)`, which is how to see what was actually on scr
 
 ## Where things stand (28 September 2026)
 
-Everything below is committed and pushed. Latest commit `84e3937`.
+Everything below is committed and pushed. Use `git log -1 --oneline` for the exact latest commit; an old hash here
+went stale while the same handover already described thirty-one newer commits.
 
 Shipped this session, newest last:
 
@@ -207,7 +209,7 @@ Shipped by chat one on 28 September, second session, newest last:
   table / tumbler, floor grip for creatures only, saved with the world), `App/Views/CreatureBuilder.swift`;
   walkthrough `testCreatures`.
 
-**Confirmed already built** (checked against the code, not remembered): slice of the box, turntable video, tiny planet,
+**Confirmed already built** (checked against the code, not remembered): slice of the box, turntable video,
 atom, marbling, pendulum wave, solar system, jellyfish, kaleidoscope, physics lens, shadows in 3D, colour by distance,
 floating labels, ten fingers, hourglass, sand on a drum, foxes and rabbits, particle life, galaxy crash, supernova,
 light painting, real down, camera focus, fly inside, slingshot, jelly pen, recorded force loops, arrangement morphing,
@@ -221,14 +223,28 @@ lamp (`0bdc177`); red-and-blue glasses, the clock, photo colours, photo into pow
 Also seen, part of #12: an arrangement chosen with the Field tray open is laid out in the smaller world above the tray,
 and closing the tray grows the world with a plain `resize` that moves nothing — so the galaxy's black hole ends up a
 third of the way down the screen, not in the middle. The worlds-within walk now searches for it instead of failing.
-What is genuinely left: #10's iPad/sideways pictures, #12 the Field tray crash, #13 performance, and every fault in
-"Found by chat two" above (none fixed yet).
+What is genuinely left: #10's iPad/sideways picture review, #12 the Field tray crash and resize damage, #13 the
+final performance pass, and every fault in "Found by chat two" above (none fixed yet).
 
-Fixed in this check: the day's-world job never once passed (no Python in its machine, then a too-strict colour rule
-for a calm world's heat picture); the App tour's lab book, movie and Live Photo walks failed every run — "Show me" now
-also appears after that many *real* seconds (it waited on world time, which a slow phone falls behind on), the movie
-walk no longer fails when the seven-second movie ends before it presses Stop, and the share sheet is closed by tapping
-outside it instead of a swipe that missed it.
+A full audit found one still higher-priority omission not in the second opinion: a field may hold one million crowd
+bodies, but a save silently keeps only 24,000, and an undo snapshot above 200,000 omits the crowd then restores that
+omission as an empty crowd. The app does not warn about either. Do this before the other remaining work: data must not
+quietly disappear. The same audit found the public Vercel server is still on an older production commit and currently
+reports temporary storage and accounts off; that half needs the owner to update Vercel's Production Branch and supply
+the variables in `ONLINE-PLAN.md`.
+
+Automation fixed during the audit: the server workflow now checks every web/server path and runs typing, style, all
+244 reference/script tests and a production build; daily picture releases are prereleases so they cannot replace the
+latest app-download link; app release notes no longer claim the separate engine/tour checks already passed. A
+high-severity flaw reported in the server's YAML reader was pinned to its repaired version; `npm audit` now finds none.
+
+Fixed in this check: the day's-world job had never once passed (no Python in its machine, then a too-strict colour
+rule for a calm world's heat picture). Several App tour failures were faults in the walk itself: the movie could finish
+before it tried Stop, the share sheet was swiped in the wrong place, the Photos permission question was never answered,
+layers were scrolled in the wrong area, and a valid sparse world was called blank for having two colours. The lab
+book exposed a real app fault: “Show me” waited on simulation/display progress, so a very slow phone could wait forever.
+It now uses a separate active foreground clock, pauses when the world or app pauses, and publishes help without waiting
+for another physics step. The full engine suite passes locally; the final iPhone/iPad tour result is recorded below.
 
 ## Still to build, in this order
 
@@ -238,21 +254,19 @@ outside it instead of a swipe that missed it.
 3. ~~**Living soundscape**~~ — **shipped.** — water, fire, glass, electricity, impacts, mixed by what the simulation is doing.
 4. ~~**Creature builder**~~ — **shipped.** — bones, joints and muscles that have to balance. `Spring` already carries `pulse`, `beat`,
    `phase`, `thrust`, so the step already supports it; what is missing is the building.
-5. **Parallel worlds** — two copies from the same moment, one thing changed, run together. The engine is already safe
-   for this (final classes, per-instance seeded random, no singletons anywhere in `CrucibleCore`); the limit is that
-   the app layer is one-engine-shaped (`ParticleFieldModel`, `ChamberBridge`, `RoomBridge`, `bigScreen`).
-6. **Worlds within worlds** — zoom into one body, find another whole simulation inside it.
-7. **Talk to it** (speech), **wave at it** (front camera), **look round with your head** (front camera), **on your
-   table** (ARKit). These need permission strings in the app's Info.plist, which the agent adds itself — but they
-   cannot be proved to work on this machine, which has no camera or microphone. Say so plainly; do not claim tested.
-8. **Send a 3D moment** (USDZ), **Live Photo**.
-9. Smaller ones: red-and-blue glasses 3D, a lava lamp, a clock spelt in bodies, colours taken from a photo (the engine
-   can already recolour — it needs a button), a picture turned into real sand and water, relax mode.
-10. Round 7 leftovers: **#32 pictures of the app on iPad and sideways** from the tour, **#34 METHOD.md**, **#35 a
-    second opinion** (another provider is not available; use the `semantic_reviewer` sub-agent and say so plainly).
-    **#21, the engine in a browser, is dropped: the owner does not want a web or browser version.**
-11. Notes: mark what is built in `docs/lab-ideas.md`, `PORT-STATUS.md`, the README's test count, this file.
-12. **LAST, as the owner ordered:** the crash when the up arrow on the Field tray's header is tapped (the app closes to
+5. ~~**Parallel worlds**~~ — **shipped `710c5a5`.** Two copies from the same moment, one change, run together.
+6. ~~**Worlds within worlds**~~ — **shipped `796f666`.**
+7. ~~**Talk / wave / look with your head / put it on a table**~~ — **shipped `9d9b2fa`.** Built and permissioned,
+   but camera, microphone and AR behaviour still need a real-device check; do not claim they were proved here.
+8. ~~**Send a 3D moment / Live Photo**~~ — **shipped `218fb86`.** Live Photo still needs a real photo-library check.
+9. ~~**Smaller ones**~~ — **all shipped:** red-and-blue glasses, lava lamp, body clock, photo colours, photo into
+   powder, and relax mode.
+10. Round 7 leftover: **#32 review the app's iPad and sideways pictures** from the tour. #34 `METHOD.md` and #35
+    the second opinion shipped in `447e6ac`. **#21, the engine in a browser, is dropped: the owner does not want a web
+    or browser version.**
+11. ~~**Status notes**~~ — updated after the full audit. Before more features: fix silent large-world save/undo loss,
+    then every proved people/notebook/layers/recipes fault under “Found by chat two.”
+12. **Then, as the owner ordered:** the crash when the up arrow on the Field tray's header is tapped (the app closes to
     the home screen; the Powder tray's arrow is fine). It does **not** reproduce on a simulator — it is device-only, so
     read `App/Views/FieldDock.swift` (`header`, `expanded`, `isDockOpen`) and the resize-on-open rather than trying to
     reproduce it. Also make opening a tray stop resizing the world, which currently wipes undo and rewind.
@@ -263,5 +277,6 @@ outside it instead of a swipe that missed it.
     **rejected** and should stay rejected — it would destroy the golden comparisons against the web reference,
     replay-from-seed, shared rooms, and the ability to check the physics on Linux.
 
-Waiting on the owner, so not to be started: server variables (#6), TestFlight and the paid account (#11, #12, #49),
+Waiting on the owner, so not to be started: Vercel's Production Branch and server variables (#6), TestFlight and the
+paid account (#11, #12, #49),
 anything needing an app extension (#44 to #46), "say 1.0" (#29), where the public face lives (#19).

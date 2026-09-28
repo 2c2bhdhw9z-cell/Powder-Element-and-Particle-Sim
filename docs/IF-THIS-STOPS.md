@@ -23,20 +23,23 @@ which is the real one, and the original website, which is kept as the thing the 
 | The worlds people kept on a server | A Postgres database, reached through the `DATABASE_URL` variable | Those worlds are gone. Worlds kept on the phone itself are not affected. |
 | Signing in | `better-auth` in the website, with Google and X | Nobody can sign in, so nobody can keep a world on the server or publish one. Browsing the workshop still works. |
 
-## The four variables the server needs
+## The server settings it needs
 
-Set in Vercel, not in the repository. Without them the website still runs, with accounts switched off and a throwaway
-database that forgets everything when it restarts — which the app notices and says plainly.
+Set in Vercel, not in the repository. Without them the public server still opens, but accounts are off and its
+throwaway database forgets every saved world. The app notices and says so plainly.
 
 | Variable | What it is for |
 | --- | --- |
-| `DATABASE_URL` | Where the worlds are kept. Without it, a temporary in-memory database is used instead, and the app says so. |
-| `BETTER_AUTH_SECRET` | Signs the sign-in cookies. Any long random string; changing it signs everybody out. |
-| `BETTER_AUTH_URL` | The website's own address, so a sign-in comes back to the right place. |
-| `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` | The pair from whoever signs people in. Without them the app is told plainly that accounts are switched off. |
+| `DATABASE_URL` | Where the worlds are kept. Without it, storage is temporary. |
+| `VITE_AUTH_ENABLED=true` | Switches real accounts on. |
+| `AUTH_ISSUER` | The address of the service that signs people in. |
+| `AUTH_CLIENT_ID` / `AUTH_CLIENT_SECRET` | The pair issued for this app. Without both, signing in stays off. |
+| `BETTER_AUTH_SECRET` | Signs the login cookies. Any long random string; changing it signs everybody out. |
+| `BETTER_AUTH_URL` | The public server's exact address, so sign-in comes back to the right place. |
 
-`AUTH_ALLOWED_HOSTS` also exists, for the preview deployments. These are the exact names the server reads; the app
-reads none of them and never sees them.
+`AUTH_ALLOWED_HOSTS` is optional for preview deployments. Vercel's **Production Branch** must also exactly match
+GitHub's current default branch; it did not on 28 September 2026, so new commits were only reaching Preview. These are
+the exact names the server reads; the app reads none of them and never sees them.
 
 The app finds the server by being told its address once, in its own **Your worlds** panel. The app has no way of
 guessing it, and there is nothing to change in the app if the address changes.
