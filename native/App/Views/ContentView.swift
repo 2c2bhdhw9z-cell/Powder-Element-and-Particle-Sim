@@ -1161,8 +1161,8 @@ struct ContentView: View {
         hasRestored = true
         guard let scene = store.readAutosave() else { return }
         powder.adopt(scene.customElements)
-        if let state = scene.powder { powder.apply(state) }
-        if let state = scene.particle { field.apply(state) }
+        if let state = scene.powder, powder.apply(state) { powder.acceptStartupRestore() }
+        if let state = scene.particle, field.apply(state) { field.acceptStartupRestore() }
     }
 
     private func writeAutosave(now: Bool = false) {

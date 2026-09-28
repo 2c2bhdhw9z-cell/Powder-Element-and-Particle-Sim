@@ -194,30 +194,27 @@ struct LensReadout: View {
 
 struct FieldSurface: UIViewRepresentable {
     let model: ParticleFieldModel
+    var drivesSimulation = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(model: model)
     }
 
     func makeUIView(context: Context) -> MTKView {
-        guard let view = FieldView(model: model) else {
+        guard let view = FieldView(model: model, drivesSimulation: drivesSimulation) else {
             let placeholder = MTKView()
             placeholder.isPaused = true
             placeholder.enableSetNeedsDisplay = true
             return placeholder
         }
-        context.coordinator.attachGestures(to: view)
-        // Handed to the model so that anything wanting a picture of the field can ask for one
-        // without having to reach through the view hierarchy to find this. The field is drawn as
-        // geometry on the GPU, so the view is the only thing that can produce one.
-        //
-        // Captured weakly: the model outlives the view, and a strong reference here would keep a
-        // discarded Metal view and its buffers alive for as long as the app runs.
-        // Written out rather than as `view?.snapshot()`: optional chaining on a method that already
-        // returns an optional gives an optional of an optional, which is not what the model wants.
-        model.snapshotProvider = { [weak view] in
-            guard let view else { return nil }
-            return view.snapshot()
+        if drivesSimulation {
+            context.coordinator.attachGestures(to: view)
+            // Handed only to the phone's owning renderer. A television is another view, not the place screenshots or
+            // touch state come from, and must not replace this provider.
+            model.snapshotProvider = { [weak view] in
+                guard let view else { return nil }
+                return view.snapshot()
+            }
         }
         return view
     }

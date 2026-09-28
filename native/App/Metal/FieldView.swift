@@ -140,6 +140,8 @@ final class FieldView: MTKView {
     }
 
     private let model: ParticleFieldModel
+    /// Only the phone's owning renderer advances physics. A television is a second picture of the same moment.
+    private let drivesSimulation: Bool
     private let commandQueue: MTLCommandQueue
     private let pointPipeline: MTLRenderPipelineState
     /// The object bodies, each at its own size. See `bodyVertex` in the shader.
@@ -245,8 +247,10 @@ final class FieldView: MTKView {
 
     /// The most recent frame, so a photograph can be composed from exactly what was on screen.
     private var lastFrame: ParticleFieldModel.Frame?
+    /// Each renderer has its own accumulation texture, so each independently notices a camera invalidation.
+    private var seenTrailHistoryGeneration = -1
 
-    init?(model: ParticleFieldModel) {
+    init?(model: ParticleFieldModel, drivesSimulation: Bool = true) {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = device.makeDefaultLibrary(),
@@ -429,6 +433,7 @@ final class FieldView: MTKView {
         else { return nil }
 
         self.model = model
+        self.drivesSimulation = drivesSimulation
         self.commandQueue = queue
         self.pointPipeline = points
         self.bodyPipeline = bodies
@@ -497,7 +502,7 @@ final class FieldView: MTKView {
 
         // The frame's own timestamp, handed to the simulation so that anything which reads the
         // clock — the painting tool picks its colour from it — is reproducible.
-        model.tick(now: CFAbsoluteTimeGetCurrent() * 1000)
+        if drivesSimulation { model.tick(now: CFAbsoluteTimeGetCurrent() * 1000) }
 
         guard let drawable = currentDrawable,
               let buffer = commandQueue.makeCommandBuffer(),
@@ -529,8 +534,8 @@ final class FieldView: MTKView {
         // picture is in screen space, so when the view slides underneath it, what was a trail behind
         // a body becomes a streak across the screen belonging to nothing — and because each frame is
         // only dimmed, the streak stays there. Wiped once, and the model is told so it stops asking.
-        let cameraMoved = model.trailHistoryIsStale
-        if cameraMoved { model.clearedTrailHistory() }
+        let cameraMoved = seenTrailHistoryGeneration != model.trailHistoryGeneration
+        if cameraMoved { seenTrailHistoryGeneration = model.trailHistoryGeneration }
 
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target

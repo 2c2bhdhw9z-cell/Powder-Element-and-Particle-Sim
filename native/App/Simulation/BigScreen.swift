@@ -121,12 +121,13 @@ private struct BigScreenView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let aspect = CGFloat(max(0.000_001, model.engine.width / max(0.000_001, model.engine.height)))
+            let world = model.worldSize
+            let aspect = CGFloat(max(0.000_001, world.width / max(0.000_001, world.height)))
             let available = geometry.size.width / max(1, geometry.size.height)
             let size = available > aspect
                 ? CGSize(width: geometry.size.height * aspect, height: geometry.size.height)
                 : CGSize(width: geometry.size.width, height: geometry.size.width / aspect)
-            FieldSurface(model: model)
+            FieldSurface(model: model, drivesSimulation: false)
                 .frame(width: size.width, height: size.height)
                 .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }

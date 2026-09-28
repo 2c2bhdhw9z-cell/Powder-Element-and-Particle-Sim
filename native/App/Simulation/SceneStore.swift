@@ -253,8 +253,13 @@ final class SceneStore {
     /// - Parameter now: write it before returning rather than in the background. For the moment the app
     ///   is leaving the screen: a background write started then could be frozen along with the app before it
     ///   ran, and lost for good if the phone then closed the app to reclaim memory.
+    /// The newest captured autosave. A background encoding may finish out of order; only this generation may write.
+    private var autosaveGeneration = 0
+
     func writeAutosave(_ scene: LabScene, now: Bool = false) {
         guard let url = autosaveURL, !autosaveIsForgotten else { return }
+        autosaveGeneration &+= 1
+        let generation = autosaveGeneration
         if now {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
@@ -262,12 +267,18 @@ final class SceneStore {
             try? data.write(to: url, options: .atomic)
             return
         }
-        Task.detached(priority: .background) {
-            // Built inside the task rather than captured: an encoder is not safe to share across
-            // threads, and it costs nothing to make.
+        let encoding = Task.detached(priority: .background) {
+            // Built inside the task rather than captured: an encoder is not safe to share across threads.
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(scene) else { return }
+            return try? encoder.encode(scene)
+        }
+        Task { @MainActor [weak self] in
+            guard let self, let data = await encoding.value,
+                  generation == autosaveGeneration, !autosaveIsForgotten
+            else { return }
+            // Serialized on the main actor only after the expensive encoding. If a newer synchronous save happened
+            // while this was being encoded, the generation check above prevents this older one replacing it.
             try? data.write(to: url, options: .atomic)
         }
     }
@@ -291,6 +302,7 @@ final class SceneStore {
     /// Deleting the file alone did nothing lasting: the eight-second timer, or leaving the app, wrote it
     /// straight back, and the world "forgotten" came back on the next launch.
     func clearAutosave() {
+        autosaveGeneration &+= 1
         autosaveIsForgotten = true
         guard let url = autosaveURL else { return }
         try? files.removeItem(at: url)

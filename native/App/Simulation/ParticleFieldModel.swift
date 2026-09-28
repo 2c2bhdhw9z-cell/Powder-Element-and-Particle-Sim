@@ -907,6 +907,11 @@ final class ParticleFieldModel {
         return applied
     }
 
+    /// Makes an autosave restored during launch the baseline, not an undo back to the temporary opening galaxy.
+    func acceptStartupRestore() {
+        engine.clearHistory()
+    }
+
     /// How much speed survives each moment. One is frictionless; below about 0.97 the field
     /// visibly congeals.
     var damping: Double {
@@ -2274,7 +2279,7 @@ final class ParticleFieldModel {
     /// accumulated picture is in screen space, so when the view moves underneath it, what was a
     /// trail behind a body becomes a streak across the screen that has nothing to do with any body.
     private func cameraDidChange() {
-        trailHistoryIsStale = true
+        invalidateTrailHistory()
         // Not while a finger is moving the view.
         //
         // The dock shows a few camera numbers — how much room there is, the tilt, whether there is
@@ -2302,11 +2307,12 @@ final class ParticleFieldModel {
         cameraDidChange()
     }
 
-    /// Set when the camera moves, cleared once the renderer has wiped the leftover picture.
-    private(set) var trailHistoryIsStale = false
+    /// Bumped whenever every renderer must discard its own screen-space trail texture. A generation rather than one
+    /// Boolean because the phone and a television each own a different texture and must both observe the change.
+    private(set) var trailHistoryGeneration = 0
 
-    func clearedTrailHistory() {
-        trailHistoryIsStale = false
+    private func invalidateTrailHistory() {
+        trailHistoryGeneration &+= 1
     }
 
     /// How long the field has been running, in seconds, for the backdrop's own movement.
@@ -3357,7 +3363,7 @@ final class ParticleFieldModel {
         if moment.camera.worldScale == storedCamera.worldScale {
             storedCamera = moment.camera
             // The trails are in screen space, so a moving view wipes them; the view is always moving here.
-            trailHistoryIsStale = true
+            invalidateTrailHistory()
         } else {
             camera = moment.camera
         }
@@ -4229,7 +4235,7 @@ final class ParticleFieldModel {
         if !engine.depthEnabled { turnsView = false }
         refreshLookSensor()
         // The kept picture is of the other kind of field; what is left of it would smear across the new one.
-        trailHistoryIsStale = true
+        invalidateTrailHistory()
     }
 
     /// The places round the box the view can be sent to with one tap.
@@ -4513,8 +4519,16 @@ final class ParticleFieldModel {
         guard size.width > 0, size.height > 0 else { return }
         if scale > 0 { viewScale = Double(scale) }
         refreshDrawableScale()
-        viewPixelWidth = Double(size.width * scale)
-        viewPixelHeight = Double(size.height * scale)
+        let nextWidth = Double(size.width * scale)
+        let nextHeight = Double(size.height * scale)
+        if viewPixelWidth > 0, viewPixelHeight > 0 {
+            // Pan is stored in screen pixels. Preserve the fraction of the viewport when split/orientation changes its
+            // size, or a hundred-point pan visibly doubles when the pane becomes half as wide.
+            storedCamera.panX *= nextWidth / viewPixelWidth
+            storedCamera.panY *= nextHeight / viewPixelHeight
+        }
+        viewPixelWidth = nextWidth
+        viewPixelHeight = nextHeight
         applyReach()
     }
 }

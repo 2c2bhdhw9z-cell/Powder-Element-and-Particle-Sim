@@ -1293,6 +1293,14 @@ final class SimulationModel {
         return applied
     }
 
+    /// Makes an autosave restored during launch the baseline rather than an undo step back to the temporary opening.
+    func acceptStartupRestore() {
+        history.clear()
+        rewind.clear()
+        rewind.fit(budgetBytes: Self.rewindMemory, cellCount: engine.cellCount)
+        rewindCount = 0
+    }
+
     /// Redraws the world at the size this screen and detail setting want, if it is not already that size.
     func refitToScreen() {
         guard let wanted = wantedGridSize() else { return }
@@ -1557,9 +1565,11 @@ final class SimulationModel {
     /// Gives a fresh opening world its one physical canvas size. Calls after the first are presentation changes only.
     func prepareInitialCanvas(toViewSize size: CGSize, scale: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
-        guard !worldHasCanonicalSize else { return }
+        // Even a restored world already has a physical size, but still needs the real device canvas remembered so a
+        // later explicit Detail change knows what to target.
         lastViewSize = size
         lastViewScale = scale
+        guard !worldHasCanonicalSize else { return }
         worldHasCanonicalSize = true
         applyLastKnownSize()
         // The opening scene is the baseline, not a user action to undo back into the temporary stand-in grid.
@@ -1597,6 +1607,9 @@ final class SimulationModel {
         engine.resample(width: newWidth, height: newHeight)
         toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: true)
         activeCells = engine.activeParticleCount
+        // Old-sized undo entries would change the selected detail again on the next Undo. A detail change is explicit;
+        // tray, split and orientation changes never come through here and therefore keep all history.
+        history.clear()
         engineDidChange()
     }
 }
