@@ -1240,6 +1240,8 @@ final class ParticleFieldModel {
             if millisecondsPerTick != cost { millisecondsPerTick = cost }
             let bodies = engine.bodyCount
             if bodyCount != bodies { bodyCount = bodies }
+            // How the creatures are getting on, when there are any.
+            if !engine.creatures.isEmpty || !creatureReports.isEmpty { refreshCreatureReports() }
 
             // The foxes and rabbits' graph, when they are what the field is showing. Once a second is plenty for a
             // graph of a minute and a half, and costs nothing when they are not.
@@ -1920,6 +1922,8 @@ final class ParticleFieldModel {
     }
 
     func beginTouch(atFractionX fx: Double, fractionY fy: Double) {
+        // Drawing a creature takes the finger from every tool: the stroke is a bone or a muscle, not a push.
+        if beginCreatureStroke(atFractionX: fx, fractionY: fy) { return }
         strokeFromX = nil
         strokeFromY = nil
         turnFromX = nil
@@ -1947,6 +1951,7 @@ final class ParticleFieldModel {
     }
 
     func updateTouch(atFractionX fx: Double, fractionY fy: Double) {
+        if continueCreatureStroke(atFractionX: fx, fractionY: fy) { return }
         touchFractionX = fx
         touchFractionY = fy
         // The lens reads instead of pushing: the two want the same finger, and a tool that moved what you were
@@ -2048,6 +2053,7 @@ final class ParticleFieldModel {
     }
 
     func endTouch() {
+        if endCreatureStroke() { return }
         // A tap leaves no ribbon: a mark has to have gone somewhere to be a mark.
         if engine.mouseMode == .light { engine.finishRibbon() }
         // An outline becomes a jelly when the finger lifts, closed from where it ended back to where it began.
@@ -2869,6 +2875,154 @@ final class ParticleFieldModel {
         turntableProgress = min(1, turntableTurned / 360)
         guard turntableTurned >= 360 else { return }
         stopTurntable()
+    }
+
+    // MARK: - Creatures
+
+    /// Whether a finger on the world is drawing a creature's bones and muscles rather than using the chosen tool.
+    var isBuildingCreature = false {
+        didSet {
+            if !isBuildingCreature { creatureStroke = nil }
+        }
+    }
+    /// The creature being drawn, before it is alive. See `CreaturePlan`.
+    var creaturePlan = CreaturePlan()
+    /// What the next stroke draws.
+    var creatureLimb: CreaturePlan.Kind = .bone
+    /// The stroke under the finger, from where it began to where it is, in the world's pixels — for drawing the limb
+    /// before it is let go.
+    private(set) var creatureStroke: (fromX: Double, fromY: Double, toX: Double, toY: Double)?
+    /// How each creature is getting on, a line each, refreshed once a second.
+    private(set) var creatureReports: [String] = []
+    /// Why the last attempt to bring a creature to life did not work.
+    var creatureProblem: String?
+
+    /// Brings the creature being drawn to life where it was drawn.
+    func bringCreatureToLife() {
+        if let problem = creaturePlan.problem {
+            creatureProblem = problem
+            return
+        }
+        let name = "Creature \(engine.creatures.count + 1)"
+        guard engine.bringToLifeWhereDrawn(creaturePlan, named: name) else {
+            creatureProblem = engine.creatures.count >= ParticleEngine.creatureLimit
+                ? "That is as many creatures as the field can hold. Take them away to make more."
+                : "There is no room in the field for it. Clear some bodies first."
+            return
+        }
+        Haptics.firm()
+        creaturePlan = CreaturePlan()
+        creatureProblem = nil
+        isBuildingCreature = false
+        isRunning = true
+        afterCreaturesChanged()
+    }
+
+    /// Puts a ready-made creature on the floor in the middle of the view.
+    func addReadyCreature(_ kind: ReadyCreature) {
+        guard !engine.depthEnabled else { return }
+        let view = viewPixels
+        let middle = camera.unproject(
+            screenX: view.width / 2, screenY: view.height / 2,
+            worldWidth: engine.width, worldHeight: engine.height,
+            viewWidth: view.width, viewHeight: view.height
+        )
+        guard engine.addReadyCreature(kind, atX: middle.x) else {
+            creatureProblem = "That is as many creatures as the field can hold. Take them away to make more."
+            return
+        }
+        Haptics.firm()
+        creatureProblem = nil
+        isRunning = true
+        afterCreaturesChanged()
+    }
+
+    /// Takes every creature out of the field.
+    func removeCreatures() {
+        engine.removeCreatures()
+        afterCreaturesChanged()
+    }
+
+    private func afterCreaturesChanged() {
+        refreshCreatureReports()
+        engineDidChange()
+    }
+
+    /// Says how each creature is getting on, in words. Called once a second.
+    func refreshCreatureReports() {
+        let reports = engine.creatures.indices.compactMap { index -> String? in
+            guard let status = engine.creatureStatus(index) else { return nil }
+            let name = engine.creatures[index].name
+            guard status.isStanding else { return "\(name): fallen over." }
+            let walked = Int(abs(status.walked).rounded())
+            if walked < 10 { return "\(name): standing." }
+            return "\(name): standing, and has walked \(walked) \(status.walked < 0 ? "to the left" : "to the right")."
+        }
+        if reports != creatureReports { creatureReports = reports }
+    }
+
+    /// Where a place in the world is on the screen, in points, for drawing a creature before it is alive. Flat only.
+    func screenPoint(worldX x: Double, y: Double) -> CGPoint? {
+        let view = viewPixels
+        guard view.width > 1, view.height > 1, viewScale > 0 else { return nil }
+        let put = drawingCamera.project(
+            x: x, y: y,
+            worldWidth: engine.width, worldHeight: engine.height,
+            viewWidth: view.width, viewHeight: view.height
+        )
+        return CGPoint(
+            x: (put.x + 1) * 0.5 * view.width / viewScale,
+            y: (1 - put.y) * 0.5 * view.height / viewScale
+        )
+    }
+
+    /// Where a finger is in the world, flat.
+    private func worldPlace(atFractionX fx: Double, fractionY fy: Double) -> (x: Double, y: Double) {
+        let view = viewPixels
+        let place = camera.unproject(
+            screenX: fx * view.width,
+            screenY: fy * view.height,
+            worldWidth: engine.width,
+            worldHeight: engine.height,
+            viewWidth: view.width,
+            viewHeight: view.height
+        )
+        return (place.x, place.y)
+    }
+
+    /// A finger has gone down while building: a limb begins here.
+    ///
+    /// - Returns: whether building took the touch, in which case nothing else should.
+    private func beginCreatureStroke(atFractionX fx: Double, fractionY fy: Double) -> Bool {
+        guard isBuildingCreature, !engine.depthEnabled else { return false }
+        let place = worldPlace(atFractionX: fx, fractionY: fy)
+        // Begun on a joint already drawn, the limb starts exactly there, so the finger does not have to.
+        if let near = creaturePlan.joint(nearX: place.x, y: place.y) {
+            let joint = creaturePlan.joints[near]
+            creatureStroke = (joint.x, joint.y, joint.x, joint.y)
+        } else {
+            creatureStroke = (place.x, place.y, place.x, place.y)
+        }
+        return true
+    }
+
+    private func continueCreatureStroke(atFractionX fx: Double, fractionY fy: Double) -> Bool {
+        guard isBuildingCreature, let stroke = creatureStroke else { return false }
+        let place = worldPlace(atFractionX: fx, fractionY: fy)
+        creatureStroke = (stroke.fromX, stroke.fromY, place.x, place.y)
+        return true
+    }
+
+    private func endCreatureStroke() -> Bool {
+        guard isBuildingCreature else { return false }
+        if let stroke = creatureStroke,
+           creaturePlan.addLimb(fromX: stroke.fromX, y: stroke.fromY, toX: stroke.toX, y: stroke.toY, kind: creatureLimb)
+        {
+            Haptics.selection()
+            creatureProblem = nil
+        }
+        creatureStroke = nil
+        return true
     }
 
     // MARK: - The movie studio

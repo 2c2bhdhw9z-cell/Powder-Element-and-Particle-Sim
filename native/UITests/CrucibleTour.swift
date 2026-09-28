@@ -539,6 +539,67 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "listening to the world again")
     }
 
+    /// Creatures: a ready-made walker put down, then one drawn by finger — a triangle of bones with a muscle — brought to
+    /// life, and all of them taken away.
+    ///
+    /// Drawing takes the finger away from whatever tool is chosen, which is the part worth walking: a stroke that
+    /// pushed the field as well as drawing a bone, or a drawing that stayed on screen after the tray closed, is a fault
+    /// only a finger finds.
+    func testCreatures() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        let field = element("world.field", in: app)
+
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let walker = find("creature.ready.walker", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the ready-made creatures were not in the tray")
+            report(app, "No ready-made creatures")
+            return
+        }
+        walker.tap()
+        stillRunning(app, after: "putting a walker down")
+        guard let build = find("creature.build", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("building a creature was not offered")
+            report(app, "No creature building")
+            return
+        }
+        build.tap()
+        stillRunning(app, after: "starting to build a creature")
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        guard isRunning(app) else { return }
+        picture(app, "45 A walker, and a creature about to be drawn")
+
+        // A triangle of bones.
+        drag(across: field, from: CGVector(dx: 0.35, dy: 0.45), to: CGVector(dx: 0.55, dy: 0.45))
+        drag(across: field, from: CGVector(dx: 0.55, dy: 0.45), to: CGVector(dx: 0.45, dy: 0.3))
+        drag(across: field, from: CGVector(dx: 0.45, dy: 0.3), to: CGVector(dx: 0.35, dy: 0.45))
+        stillRunning(app, after: "drawing a triangle of bones")
+        picture(app, "46 A creature drawn")
+
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard let live = find("creature.live", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("a drawn creature could not be brought to life")
+            report(app, "No bring-to-life button")
+            return
+        }
+        live.tap()
+        stillRunning(app, after: "bringing a creature to life")
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        Thread.sleep(forTimeInterval: 4)
+        picture(app, "47 Creatures alive")
+
+        tap("fieldTray.handle", "the Field tray's handle once more", in: app)
+        if element("creature.report", in: app).waitForExistence(timeout: 5) == false {
+            XCTFail("nothing said how the creatures were getting on")
+            report(app, "No creature report")
+        }
+        if let away = find("creature.removeAll", in: app, scrollingIn: trayScroll(in: app)) {
+            away.tap()
+            stillRunning(app, after: "taking the creatures away")
+        }
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

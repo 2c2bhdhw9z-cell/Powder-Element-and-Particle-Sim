@@ -1280,6 +1280,8 @@ struct FieldDock: View {
             loopControls
             presetChips
             wordControls
+            // Beside the arrangements and the words: another thing to put in the field, and this one is built by hand.
+            FieldCreatureControls(model: model)
             population
             // Directly under how many there are, because it is the other half of the same question and
             // because this is where somebody looks for it. It used to sit between Reach and Gravity,
