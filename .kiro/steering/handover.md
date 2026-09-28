@@ -192,6 +192,16 @@ Shipped by chat one on 28 September, second session, newest last:
 - `d4a85bb` **Guided lab book** (#1 below) — `Powder/PowderLabBook.swift`, `App/Views/LabBookSheet.swift`,
   `App/Simulation/SimulationModel+LabBook.swift`, `LabBookStore.swift`; "Lab book" in the powder tray; walkthrough
   `testLabBook`. Eight experiments; checks prove each answers when done and never by itself.
+- `9289ef3` + `bb34b29` **Movie studio** (#2) — `Particle/ParticleMovie.swift`, `App/Views/MovieStudio.swift`,
+  `App/Metal/ClipWriter.swift` (writes the world alone into an .mp4 on the graphics chip, no copy back), movie saved
+  with the world; `NSPhotoLibraryAddUsageDescription` added (saving from the share sheet used to close the app);
+  walkthrough `testMovieStudio`.
+- `24dd560` **Living soundscape** (#3) — `Audio/Soundscape.swift` (listener + synth, tested), `SoundscapeVoice` and
+  an `AVAudioSourceNode` in `LabAudio.swift`; switch "The world's own sound" under Sound; walkthrough
+  `testSoundscape`.
+- `f230b20` + `715745c` **Creature builder** (#4) — `Particle/ParticleCreatures.swift` (plans, ready-made walker /
+  table / tumbler, floor grip for creatures only, saved with the world), `App/Views/CreatureBuilder.swift`;
+  walkthrough `testCreatures`.
 
 **Confirmed already built** (checked against the code, not remembered): slice of the box, turntable video, tiny planet,
 atom, marbling, pendulum wave, solar system, jellyfish, kaleidoscope, physics lens, shadows in 3D, colour by distance,
@@ -203,9 +213,9 @@ popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.*
 
 1. ~~**Guided lab book**~~ — **shipped `d4a85bb`.** Hands-on experiments that set something up, let the player find the answer, then explain it
    using their own world.
-2. **Movie studio** — camera stops, travel speed between them, slow motion, captions, export a clip.
-3. **Living soundscape** — water, fire, glass, electricity, impacts, mixed by what the simulation is doing.
-4. **Creature builder** — bones, joints and muscles that have to balance. `Spring` already carries `pulse`, `beat`,
+2. ~~**Movie studio**~~ — **shipped.** — camera stops, travel speed between them, slow motion, captions, export a clip.
+3. ~~**Living soundscape**~~ — **shipped.** — water, fire, glass, electricity, impacts, mixed by what the simulation is doing.
+4. ~~**Creature builder**~~ — **shipped.** — bones, joints and muscles that have to balance. `Spring` already carries `pulse`, `beat`,
    `phase`, `thrust`, so the step already supports it; what is missing is the building.
 5. **Parallel worlds** — two copies from the same moment, one thing changed, run together. The engine is already safe
    for this (final classes, per-instance seeded random, no singletons anywhere in `CrucibleCore`); the limit is that
