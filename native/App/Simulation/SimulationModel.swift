@@ -243,6 +243,10 @@ final class SimulationModel {
 
     /// Whether the next touch puts the thermometer in.
     var isPlacingThermometer = false
+    /// Why somebody could not be added, while that is being said.
+    var peopleNote: String?
+    /// Whether the next touch puts a little person in, or picks one up. See `PowderPeople.swift`.
+    var isHandlingPeople = false
     /// The thermometer, once it has been put somewhere.
     var thermometer: PowderThermometer?
     /// Moments since it was last read.

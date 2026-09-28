@@ -131,6 +131,10 @@ public final class PowderEngine {
     /// Moments until the surface is searched for again.
     var tideSurfaceAge = 0
 
+    /// The little people, and the last number given out. See `PowderPeople.swift`.
+    var storedPeople: [PowderPerson] = []
+    var storedNextPersonID = 0
+
     /// Materials the world's own rules made, and whether there are any to report. See `PowderNoticing.swift`.
     var storedNoticed: [UInt8] = []
     var storedNoticedAny = false
@@ -748,6 +752,11 @@ public final class PowderEngine {
         // After everything has moved, so water that has just arrived is where the next moment finds it. Nothing at
         // all happens here without a tide.
         if tide != nil { stepTide() }
+
+        // And the people last of all, for the same reason: somebody should be standing on where the sand has got to,
+        // not on where it was a moment ago. Nothing happens here in a world with nobody in it, which is most of them.
+        // See `PowderPeople.swift`.
+        if !storedPeople.isEmpty { stepPeople() }
     }
 
     /// Whether a row is swept left to right this moment, rather than right to left.

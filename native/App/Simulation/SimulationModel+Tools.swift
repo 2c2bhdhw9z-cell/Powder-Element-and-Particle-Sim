@@ -36,7 +36,7 @@ extension SimulationModel {
 
     /// Whether the next touch does something other than paint: the eyedropper, the lasso, or putting the thermometer
     /// in. The brush buttons show no shape as chosen while one of these is.
-    var isUsingTool: Bool { isSampling || isLassoing || isPlacingThermometer }
+    var isUsingTool: Bool { isSampling || isLassoing || isPlacingThermometer || isHandlingPeople }
 
     /// Goes back to painting with a shape, putting down whichever tool was in hand.
     func chooseShape(_ shape: BrushShape) {
@@ -49,7 +49,66 @@ extension SimulationModel {
     func putToolsDownToPaint() {
         if isLassoing { isLassoing = false }
         if isPlacingThermometer { isPlacingThermometer = false }
+        if isHandlingPeople {
+            isHandlingPeople = false
+            // Whoever was in hand is put down rather than left hanging in the air for good.
+            engine.dropHeldPeople()
+        }
     }
+
+    // MARK: - The little people
+
+    /// Picks up the hand that puts people in and moves them about, or puts it down.
+    func togglePeople() {
+        let wanted = !isHandlingPeople
+        if wanted {
+            putToolsDownToPaint()
+            isSampling = false
+        } else {
+            engine.dropHeldPeople()
+        }
+        isHandlingPeople = wanted
+    }
+
+    /// How many people are in the world.
+    var peopleCount: Int { engine.people.count }
+
+    /// Whether there is room for anybody else.
+    var canAddPerson: Bool { engine.people.count < PowderPeople.most }
+
+    /// Takes everybody away.
+    func clearPeople() {
+        recordUndoPoint()
+        engine.clearPeople()
+    }
+
+    /// A touch while the hand is in use: grabs whoever is near, or puts somebody new there.
+    ///
+    /// Grabbing first, because a tap near somebody almost always means that person — and a world where tapping next to
+    /// a person made a second person standing on their head would be unusable within about four taps.
+    private func peopleBeganStroke(atFractionX fx: Double, fractionY fy: Double) {
+        let point = gridPoint(fractionX: fx, fractionY: fy)
+        if let found = engine.person(nearX: point.x, y: point.y, within: Self.reachForAPerson) {
+            _ = engine.holdPerson(found.id)
+            engine.carryHeldPeople(toX: point.x, y: point.y)
+            Haptics.selection()
+            return
+        }
+        let cell = gridCell(fractionX: fx, fractionY: fy)
+        guard engine.addPerson(atX: cell.x, y: cell.y) != nil else {
+            peopleNote = "Twenty is as many people as a world can hold."
+            return
+        }
+        peopleNote = nil
+        recordUndoPoint()
+        Haptics.firm()
+    }
+
+    /// How near a tap has to be to count as reaching for somebody, in cells.
+    ///
+    /// Generous, because a person is one cell wide and a fingertip is not. Too small and the tool feels broken; too
+    /// large and a tap meant to add somebody keeps grabbing a person across the room instead.
+    static let reachForAPerson = 6.0
 
     /// Picks up the eyedropper, or puts it down.
     func toggleSampling() {
@@ -88,6 +147,11 @@ extension SimulationModel {
 
     /// A touch has begun. Returns whether one of these tools took it, in which case nothing is painted.
     func toolBeganStroke(atFractionX fx: Double, fractionY fy: Double) -> Bool {
+        if isHandlingPeople {
+            toolOwnsStroke = true
+            peopleBeganStroke(atFractionX: fx, fractionY: fy)
+            return true
+        }
         if isPlacingThermometer {
             toolOwnsStroke = true
             let cell = gridCell(fractionX: fx, fractionY: fy)
@@ -118,6 +182,11 @@ extension SimulationModel {
     /// A touch has moved. Returns whether one of these tools had it.
     func toolContinuedStroke(atFractionX fx: Double, fractionY fy: Double) -> Bool {
         guard toolOwnsStroke else { return false }
+        if isHandlingPeople {
+            let point = gridPoint(fractionX: fx, fractionY: fy)
+            engine.carryHeldPeople(toX: point.x, y: point.y)
+            return true
+        }
         if isPlacingThermometer {
             let cell = gridCell(fractionX: fx, fractionY: fy)
             if let thermometer, thermometer.x == cell.x, thermometer.y == cell.y { return true }
@@ -147,6 +216,13 @@ extension SimulationModel {
     func toolEndedStroke() {
         guard toolOwnsStroke else { return }
         toolOwnsStroke = false
+        if isHandlingPeople {
+            // Let go where the finger lifted. They fall from there, which is the whole point of being able to carry
+            // somebody up a cliff.
+            engine.dropHeldPeople()
+            Haptics.tap()
+            return
+        }
         if isPlacingThermometer {
             // One placement per press of the button, like the eyedropper.
             isPlacingThermometer = false

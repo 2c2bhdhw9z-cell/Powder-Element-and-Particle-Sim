@@ -284,6 +284,33 @@ struct ElementDock: View {
                 .disabled(model.isFollowingRoom)
                 .opacity(model.isFollowingRoom ? 0.4 : 1)
 
+                // Little people who live in the world. Tap an empty place to put somebody there; tap near somebody and
+                // drag to carry them. The tray closes because the world is where they go.
+                Button {
+                    Haptics.selection()
+                    model.togglePeople()
+                    if model.isHandlingPeople { withAnimation(.easeOut(duration: 0.22)) { isOpen = false } }
+                } label: {
+                    brushLabel(
+                        model.peopleCount == 0 ? "People" : "People · \(model.peopleCount)",
+                        "figure.walk",
+                        selected: model.isHandlingPeople
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("tool.people")
+
+                if model.peopleCount > 0 {
+                    Button {
+                        Haptics.tap()
+                        model.clearPeople()
+                    } label: {
+                        brushLabel("Nobody", "figure.walk.motion", selected: false)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("tool.nobody")
+                }
+
                 // A thermometer pushed into one place, that stays and keeps reading.
                 Button {
                     Haptics.selection()

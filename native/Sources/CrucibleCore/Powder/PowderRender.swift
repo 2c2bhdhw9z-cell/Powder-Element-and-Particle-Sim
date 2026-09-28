@@ -38,7 +38,7 @@ extension PowderEngine {
 
     /// Packs four channels the way the texture expects.
     @inline(__always)
-    private static func pack(_ r: Int, _ g: Int, _ b: Int) -> UInt32 {
+    static func pack(_ r: Int, _ g: Int, _ b: Int) -> UInt32 {
         UInt32(UInt8(clamping: r)) | UInt32(UInt8(clamping: g)) << 8
             | UInt32(UInt8(clamping: b)) << 16 | 0xFF00_0000
     }
@@ -175,6 +175,11 @@ extension PowderEngine {
                 pixels[i] = Self.pack(red, green, blue)
             }
         }
+
+        // The people, over the finished world. After the cells rather than among them, because a person is not a cell
+        // and is drawn where they are rather than where a cell boundary happens to fall. Nothing at all happens here
+        // in a world with nobody in it. See `PowderPeople.swift`.
+        if !storedPeople.isEmpty { drawPeople(into: pixels, overlay: overlay) }
     }
 
     /// The speckle applied to one grain, as a fraction of its own brightness.
@@ -205,7 +210,7 @@ extension PowderEngine {
     }
 
     /// The heat map: deep blue through teal, green, yellow and orange to white.
-    private static func heatMap(_ temp: Double) -> UInt32 {
+    static func heatMap(_ temp: Double) -> UInt32 {
         var r = 0
         var g = 0
         var b = 0

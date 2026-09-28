@@ -320,6 +320,54 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "closing the notebook")
     }
 
+    /// Little people: put in, carried about, and taken away.
+    ///
+    /// Carrying is a drag that begins on a person and ends somewhere else, which is the same gesture as painting — so
+    /// the thing worth walking is that the tool takes the touch instead of the brush, and that letting go somewhere
+    /// impossible does not take the app down with it.
+    func testLittlePeople() {
+        let app = launch()
+        let world = element("world.powder", in: app)
+
+        tap("tray.arrow", "the powder tray's arrow", in: app)
+        guard isRunning(app) else { return }
+        guard let people = find("tool.people", in: app, scrollingWithin: trayArea(app)) else {
+            XCTFail("the little people were not in the tray")
+            report(app, "The little people were not in the tray")
+            return
+        }
+        people.tap()
+        stillRunning(app, after: "picking up the people tool")
+
+        // Somebody put in, then a second one well away from the first.
+        world.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4)).tap()
+        stillRunning(app, after: "putting somebody in the world")
+        world.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4)).tap()
+        stillRunning(app, after: "putting a second person in")
+        picture(app, "32 Two little people")
+
+        // Carried: a drag that starts on one of them.
+        drag(across: world, from: CGVector(dx: 0.7, dy: 0.4), to: CGVector(dx: 0.5, dy: 0.15))
+        stillRunning(app, after: "carrying somebody across the world")
+        picture(app, "33 Somebody carried")
+
+        // And let go at the very edge, which is where a coordinate can go wrong.
+        drag(across: world, from: CGVector(dx: 0.5, dy: 0.2), to: CGVector(dx: 0.99, dy: 0.02))
+        stillRunning(app, after: "letting somebody go at the edge of the world")
+
+        guard isRunning(app) else { return }
+        tap("tray.arrow", "the powder tray's arrow, to look at the tray again", in: app)
+        guard isRunning(app) else { return }
+        if let nobody = find("tool.nobody", in: app, scrollingWithin: trayArea(app)) {
+            nobody.tap()
+            stillRunning(app, after: "taking everybody away")
+            picture(app, "34 Nobody left")
+        } else {
+            XCTFail("the button that takes everybody away was not in the tray")
+            report(app, "The button that clears the people was not in the tray")
+        }
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {
