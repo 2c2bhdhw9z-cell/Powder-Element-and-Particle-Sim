@@ -87,6 +87,14 @@ public struct JellyRecord: Codable, Sendable {
     public var firmness: Double?
 }
 
+/// A creature, as saved: its joints by their place in the saved list, and what is needed to say how it is doing.
+public struct CreatureRecord: Codable, Sendable {
+    public var members: [Int]
+    public var name: String?
+    public var startX: Double?
+    public var builtHeight: Double?
+}
+
 public struct SpringRecord: Codable, Sendable {
     public var a: Int
     public var b: Int
@@ -226,6 +234,8 @@ public struct ParticleState: Codable, Sendable {
     public var loops: [ForceLoopRecord]?
     /// Jellies made with the jelly pen. Absent when there are none.
     public var jellies: [JellyRecord]?
+    /// Creatures of bones and muscles. Absent when there are none.
+    public var creatures: [CreatureRecord]?
     public var springs: [SpringRecord]?
     /// The world's named layers, when it has more than one. Absent otherwise, which is nearly every world.
     public var layers: [ParticleLayer]?
@@ -321,6 +331,7 @@ extension ParticleEngine {
                     )
                 },
             jellies: storedJellies.isEmpty ? nil : jellyRecords(savedCount: saved.count),
+            creatures: storedCreatures.isEmpty ? nil : creatureRecords(savedCount: saved.count),
             springs: springs
                 .filter { $0.a < saved.count && $0.b < saved.count }
                 .map {
@@ -682,6 +693,18 @@ extension ParticleEngine {
             return ParticleJelly(ids: ids, restX: restX, restY: restY, firmness: record.firmness ?? Self.jellyFirmness)
         }
 
+        // Creatures likewise, by place in the list; their bones and muscles are springs and come back with the rest.
+        storedCreatures = (state.creatures ?? []).prefix(Self.creatureLimit).compactMap { record in
+            let ids = record.members.filter { $0 >= 0 && $0 < particles.count }.map { particles[$0].id }
+            guard ids.count >= 2 else { return nil }
+            return ParticleCreature(
+                ids: ids,
+                name: record.name ?? "Creature",
+                startX: record.startX ?? width / 2,
+                builtHeight: record.builtHeight ?? 1
+            )
+        }
+
         setSprings(
             state.springs?.map {
                 Spring(
@@ -694,6 +717,19 @@ extension ParticleEngine {
             } ?? []
         )
         return true
+    }
+
+    /// Every creature as saved, naming its joints by their place among the first `savedCount`.
+    private func creatureRecords(savedCount: Int) -> [CreatureRecord] {
+        var place: [Int: Int] = [:]
+        for index in 0 ..< min(savedCount, particles.count) { place[particles[index].id] = index }
+        return storedCreatures.compactMap { creature in
+            let members = creature.ids.compactMap { place[$0] }
+            guard members.count >= 2 else { return nil }
+            return CreatureRecord(
+                members: members, name: creature.name, startX: creature.startX, builtHeight: creature.builtHeight
+            )
+        }
     }
 
     /// Every jelly as saved, naming its bodies by their place among the first `savedCount`, which are all that are

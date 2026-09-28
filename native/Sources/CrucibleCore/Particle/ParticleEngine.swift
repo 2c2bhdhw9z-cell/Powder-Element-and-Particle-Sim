@@ -326,6 +326,8 @@ public final class ParticleEngine {
     /// An outline being drawn with the jelly pen, and the jellies made with it. See `ParticleJellyPen.swift`.
     var storedJellyOutline: [ParticleFingerPoint] = []
     var storedJellies: [ParticleJelly] = []
+    /// Creatures of bones and muscles. See `ParticleCreatures.swift`.
+    var storedCreatures: [ParticleCreature] = []
     /// The liquid and the pull between bodies, as they work in depth. See `SwarmDepth.swift`.
     let depthFluid = SwarmDepthFluid()
     let depthGravity = SwarmDepthGravity()
@@ -602,6 +604,7 @@ public final class ParticleEngine {
         storedLoopRecording = nil
         storedJellyOutline = []
         storedJellies = []
+        storedCreatures = []
         // A scene that wanted its own drag or speed limit gives back the ones it found. The pendulums kept almost
         // none and every scene chosen after them swung and slid for ever; particle life kept a great deal and
         // everything after it moved as if through syrup.
@@ -741,6 +744,15 @@ public final class ParticleEngine {
                 return kept
             }
         }
+        // A creature keeps only the joints it has left, and one with fewer than two is no creature at all.
+        if !storedCreatures.isEmpty {
+            let alive = Set(particles.map(\.id))
+            storedCreatures = storedCreatures.compactMap { creature in
+                var kept = creature
+                kept.ids = creature.ids.filter { alive.contains($0) }
+                return kept.ids.count >= 2 ? kept : nil
+            }
+        }
         return removed
     }
 
@@ -850,6 +862,7 @@ public final class ParticleEngine {
         public var maxSpeedBeforeScene: Double?
         public var forceLoops: [ParticleForceLoop] = []
         public var jellies: [ParticleJelly] = []
+        public var creatures: [ParticleCreature] = []
     }
 
     /// Largest swarm that is worth copying into an undo entry.
@@ -892,7 +905,8 @@ public final class ParticleEngine {
             dampingBeforeScene: storedDampingBeforeScene,
             maxSpeedBeforeScene: storedMaxSpeedBeforeScene,
             forceLoops: storedForceLoops,
-            jellies: storedJellies
+            jellies: storedJellies,
+            creatures: storedCreatures
         )
     }
 
@@ -933,6 +947,7 @@ public final class ParticleEngine {
         storedLoopRecording = nil
         storedJellyOutline = []
         storedJellies = snapshot.jellies
+        storedCreatures = snapshot.creatures
         if let swarmSnapshot = snapshot.swarm {
             swarm.restore(from: swarmSnapshot, budget: max(0, maxParticles - particles.count))
         } else {
@@ -1061,6 +1076,8 @@ public final class ParticleEngine {
                 if flockEnabled { stepFlockInDepth() }
             } else {
                 stepParticles(mouseX: mouseX, mouseY: mouseY, mouseActive: mouseActive, now: now)
+                // Feet on the floor grip it, once the bodies have met the edges and before the bones pull.
+                stepCreatures()
                 stepSprings()
                 if flockEnabled { stepFlock() }
             }
