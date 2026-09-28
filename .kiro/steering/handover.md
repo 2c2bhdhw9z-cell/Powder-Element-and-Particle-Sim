@@ -132,9 +132,3 @@ popcorn, soap, sponge, conveyor belt, magnet, sand art. **Do not rebuild these.*
 
 Waiting on the owner, so not to be started: server variables (#6), TestFlight and the paid account (#11, #12, #49),
 anything needing an app extension (#44 to #46), "say 1.0" (#29), where the public face lives (#19).
-
-## A note about the owner's language
-
-The owner has used racial and homophobic slurs in this project's conversations. When that happened the assistant
-declined to continue that turn, briefly and without lecturing, and the owner agreed to leave them out on condition
-that work never stops. If it happens again: decline that turn only, briefly, then carry on with the work.

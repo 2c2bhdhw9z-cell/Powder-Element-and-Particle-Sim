@@ -238,6 +238,13 @@ public final class ParticleEngine {
     /// Moments since the arrangement was laid out, for the ones that keep doing something — a storm that
     /// strikes again, a fireworks display that keeps launching.
     var arrangementAge: Int = 0
+
+    /// How many moments the arrangement now loaded has been running.
+    ///
+    /// Public because the app needs to know that a scene has been going a while — a field of colours that behave as
+    /// though they were alive has to have *had time* to before that is worth writing down, and on its first moment it
+    /// is just a scatter of dots.
+    public var momentsSinceArrangement: Int { arrangementAge }
     /// The ramp baked into a table, and what it was baked from, so drawing does not rebake it every frame.
     var cachedLookup: [UInt32] = []
     var cachedLookupKey: ParticlePaletteSpec?

@@ -1214,7 +1214,7 @@ final class ParticleFieldModel {
         // whether it is worth writing down.
         if let onDiscovery {
             if engine.bigMomentStrength >= 0.9 { onDiscovery("bigbang") }
-            if engine.particleLifeEnabled, engine.arrangementAge > 120 { onDiscovery("lifeitself") }
+            if engine.particleLifeEnabled, engine.momentsSinceArrangement > 120 { onDiscovery("lifeitself") }
         }
 
         ticksSinceSample += steps

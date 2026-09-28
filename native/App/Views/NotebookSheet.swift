@@ -39,7 +39,9 @@ struct NotebookSheet: View {
         ) {
             HStack(spacing: 10) {
                 Text("\(store.notebook.found)")
-                    .font(.labNumeric(28, .semiBold))
+                    // Medium is the heaviest weight this numeric face has. Asking for semi-bold does not fall back —
+                    // it does not compile.
+                    .font(.labNumeric(28, .medium))
                     .foregroundStyle(Palette.foreground)
                 Text("of \(store.notebook.howMany) found")
                     .font(.labBody(12))
