@@ -209,6 +209,8 @@ public struct ParticleState: Codable, Sendable {
     /// show a scene at its best are part of the scene. It lives on the interface's model rather than
     /// in the engine, so it is written and read here but applied by the caller.
     public var camera: ParticleCamera?
+    /// The movie made of camera stops, when one has been made. Like the camera, applied by the caller.
+    public var movie: ParticleMovie?
     /// Which arrangement the field was showing, so its chip lights up again and adding to it still joins it.
     public var arrangement: String?
     /// Whether the field was in 3D, and how deep its box was. Absent in files from before there was depth,

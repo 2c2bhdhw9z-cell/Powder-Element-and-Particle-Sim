@@ -18,6 +18,9 @@ struct FieldWithLabels: View {
 
     var body: some View {
         FieldSurface(model: model)
+            // The movie's caption, low in the middle, where a film puts one. Its own view, so a caption fading in
+            // redraws the caption and nothing else.
+            .overlay(alignment: .bottom) { MovieCaptionView(model: model) }
             .overlay(alignment: .topLeading) {
                 if model.showsLabels {
                     ZStack(alignment: .topLeading) {

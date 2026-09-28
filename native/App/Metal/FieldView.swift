@@ -592,8 +592,65 @@ final class FieldView: MTKView {
         encodeFinalPicture(frame, field: target, glow: glow, to: drawable.texture, in: buffer)
         lastFrame = frame
 
+        recordClip(frame, field: target, glow: glow, in: buffer, device: device)
+
         buffer.present(drawable)
         buffer.commit()
+    }
+
+    // MARK: - A clip of the movie
+
+    /// The clip being written, while the movie studio is recording one. See `ClipWriter`.
+    private var clipWriter: ClipWriter?
+
+    /// Draws this frame into the clip as well, when one is being recorded, and finishes the clip when it stops.
+    ///
+    /// The same finished picture the screen gets — background, field and glow — drawn a second time into the clip's
+    /// own picture, so the clip is the world and none of the interface over it.
+    private func recordClip(
+        _ frame: ParticleFieldModel.Frame,
+        field: MTLTexture,
+        glow: MTLTexture?,
+        in buffer: MTLCommandBuffer,
+        device: MTLDevice
+    ) {
+        guard model.isRecordingClip else {
+            finishClip()
+            return
+        }
+        if clipWriter == nil {
+            guard let writer = ClipWriter(width: field.width, height: field.height, device: device) else {
+                model.clipDidFinish(nil, problem: "This phone would not start a video file.")
+                model.stopMovie()
+                return
+            }
+            clipWriter = writer
+        }
+        guard let writer = clipWriter, let slot = writer.frame(at: CACurrentMediaTime()) else { return }
+        encodeFinalPicture(frame, field: field, glow: glow, to: slot.texture, in: buffer)
+        let caption = model.movieCaption
+        let opacity = model.movieCaptionOpacity
+        buffer.addCompletedHandler { _ in writer.write(slot, caption: caption, opacity: opacity) }
+    }
+
+    /// Finishes whatever clip is being written, and hands it to the model.
+    private func finishClip() {
+        guard let writer = clipWriter else { return }
+        clipWriter = nil
+        let model = model
+        writer.finish { url, problem in
+            Task { @MainActor in model.clipDidFinish(url, problem: problem) }
+        }
+    }
+
+    /// Taken off the screen: a clip still being written is finished with what it has, rather than left as a file
+    /// that no player can open.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            if model.isRecordingClip { model.stopMovie() }
+            finishClip()
+        }
     }
 
     /// Builds the glow: pick out what is bright, blur it sideways, blur it downward.

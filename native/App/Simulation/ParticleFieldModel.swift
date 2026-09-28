@@ -854,6 +854,7 @@ final class ParticleFieldModel {
     func captureState() -> ParticleState {
         var state = engine.captureState()
         state.camera = storedCamera
+        state.movie = movie.isEmpty ? nil : movie
         return state
     }
 
@@ -870,6 +871,8 @@ final class ParticleFieldModel {
             // reading of that is the resting view rather than whatever the last scene happened to
             // leave behind.
             camera = state.camera ?? .identity
+            stopMovie()
+            movie = state.movie ?? ParticleMovie()
             // The file sets the world's size, so the reach is worked out again for it.
             applyReach()
             if !engine.depthEnabled { turnsView = false }
@@ -1148,6 +1151,8 @@ final class ParticleFieldModel {
         advanceTurntable()
         // And the view gliding to wherever it was sent to fly.
         advanceFlight()
+        // And the movie, which is a way of looking too, so it plays on a paused field as well.
+        advanceMovie(now: now)
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -2864,6 +2869,112 @@ final class ParticleFieldModel {
         turntableProgress = min(1, turntableTurned / 360)
         guard turntableTurned >= 360 else { return }
         stopTurntable()
+    }
+
+    // MARK: - The movie studio
+
+    /// The movie being made: places to look from, in order. Saved with the world. See `ParticleMovie`.
+    var movie = ParticleMovie()
+    /// Whether the movie is playing.
+    private(set) var isPlayingMovie = false
+    /// Whether this playing is also being written into a clip. The field's view watches this: it starts a clip when
+    /// it goes on and finishes the clip when it goes off.
+    private(set) var isRecordingClip = false
+    /// Which stop the movie is at, for the tray.
+    private(set) var movieStop = 0
+    /// What the movie is saying now, and how visible that is — for the caption on the world and in the clip.
+    private(set) var movieCaption: String?
+    private(set) var movieCaptionOpacity = 0.0
+    /// A clip that has just been finished, waiting to be handed to somebody.
+    var finishedClip: URL?
+    /// Why the last clip could not be made, if it could not.
+    var clipProblem: String?
+    /// When this playing began, on the frame clock. Negative until the first frame of it.
+    @ObservationIgnored private var movieStartedAt = -1.0
+    /// How fast the world was running before the movie took charge of it, to put back afterwards.
+    @ObservationIgnored private var speedBeforeMovie = 1.0
+
+    /// Adds a stop looking from wherever the view is now.
+    ///
+    /// - Returns: whether there was room for it.
+    @discardableResult
+    func addMovieStop() -> Bool {
+        let added = movie.add(storedCamera)
+        if added, storedCamera.autoOrbit {
+            // The stop keeps the angle the spin had reached; the view stops turning too, so what is on screen is
+            // what the stop holds.
+            cameraAutoOrbit = false
+        }
+        return added
+    }
+
+    /// Puts the view where a stop looks from, for checking it.
+    func lookFromMovieStop(_ index: Int) {
+        guard movie.stops.indices.contains(index), !isPlayingMovie else { return }
+        camera = movie.stops[index].camera
+    }
+
+    /// Plays the movie from the start, and writes it into a clip as well if asked.
+    func playMovie(recording: Bool) {
+        guard movie.canPlay, !isPlayingMovie else { return }
+        stopTurntable()
+        // Nothing else steering the view while the movie does.
+        flyTarget = nil
+        if storedCamera.autoOrbit { cameraAutoOrbit = false }
+        speedBeforeMovie = speed
+        movieStartedAt = -1
+        movieStop = 0
+        clipProblem = nil
+        finishedClip = nil
+        // Through `camera`, once, in case the view being left had made room by zooming out: the movie's own views
+        // never do, so this is the one resize a movie can cause, and it happens before the first frame.
+        camera = movie.stops[0].camera
+        isRecordingClip = recording
+        isPlayingMovie = true
+        isRunning = true
+    }
+
+    /// Stops the movie where it is. A clip being written is finished with what it has.
+    func stopMovie() {
+        guard isPlayingMovie else { return }
+        isPlayingMovie = false
+        isRecordingClip = false
+        speed = speedBeforeMovie
+        movieCaption = nil
+        movieCaptionOpacity = 0
+        cameraDidChange()
+    }
+
+    /// Told by the field's view once a clip is written, or could not be.
+    func clipDidFinish(_ url: URL?, problem: String?) {
+        finishedClip = url
+        clipProblem = problem
+    }
+
+    /// Moves the movie on to this frame.
+    private func advanceMovie(now: Double) {
+        guard isPlayingMovie else { return }
+        if movieStartedAt < 0 { movieStartedAt = now }
+        let seconds = (now - movieStartedAt) / 1000
+        guard let moment = movie.moment(at: seconds), !moment.isFinished else {
+            stopMovie()
+            return
+        }
+        // Straight into the stored view, as the glide and the spin do, so a journey is one continuous change rather
+        // than a new view every frame. The world's room never changes on the way — see `ParticleMovie.forMovie`.
+        if moment.camera.worldScale == storedCamera.worldScale {
+            storedCamera = moment.camera
+            // The trails are in screen space, so a moving view wipes them; the view is always moving here.
+            trailHistoryIsStale = true
+        } else {
+            camera = moment.camera
+        }
+        if speed != moment.speed { speed = moment.speed }
+        if movieStop != moment.stop { movieStop = moment.stop }
+        if movieCaption != moment.caption { movieCaption = moment.caption }
+        // In twentieths, so a fade redraws the caption twenty times rather than every frame.
+        let opacity = (moment.captionOpacity * 20).rounded() / 20
+        if movieCaptionOpacity != opacity { movieCaptionOpacity = opacity }
     }
 
     // MARK: - Colours from a photograph

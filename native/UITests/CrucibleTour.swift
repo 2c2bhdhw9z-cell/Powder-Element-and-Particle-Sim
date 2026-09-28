@@ -425,6 +425,82 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "putting the lab book away")
     }
 
+    /// The movie studio: two stops, a caption, played, and then recorded into a clip that is offered to be sent.
+    ///
+    /// The clip is written by the field's own drawing, a frame at a time, into a video file — which is the part only a
+    /// real graphics chip and a real video encoder can check. A clip that cannot be started, or never finishes, is
+    /// found here: the walk waits for the finished clip to be offered.
+    func testMovieStudio() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        let field = element("world.field", in: app)
+
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let add = find("movie.add", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the movie studio was not in the tray")
+            report(app, "The movie studio was not in the tray")
+            return
+        }
+        add.tap()
+        stillRunning(app, after: "adding the first stop")
+
+        // Somewhere else to look from: closer in.
+        tap("fieldTray.handle", "the Field tray's handle, to close it", in: app)
+        guard isRunning(app) else { return }
+        field.pinch(withScale: 2.2, velocity: 1.5)
+        stillRunning(app, after: "zooming in for the second stop")
+        tap("fieldTray.handle", "the Field tray's handle again", in: app)
+        guard let again = find("movie.add", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the movie studio's add button went away")
+            report(app, "No second add")
+            return
+        }
+        again.tap()
+        stillRunning(app, after: "adding the second stop")
+
+        if let caption = find("movie.caption.1", in: app, kind: .textField, scrollingIn: trayScroll(in: app)) {
+            caption.tap()
+            caption.typeText("Closer\n")
+            stillRunning(app, after: "writing a caption")
+        } else {
+            XCTFail("a stop had no caption to write")
+            report(app, "No caption field")
+        }
+        picture(app, "41 A movie of two stops")
+
+        guard let play = find("movie.play", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the movie could not be played")
+            report(app, "No play button for the movie")
+            return
+        }
+        play.tap()
+        stillRunning(app, after: "playing the movie")
+        Thread.sleep(forTimeInterval: 3)
+        picture(app, "42 The movie playing")
+        // Stopped early, then recorded from the start.
+        if element("movie.stop", in: app).waitForExistence(timeout: 5) {
+            tap("movie.stop", "stopping the movie", in: app)
+        }
+        guard let record = find("movie.record", in: app, kind: .any, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("the movie could not be recorded")
+            report(app, "No record button for the movie")
+            return
+        }
+        record.tap()
+        stillRunning(app, after: "recording the movie")
+        // Two seconds at the first stop, three to fly, two at the second: seven, and time for the file to finish.
+        let offered = app.buttons["Share the clip"]
+        if offered.waitForExistence(timeout: 60) {
+            picture(app, "43 The clip, offered to be sent")
+            app.swipeDown()
+        } else {
+            XCTFail("the recorded clip was never offered")
+            report(app, "The clip was never offered")
+        }
+        stillRunning(app, after: "recording a clip of the movie")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {
@@ -553,13 +629,28 @@ final class CrucibleTour: XCTestCase {
     /// `isHittable` is not enough on its own, which cost two failures: a menu item hanging off the right-hand edge of a
     /// phone reports itself hittable and then has no usable point to press, and asking anyway is an error rather than a
     /// miss. So the frame has to sit inside the window as well.
+    ///
+    /// ## Why the question is asked inside an expected failure
+    ///
+    /// Because for a menu item a tablet has laid out behind the rest of its menu, asking whether it can be pressed does
+    /// not answer "no" — it fails the walk outright, "activation point invalid", which is the testing framework's own
+    /// fault and not the app's. Both the recipe menu and a layer's menu cost a failed walk that way. Asked inside a
+    /// non-strict expected failure, that outburst is kept to itself and the answer is simply no.
     private func canReallyTap(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
-        guard element.exists, element.isHittable else { return false }
+        guard element.exists else { return false }
         let window = app.windows.element(boundBy: 0)
         guard window.exists else { return false }
         let frame = element.frame
-        guard frame.width > 1, frame.height > 1 else { return false }
-        return window.frame.insetBy(dx: -1, dy: -1).contains(frame)
+        guard frame.width > 1, frame.height > 1, window.frame.insetBy(dx: -1, dy: -1).contains(frame) else {
+            return false
+        }
+        var hittable = false
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("asking whether a menu item can be pressed sometimes fails instead of answering", options: options) {
+            hittable = element.isHittable
+        }
+        return hittable
     }
 
     /// The scrolling part of whichever panel is open, found by the panel's own title.

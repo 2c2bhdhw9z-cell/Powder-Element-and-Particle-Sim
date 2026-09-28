@@ -1337,6 +1337,8 @@ struct FieldDock: View {
             shapeChoices
             backdropChoices
             viewControls
+            // Last, beside the view it is made from: a movie is a list of views.
+            FieldMovieControls(model: model)
         }
     }
 

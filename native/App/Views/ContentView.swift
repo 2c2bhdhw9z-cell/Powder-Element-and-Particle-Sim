@@ -457,6 +457,13 @@ struct ContentView: View {
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
         }
+        // A movie's clip, finished, offered straight away to be kept or sent.
+        .onChange(of: field.finishedClip) { _, clip in
+            guard let clip else { return }
+            breadcrumbs.record("recorded a movie clip")
+            field.finishedClip = nil
+            shareTarget = ShareTarget(url: clip)
+        }
     }
 
     /// Every panel that slides up over the world.

@@ -303,6 +303,7 @@ struct ShareTarget: Identifiable {
         case "csv": "Share the measurements"
         case "png": url.lastPathComponent.contains("-poster") ? "Share the poster" : "Share this picture"
         case "crucible", "json": "Share this world"
+        case "mp4", "mov": "Share the clip"
         default: "Share"
         }
     }
@@ -313,6 +314,7 @@ struct ShareTarget: Identifiable {
         case "svg": "pencil.and.outline"
         case "csv": "tablecells"
         case "png": "photo"
+        case "mp4", "mov": "film"
         default: "square.and.arrow.up"
         }
     }
