@@ -179,6 +179,13 @@
 	     three numbers — how much low end, how much middle, how loud — and those are thrown away again
 	     every frame. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Crucible listens to the room so the particle field can move to whatever is playing. Nothing is recorded or saved.</string>
+	<string>With Listen on, the particle field moves to the music the microphone hears. With Talk to it on, the lab listens for what you say to it — "make it rain", "boom" — and does it. Sound is turned into numbers or words on the phone and never kept or sent anywhere.</string>
+	<!-- Only asked for when Talk to it is switched on. Recognition happens on the phone itself wherever the phone can
+	     do that. -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>With Talk to it on, what you say to the lab is turned into words so it can do what you ask. Where the phone can, this happens on the phone itself, and nothing is kept.</string>
+	<!-- Only asked for when waving, looking round with your head, or putting the world on a table is switched on. -->
+	<key>NSCameraUsageDescription</key>
+	<string>The front camera lets you wave at the particle field and look round it by moving your head; the back camera stands the powder world on a real table. Pictures are looked at on the phone as they arrive and are never kept or sent anywhere.</string>
 </dict>
 </plist>

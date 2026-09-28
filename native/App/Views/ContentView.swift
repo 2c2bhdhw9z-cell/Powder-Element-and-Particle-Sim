@@ -63,6 +63,14 @@ struct ContentView: View {
     @State private var showingNotebook = false
     @State private var showingLabBook = false
     @State private var showingParallel = false
+    @State private var showingSenses = false
+    /// Whether the powder world is standing on a table through the camera. A layer rather than a cover, like the
+    /// introduction: a cover takes the world's own view out of the window and the world stops.
+    @State private var showingTable = false
+    /// Listening for things said to the lab. See `SpeechListener`.
+    @State private var speech = SpeechListener()
+    /// The front camera, for a hand and a head. See `CameraSenses`.
+    @State private var cameraSenses = CameraSenses()
     @State private var showingPresets = false
     @State private var showingSettings = false
     @State private var showingDiagnostics = false
@@ -323,6 +331,12 @@ struct ContentView: View {
             // opened nothing at all — the tap-through check found it, and nothing else would have. A layer cannot
             // compete for the one slot the system gives a view.
             .overlay {
+                if showingTable {
+                    OnYourTable(model: powder) { showingTable = false }
+                        .transition(.opacity)
+                }
+            }
+            .overlay {
                 if showingWelcome {
                     WelcomeSheet(
                         onFinish: {
@@ -388,6 +402,7 @@ struct ContentView: View {
             applyRoomSenses()
             bigScreen.use(field)
             watchForDiscoveries()
+            listenForSpeech()
             powder.onLabBookAnswered = { [labBook, breadcrumbs] run in
                 breadcrumbs.record("answered the \(run.experiment.title) experiment")
                 labBook.finish(run)
@@ -472,6 +487,12 @@ struct ContentView: View {
             audio.isEnabled = wanted
         }
         .onChange(of: soundscapeEnabled) { _, wanted in audio.soundscapeEnabled = wanted }
+        // A hand waved at the front camera, touching whichever world is on screen.
+        .onChange(of: cameraSenses.hand) { was, now in handMoved(from: was, to: now) }
+        // A head moved in front of it, turning the field's view.
+        .onChange(of: cameraSenses.headTurn.yaw) { _, _ in followHead() }
+        .onChange(of: cameraSenses.headTurn.pitch) { _, _ in followHead() }
+        .onChange(of: cameraSenses.watchesHead) { _, _ in followHead() }
         // A movie's clip, finished, offered straight away to be kept or sent.
         .onChange(of: field.finishedClip) { _, clip in
             guard let clip else { return }
@@ -528,6 +549,10 @@ struct ContentView: View {
                 onShowRoom: {
                     showingSettings = false
                     showingRoom = true
+                },
+                onShowSenses: {
+                    showingSettings = false
+                    showingSenses = true
                 },
                 roomSummary: roomSummary,
                 onShowCloud: {
@@ -591,6 +616,17 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingNotebook) {
             NotebookSheet(store: notebook)
+        }
+        .sheet(isPresented: $showingSenses) {
+            SensesSheet(speech: speech, camera: cameraSenses) {
+                showingSenses = false
+                // The back camera is the table's; the front one is let go first rather than fought over.
+                cameraSenses.setWatchesHands(false)
+                cameraSenses.setWatchesHead(false)
+                if chamber != .powder { select(.powder) }
+                breadcrumbs.record("put the powder world on a table")
+                showingTable = true
+            }
         }
         .sheet(isPresented: $showingParallel) {
             ParallelWorldsSheet { change in
@@ -664,6 +700,74 @@ struct ContentView: View {
             let picture = chamber == .powder ? powder.snapshot() : field.snapshot()
             report = breadcrumbs.reportNow(picture: picture)
         }
+    }
+
+    // MARK: - Talk, wave, look
+
+    /// Tells the speech listener every name it can be asked for, and what to do with what it understands.
+    private func listenForSpeech() {
+        speech.materials = VoiceCommands.materialNames(powder.paletteElements(category: nil, search: ""))
+        speech.arrangements = ParticleArrangement.all.map { VoiceCommands.Name($0.name, id: $0.id) }
+        speech.scenes = allPowderRecipes.map { VoiceCommands.Name($0.name, id: $0.id) }
+        speech.onCommand = { command in perform(command) }
+    }
+
+    /// Does what was said.
+    private func perform(_ command: LabVoiceCommand) {
+        breadcrumbs.record("was told \(command.said { powder.definition(of: $0).name })")
+        switch command {
+        case .play: if !isRunning { toggleRunning() }
+        case .pause: if isRunning { toggleRunning() }
+        case .clear: if chamber == .powder { powder.clear() } else { field.clear() }
+        case .undo: if chamber == .powder { powder.undo() } else { field.undo() }
+        case let .choose(id):
+            if chamber != .powder { select(.powder) }
+            powder.brushElement = id
+        case let .pour(id):
+            if chamber != .powder { select(.powder) }
+            powder.pour(id)
+        case .explode: runEvent(.blast)
+        case .flip:
+            if chamber != .powder { select(.powder) }
+            powder.flipUpsideDown()
+        case .faster, .slower:
+            let faster = command == .faster
+            if chamber == .powder { powder.changeSpeed(faster: faster) } else {
+                field.speed = max(0.25, min(4, faster ? field.speed * 2 : field.speed / 2))
+            }
+        case .biggerBrush: powder.changeBrush(bigger: true)
+        case .smallerBrush: powder.changeBrush(bigger: false)
+        case .powderChamber: select(.powder)
+        case .fieldChamber: select(.field)
+        case let .arrangement(id):
+            if chamber != .field { select(.field) }
+            field.loadPreset(id)
+        case let .scene(id):
+            if chamber != .powder { select(.powder) }
+            if let recipe = allPowderRecipes.first(where: { $0.id == id }) { powder.loadScene(recipe) }
+        }
+        Haptics.selection()
+    }
+
+    /// A hand at the front camera: in the field it pushes or pulls; in the powder world a pinch paints.
+    private func handMoved(from was: HandTouch?, to now: HandTouch?) {
+        switch chamber {
+        case .field:
+            field.applyHand(now)
+        case .powder:
+            let wasPainting = was?.grabbing == true
+            if let now, now.grabbing {
+                if !wasPainting { powder.beginStroke(atFractionX: now.x, fractionY: now.y) }
+                powder.paint(atFractionX: now.x, fractionY: now.y)
+            } else if wasPainting {
+                powder.endStroke()
+            }
+        }
+    }
+
+    /// Hands the head's turn to the field, or takes it away.
+    private func followHead() {
+        field.headLook = cameraSenses.watchesHead ? cameraSenses.headTurn : nil
     }
 
     // MARK: - The lab book

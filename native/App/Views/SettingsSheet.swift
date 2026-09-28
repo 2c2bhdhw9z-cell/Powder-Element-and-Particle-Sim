@@ -26,6 +26,8 @@ struct SettingsSheet: View {
     let onShowDiagnostics: () -> Void
     let onShowHelp: () -> Void
     let onShowRoom: () -> Void
+    /// Opens talking, waving, looking round with your head, and the table.
+    let onShowSenses: () -> Void
     /// What the room row should say about itself, so somebody already in a room can see that from here.
     let roomSummary: String
     let onShowCloud: () -> Void
@@ -244,6 +246,13 @@ struct SettingsSheet: View {
                 detail: roomSummary,
                 symbol: "person.2",
                 action: onShowRoom
+            )
+            LabDivider()
+            LabAction(
+                label: "Talk, wave, look",
+                detail: "Speak to the lab, wave at it, look round with your head, or put it on a table",
+                symbol: "waveform.and.person.filled",
+                action: onShowSenses
             )
             LabDivider()
             LabAction(

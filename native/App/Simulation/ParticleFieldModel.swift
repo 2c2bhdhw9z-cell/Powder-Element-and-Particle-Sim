@@ -2906,6 +2906,42 @@ final class ParticleFieldModel {
         stopTurntable()
     }
 
+    // MARK: - A hand and a head, through the front camera
+
+    /// How far a head moved in front of the camera has turned the view, in degrees, while that is on. See
+    /// `CameraSenses`.
+    @ObservationIgnored var headLook: (yaw: Double, pitch: Double)?
+    /// Whether a hand is touching the field now, and what the tool was before it began, to put back.
+    @ObservationIgnored private var handWasTouching = false
+    @ObservationIgnored private var modeBeforeHand: ParticleMouseMode?
+
+    /// A hand waved at the field touches it where it is: an open hand pushes, a pinch pulls. Nothing, and the touch
+    /// lets go.
+    func applyHand(_ hand: HandTouch?) {
+        guard let hand else {
+            guard handWasTouching else { return }
+            handWasTouching = false
+            touchActive = false
+            if let modeBeforeHand { engine.mouseMode = modeBeforeHand }
+            modeBeforeHand = nil
+            return
+        }
+        if !handWasTouching {
+            handWasTouching = true
+            modeBeforeHand = engine.mouseMode
+        }
+        engine.mouseMode = hand.grabbing ? .attract : .repel
+        let view = viewPixels
+        let place = camera.unproject(
+            screenX: hand.x * view.width, screenY: hand.y * view.height,
+            worldWidth: engine.width, worldHeight: engine.height,
+            viewWidth: view.width, viewHeight: view.height
+        )
+        touchX = place.x
+        touchY = place.y
+        touchActive = true
+    }
+
     // MARK: - Worlds within worlds
 
     /// One world outside the one on screen, kept exactly so coming back out finds it as it was left.
@@ -3847,6 +3883,12 @@ final class ParticleFieldModel {
     /// The camera as it is drawn and touched: the one set, turned by however far the phone has been moved to
     /// look round.
     private var drawingCamera: ParticleCamera {
+        // A head moved in front of the camera, when that is on, and otherwise the phone tipped.
+        if engine.depthEnabled, let head = headLook {
+            var turned = storedCamera
+            turned.orbit(byYaw: head.yaw, pitch: head.pitch)
+            return turned
+        }
         guard engine.depthEnabled, let look = lookSensor, look.isRunning else { return storedCamera }
         var turned = storedCamera
         turned.orbit(byYaw: look.yaw, pitch: look.pitch)

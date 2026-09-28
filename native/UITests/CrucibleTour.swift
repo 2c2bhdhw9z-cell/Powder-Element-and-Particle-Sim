@@ -704,6 +704,57 @@ final class CrucibleTour: XCTestCase {
         picture(app, "52 Back in the galaxy")
     }
 
+    /// Talk, wave, look, and the table: each switched on, which on a simulated phone means a question about permission
+    /// and then no microphone or camera to be had.
+    ///
+    /// That is honestly all a simulated phone can show, and it is still worth walking: asking for a permission and
+    /// then finding no camera is the path a real phone takes when somebody says no, and the app has to survive it and
+    /// say why. Whether the lab really hears and sees can only be found on a phone.
+    func testTalkWaveLook() {
+        let app = launch()
+        tap("header.menu", "the menu", in: app)
+        guard let row = find("row.Talk, wave, look", in: app, scrollingIn: panelScroll(in: app)) else {
+            XCTFail("talking, waving and looking were not offered in the Lab panel")
+            report(app, "No senses row")
+            return
+        }
+        row.tap()
+        stillRunning(app, after: "opening talk, wave, look")
+        picture(app, "53 Talk, wave, look")
+
+        for (id, what) in [
+            ("switch.Listen for what I say", "asking to listen"),
+            ("switch.Watch for my hand", "asking to watch for a hand"),
+            ("switch.Follow my head", "asking to follow a head"),
+        ] {
+            guard isRunning(app) else { return }
+            guard let toggle = find(id, in: app, kind: .switch, scrollingIn: panelScroll(in: app)) else {
+                XCTFail("\(id) was not in the panel")
+                report(app, "\(id) missing")
+                continue
+            }
+            toggle.tap()
+            // The system's question about permission, answered by the walk's own handler, and then whatever the
+            // simulated phone has to say about having no microphone or camera.
+            Thread.sleep(forTimeInterval: 2)
+            stillRunning(app, after: what)
+        }
+        picture(app, "54 Talk, wave, look, switched on")
+
+        if let table = find("row.Put it on a table", in: app, scrollingIn: panelScroll(in: app)) {
+            table.tap()
+            stillRunning(app, after: "putting the world on a table")
+            if element("table.close", in: app).waitForExistence(timeout: 10) {
+                picture(app, "55 On your table")
+                tap("table.close", "closing the table", in: app)
+            } else {
+                XCTFail("the table view did not open")
+                report(app, "No table view")
+            }
+        }
+        stillRunning(app, after: "coming back from the table")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {
