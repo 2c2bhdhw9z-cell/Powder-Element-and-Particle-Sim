@@ -35,6 +35,7 @@ final class CameraSenses {
     @ObservationIgnored private var watcher: FrameWatcher?
     @ObservationIgnored private var steering = HandSteering()
     @ObservationIgnored private var look = HeadLook()
+    @ObservationIgnored private var sceneIsActive = true
 
     var isRunning: Bool { session != nil }
 
@@ -55,7 +56,14 @@ final class CameraSenses {
     /// Takes where the head is now as straight on.
     func recentre() { look.recentre() }
 
+    /// Stops the camera while away without changing either switch, then resumes what was wanted on return.
+    func sceneChanged(active: Bool) {
+        sceneIsActive = active
+        if active { refresh() } else { stop() }
+    }
+
     private func refresh() {
+        guard sceneIsActive else { stop(); return }
         if watchesHands || watchesHead {
             watcher?.wants(hands: watchesHands, face: watchesHead)
             if session == nil { start() }
@@ -68,7 +76,7 @@ final class CameraSenses {
         problem = nil
         Task { @MainActor [weak self] in
             let granted = await AVCaptureDevice.requestAccess(for: .video)
-            guard let self, self.watchesHands || self.watchesHead else { return }
+            guard let self, self.sceneIsActive, self.watchesHands || self.watchesHead else { return }
             guard granted else {
                 self.problem = "Crucible needs permission to use the front camera. It is in Settings, under Crucible."
                 return

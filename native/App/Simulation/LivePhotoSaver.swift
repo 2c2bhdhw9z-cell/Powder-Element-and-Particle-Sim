@@ -20,14 +20,18 @@ enum LivePhotoSaver {
     /// Saves the pair. Tells `done` what happened, in words, on the main thread.
     static func save(video: URL, still: UIImage, pairing: String, done: @escaping @MainActor @Sendable (String) -> Void) {
         guard let picture = writeStill(still, pairing: pairing) else {
+            try? FileManager.default.removeItem(at: video)
             Task { @MainActor in done("The still picture could not be written, so there is no Live Photo.") }
             return
         }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
-                Task { @MainActor in
-                    done("Crucible needs permission to add to your photos. It is in Settings, under Crucible.")
-                }
+                finish(
+                    "Crucible needs permission to add to your photos. It is in Settings, under Crucible.",
+                    picture: picture,
+                    video: video,
+                    done: done
+                )
                 return
             }
             PHPhotoLibrary.shared().performChanges({
@@ -38,9 +42,20 @@ enum LivePhotoSaver {
                 let said = saved
                     ? "Saved to Photos as a Live Photo. Press on it there to see it move."
                     : "It could not be saved: \(error?.localizedDescription ?? "the library said no")."
-                Task { @MainActor in done(said) }
+                finish(said, picture: picture, video: video, done: done)
             })
         }
+    }
+
+    private static func finish(
+        _ message: String,
+        picture: URL,
+        video: URL,
+        done: @escaping @MainActor @Sendable (String) -> Void
+    ) {
+        try? FileManager.default.removeItem(at: picture)
+        try? FileManager.default.removeItem(at: video)
+        Task { @MainActor in done(message) }
     }
 
     /// The still, as a JPEG carrying the identifier where the camera would put it.

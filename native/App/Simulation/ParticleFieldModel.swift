@@ -224,6 +224,8 @@ final class ParticleFieldModel {
     /// Made only when asked for. Holding one from the start would show the microphone indicator in the
     /// status bar for the whole life of the app, which is alarming and untrue.
     private(set) var listener: AudioListener?
+    @ObservationIgnored private var listeningWanted = false
+    @ObservationIgnored private var hardwareSceneIsActive = true
 
     /// Which signals drive which settings.
     var audioMappings: [ParticleAudioMapping] = ParticleAudio.defaultMappings
@@ -247,9 +249,10 @@ final class ParticleFieldModel {
 
     /// Starts or stops listening.
     func setListening(_ shouldListen: Bool) {
+        listeningWanted = shouldListen
         if shouldListen {
             if listener == nil { listener = AudioListener() }
-            listener?.start()
+            if hardwareSceneIsActive { listener?.start() }
         } else {
             listener?.stop()
             // Put back whatever sound was changing, so switching it off restores the field exactly.
@@ -257,6 +260,18 @@ final class ParticleFieldModel {
             listener = nil
         }
         engineDidChange()
+    }
+
+    /// Stops microphones/media while the app is away and resumes only the listening switch that remains wanted.
+    func hardwareSceneChanged(active: Bool) {
+        hardwareSceneIsActive = active
+        if active {
+            if listeningWanted { listener?.start() }
+        } else {
+            listener?.stop()
+            restoreFromMusic()
+            cancelLivePhotoBecauseAppLeft()
+        }
     }
 
     /// What the settings were before sound started changing them.
@@ -3237,6 +3252,8 @@ final class ParticleFieldModel {
     var livePhotoNote: String?
     /// When the Live Photo began, on the frame clock. Negative until its first frame.
     @ObservationIgnored private var liveStartedAt = -1.0
+    /// Set when recording is interrupted; the writer may still finish its queue, but its partial file must not be shared.
+    @ObservationIgnored private var discardFinishedLiveClip = false
     /// How long a Live Photo runs, in seconds: the length of the phone's own.
     static let liveSeconds = 3.0
 
@@ -3262,6 +3279,7 @@ final class ParticleFieldModel {
         clipPairing = UUID().uuidString
         liveStill = nil
         liveStartedAt = -1
+        discardFinishedLiveClip = false
         livePhotoNote = "Recording three seconds…"
         clipProblem = nil
         isRecordingClip = true
@@ -3272,6 +3290,13 @@ final class ParticleFieldModel {
         guard clipPairing != nil, isRecordingClip, !isPlayingMovie else { return }
         if liveStartedAt < 0 { liveStartedAt = now }
         if (now - liveStartedAt) / 1000 >= Self.liveSeconds { isRecordingClip = false }
+    }
+
+    private func cancelLivePhotoBecauseAppLeft() {
+        guard clipPairing != nil, isRecordingClip else { return }
+        discardFinishedLiveClip = true
+        isRecordingClip = false
+        livePhotoNote = "Recording stopped because Crucible left the screen. Nothing was saved."
     }
     /// Why the last clip could not be made, if it could not.
     var clipProblem: String?
@@ -3333,6 +3358,13 @@ final class ParticleFieldModel {
 
     /// Told by the field's view once a clip is written, or could not be.
     func clipDidFinish(_ url: URL?, problem: String?) {
+        if discardFinishedLiveClip {
+            if let url { try? FileManager.default.removeItem(at: url) }
+            clipPairing = nil
+            discardFinishedLiveClip = false
+            liveStill = nil
+            return
+        }
         guard let pairing = clipPairing else {
             finishedClip = url
             clipProblem = problem

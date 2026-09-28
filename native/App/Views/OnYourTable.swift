@@ -21,12 +21,20 @@ struct OnYourTable: View {
     let model: SimulationModel
     let onClose: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var placed = false
+    @State private var problem: String?
 
     var body: some View {
+        let supported = ARWorldTrackingConfiguration.isSupported
         ZStack(alignment: .top) {
-            if ARWorldTrackingConfiguration.isSupported {
-                TableARView(model: model, placed: $placed)
+            if supported {
+                TableARView(
+                    model: model,
+                    placed: $placed,
+                    problem: $problem,
+                    active: scenePhase == .active
+                )
                     .ignoresSafeArea()
             } else {
                 Palette.background.ignoresSafeArea()
@@ -38,13 +46,15 @@ struct OnYourTable: View {
                     .frame(maxHeight: .infinity)
             }
             HStack {
-                Text(placed ? "Walk round it. Tap somewhere else to move it." : "Point at a table and tap it.")
-                    .font(.labBody(12, .medium))
-                    .foregroundStyle(Palette.foreground)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Palette.elevated.opacity(0.85)))
-                    .accessibilityIdentifier("table.hint")
+                if supported {
+                    Text(problem ?? (placed ? "Walk round it. Tap somewhere else to move it." : "Point at a table and tap it."))
+                        .font(.labBody(12, .medium))
+                        .foregroundStyle(problem == nil ? Palette.foreground : Palette.warn)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Palette.elevated.opacity(0.85)))
+                        .accessibilityIdentifier("table.hint")
+                }
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -68,25 +78,27 @@ struct OnYourTable: View {
 struct TableARView: UIViewRepresentable {
     let model: SimulationModel
     @Binding var placed: Bool
+    @Binding var problem: String?
+    let active: Bool
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(model: model, placed: $placed)
+        Coordinator(model: model, placed: $placed, problem: $problem)
     }
 
     func makeUIView(context: Context) -> ARSCNView {
         let view = ARSCNView(frame: .zero)
         view.automaticallyUpdatesLighting = true
         view.scene = SCNScene()
-        let configuration = ARWorldTrackingConfiguration()
-        configuration.planeDetection = [.horizontal]
-        view.session.run(configuration)
         let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
         view.addGestureRecognizer(tap)
         context.coordinator.start(on: view)
+        context.coordinator.setActive(active)
         return view
     }
 
-    func updateUIView(_ view: ARSCNView, context: Context) {}
+    func updateUIView(_ view: ARSCNView, context: Context) {
+        context.coordinator.setActive(active)
+    }
 
     static func dismantleUIView(_ view: ARSCNView, coordinator: Coordinator) {
         coordinator.stop()
@@ -97,7 +109,9 @@ struct TableARView: UIViewRepresentable {
     final class Coordinator: NSObject {
         private let model: SimulationModel
         private var placed: Binding<Bool>
+        private var problem: Binding<String?>
         private weak var view: ARSCNView?
+        private var sessionIsRunning = false
         private var slab: SCNNode?
         private var link: CADisplayLink?
         private var lastPicture = 0.0
@@ -105,9 +119,10 @@ struct TableARView: UIViewRepresentable {
         /// How wide the world is on the table, in metres: about the size of a tray.
         static let width: CGFloat = 0.32
 
-        init(model: SimulationModel, placed: Binding<Bool>) {
+        init(model: SimulationModel, placed: Binding<Bool>, problem: Binding<String?>) {
             self.model = model
             self.placed = placed
+            self.problem = problem
         }
 
         func start(on view: ARSCNView) {
@@ -121,6 +136,22 @@ struct TableARView: UIViewRepresentable {
         func stop() {
             link?.invalidate()
             link = nil
+            view?.session.pause()
+            sessionIsRunning = false
+        }
+
+        func setActive(_ active: Bool) {
+            guard let view else { return }
+            if active, !sessionIsRunning {
+                let configuration = ARWorldTrackingConfiguration()
+                configuration.planeDetection = [.horizontal]
+                view.session.run(configuration)
+                sessionIsRunning = true
+                problem.wrappedValue = nil
+            } else if !active, sessionIsRunning {
+                view.session.pause()
+                sessionIsRunning = false
+            }
         }
 
         @objc func tapped(_ gesture: UITapGestureRecognizer) {
@@ -128,7 +159,11 @@ struct TableARView: UIViewRepresentable {
             let point = gesture.location(in: view)
             guard let query = view.raycastQuery(from: point, allowing: .estimatedPlane, alignment: .horizontal),
                   let hit = view.session.raycast(query).first
-            else { return }
+            else {
+                problem.wrappedValue = "No table was found at that tap. Move the phone slowly and try again."
+                return
+            }
+            problem.wrappedValue = nil
             let node = slab ?? makeSlab()
             node.simdTransform = hit.worldTransform
             if slab == nil {

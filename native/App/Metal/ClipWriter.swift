@@ -67,6 +67,8 @@ final class ClipWriter: @unchecked Sendable {
     private var lastFrameAt = -1.0
     /// Read and written only in ``queue``.
     private var written = 0
+    private var pendingStillTime: CMTime?
+    private var stillMetadataWritten = false
     private var isFinished = false
 
     /// Starts a clip the size of the field's picture, or returns nothing if the phone will not make one.
@@ -191,26 +193,38 @@ final class ClipWriter: @unchecked Sendable {
         guard pairing != nil, !stillTaken, let startedAt, now - startedAt >= Self.stillAt else { return false }
         stillTaken = true
         let at = CMTime(seconds: now - startedAt, preferredTimescale: 600)
-        let track = StillBox(stillTrack)
-        // Made on the writer's own queue: the pieces of a metadata group are not safe to hand between threads, and a
-        // time is.
+        // The metadata input can briefly be busy. Keep the time and retry from every following video frame instead of
+        // marking it done before it was actually written and later claiming an ordinary movie was a Live Photo.
         queue.async { [self] in
-            guard !isFinished, let adaptor = track.adaptor, adaptor.assetWriterInput.isReadyForMoreMediaData else { return }
-            let item = AVMutableMetadataItem()
-            item.keySpace = .quickTimeMetadata
-            item.key = "com.apple.quicktime.still-image-time" as NSString
-            item.value = 0 as NSNumber
-            item.dataType = "com.apple.metadata.datatype.int8"
-            let range = CMTimeRange(start: at, duration: CMTime(value: 20, timescale: 600))
-            adaptor.append(AVTimedMetadataGroup(items: [item], timeRange: range))
+            guard !isFinished else { return }
+            pendingStillTime = at
+            appendStillMetadataIfReady()
         }
         return true
+    }
+
+    /// Writes the Live Photo's still marker when its input is ready. Called only on ``queue``.
+    private func appendStillMetadataIfReady() {
+        guard !stillMetadataWritten, let at = pendingStillTime, let adaptor = stillTrack,
+              adaptor.assetWriterInput.isReadyForMoreMediaData
+        else { return }
+        let item = AVMutableMetadataItem()
+        item.keySpace = .quickTimeMetadata
+        item.key = "com.apple.quicktime.still-image-time" as NSString
+        item.value = 0 as NSNumber
+        item.dataType = "com.apple.metadata.datatype.int8"
+        let range = CMTimeRange(start: at, duration: CMTime(value: 20, timescale: 600))
+        if adaptor.append(AVTimedMetadataGroup(items: [item], timeRange: range)) {
+            stillMetadataWritten = true
+            pendingStillTime = nil
+        }
     }
 
     /// Writes a drawn frame into the clip, with the caption laid over it. Called once the drawing has finished.
     func write(_ frame: Frame, caption: String?, opacity: Double) {
         queue.async { [self] in
             guard !isFinished else { return }
+            appendStillMetadataIfReady()
             if let caption, opacity > 0.01 {
                 burn(caption, opacity: opacity, into: frame.pixels)
             }
@@ -228,9 +242,17 @@ final class ClipWriter: @unchecked Sendable {
         queue.async { [self] in
             guard !isFinished else { return }
             isFinished = true
+            appendStillMetadataIfReady()
             guard written > 0 else {
                 writer.cancelWriting()
+                try? FileManager.default.removeItem(at: url)
                 done(nil, "Nothing was recorded: the movie stopped before its first frame.")
+                return
+            }
+            if pairing != nil, !stillMetadataWritten {
+                writer.cancelWriting()
+                try? FileManager.default.removeItem(at: url)
+                done(nil, "The Live Photo's still-time marker could not be written, so nothing was saved.")
                 return
             }
             input.markAsFinished()
@@ -241,6 +263,7 @@ final class ClipWriter: @unchecked Sendable {
                 if writer.status == .completed {
                     done(url, nil)
                 } else {
+                    try? FileManager.default.removeItem(at: url)
                     done(nil, writer.error?.localizedDescription ?? "The clip could not be finished.")
                 }
             }
@@ -305,10 +328,4 @@ final class ClipWriter: @unchecked Sendable {
         context.textPosition = CGPoint(x: x, y: baseline)
         CTLineDraw(text, context)
     }
-}
-
-/// The still-time track, carried onto the writer's queue.
-final class StillBox: @unchecked Sendable {
-    let adaptor: AVAssetWriterInputMetadataAdaptor?
-    init(_ adaptor: AVAssetWriterInputMetadataAdaptor?) { self.adaptor = adaptor }
 }

@@ -484,6 +484,11 @@ struct ContentView: View {
         // is the last reliable moment to keep anything — a timer alone would lose up to eight
         // seconds of work every time.
         .onChange(of: scenePhase) { _, phase in
+            let active = phase == .active
+            cameraSenses.sceneChanged(active: active)
+            speech.sceneChanged(active: active)
+            field.hardwareSceneChanged(active: active)
+            room?.session.sceneChanged(active: active)
             // The lab book has its own pause-aware active clock; it is the one thing here that must distinguish a
             // genuinely slow foreground frame from time the app spent away.
             powder.labBookSceneChanged(active: phase == .active)

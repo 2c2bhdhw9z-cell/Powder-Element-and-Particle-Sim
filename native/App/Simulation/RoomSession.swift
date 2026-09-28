@@ -58,6 +58,10 @@ enum RoomTransportEvent: Sendable {
 /// assumption left is that Apple's own objects tolerate being used from more than one queue, which is
 /// how every implementation of this framework is written and what its API shape requires.
 final class RoomTransport: NSObject, @unchecked Sendable {
+    /// Largest packet accepted before copying Foundation's Data into a byte array. The largest app world is 600,000
+    /// cells plus a short header, so one megabyte leaves room without letting a peer force an arbitrary allocation.
+    static let maximumPacketBytes = 1_000_000
+
     /// Must be fifteen characters or fewer, lower case letters, digits and hyphens. This is thirteen.
     static let serviceType = "crucible-room"
     /// The key the room code travels under, in what a peer advertises.
@@ -155,6 +159,10 @@ extension RoomTransport: MCSessionDelegate {
     }
 
     func session(_: MCSession, didReceive data: Data, fromPeer peerID: MCPeerID) {
+        guard data.count <= Self.maximumPacketBytes else {
+            publish.yield(.failed("A room packet was too large to be safe, so it was refused."))
+            return
+        }
         publish.yield(.received([UInt8](data), from: peerID.displayName))
     }
 
@@ -354,6 +362,14 @@ final class RoomSession {
         isHost = true
         isCurrent = false
         framesPerSecond = 0
+    }
+
+    /// Nearby discovery cannot continue reliably in the background. Close truthfully rather than leave both phones
+    /// claiming a room is connected while iOS has suspended its radio work.
+    func sceneChanged(active: Bool) {
+        guard !active, status != .closed else { return }
+        leave()
+        problem = "The shared room closed while Crucible was away. Open or join it again to continue."
     }
 
     /// Clears a reported problem, once somebody has read it.

@@ -39,28 +39,36 @@ final class SpeechListener {
     @ObservationIgnored private var recogniser = SFSpeechRecognizer(locale: Locale(identifier: "en-GB"))
         ?? SFSpeechRecognizer()
     @ObservationIgnored private var listener = VoiceCommandListener()
+    @ObservationIgnored private var wantsListening = false
+    @ObservationIgnored private var recognitionFailures = 0
     /// Which round of listening this is, so a result arriving late from a round already ended is ignored.
     @ObservationIgnored private var round = 0
 
     /// Asks for permission if it has not been given, and starts listening.
     func start() {
+        wantsListening = true
         guard !isListening else { return }
         problem = nil
-        guard !AudioSessionUsers.microphone else {
+        guard AudioSessionUsers.claimMicrophone(for: .speech) else {
+            wantsListening = false
             problem = "The microphone is already listening to music. Switch Listen off first."
             return
         }
         Task { @MainActor [weak self] in
             let speech = await Self.speechPermission()
+            guard let self, self.wantsListening, AudioSessionUsers.microphone == .speech else { return }
+            guard speech else {
+                self.fail("Crucible needs permission to recognise speech. It is in Settings, under Crucible.")
+                return
+            }
             let microphone = await AVAudioApplication.requestRecordPermission()
-            guard let self else { return }
-            guard speech, microphone else {
-                self.problem = "Crucible needs permission to use the microphone and to recognise speech. "
-                    + "Both are in Settings, under Crucible."
+            guard self.wantsListening, AudioSessionUsers.microphone == .speech else { return }
+            guard microphone else {
+                self.fail("Crucible needs permission to use the microphone. It is in Settings, under Crucible.")
                 return
             }
             guard let recogniser = self.recogniser, recogniser.isAvailable else {
-                self.problem = "Speech recognition is not available on this phone just now."
+                self.fail("Speech recognition is not available on this phone just now.")
                 return
             }
             self.begin(with: recogniser)
@@ -69,6 +77,20 @@ final class SpeechListener {
 
     /// Stops listening and gives the microphone back.
     func stop() {
+        wantsListening = false
+        stopHardware()
+    }
+
+    /// Stops hardware while the app is away and resumes only if the switch is still wanted.
+    func sceneChanged(active: Bool) {
+        if active {
+            if wantsListening, !isListening { start() }
+        } else {
+            stopHardware()
+        }
+    }
+
+    private func stopHardware() {
         round += 1
         task?.cancel()
         task = nil
@@ -77,9 +99,8 @@ final class SpeechListener {
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
-        guard isListening else { return }
         isListening = false
-        AudioSessionUsers.microphone = false
+        AudioSessionUsers.releaseMicrophone(for: .speech)
         let session = AVAudioSession.sharedInstance()
         if AudioSessionUsers.speaker {
             try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
@@ -100,14 +121,14 @@ final class SpeechListener {
             try session.setCategory(.playAndRecord, mode: .measurement, options: [.mixWithOthers, .defaultToSpeaker])
             try session.setActive(true)
         } catch {
-            problem = "The microphone could not be opened."
+            fail("The microphone could not be opened.")
             return
         }
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            problem = "This phone reported no microphone."
+            fail("This phone reported no microphone.")
             return
         }
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -119,14 +140,21 @@ final class SpeechListener {
             try engine.start()
         } catch {
             input.removeTap(onBus: 0)
-            problem = "The microphone could not be started."
+            engine.stop()
+            fail("The microphone could not be started.")
             return
         }
         self.engine = engine
         self.request = request
+        recognitionFailures = 0
         isListening = true
-        AudioSessionUsers.microphone = true
         listen(with: recogniser, request: request)
+    }
+
+    private func fail(_ message: String) {
+        problem = message
+        wantsListening = false
+        stopHardware()
     }
 
     /// One round of recognition. The recogniser ends a round by itself after about a minute, or after a pause; each
@@ -146,16 +174,18 @@ final class SpeechListener {
     ) -> @Sendable (SFSpeechRecognitionResult?, Error?) -> Void {
         { [weak listener] result, error in
             let words = result?.bestTranscription.formattedString
-            let finished = result?.isFinal ?? false || error != nil
+            let failed = error != nil
+            let finished = result?.isFinal ?? false || failed
             Task { @MainActor in
                 guard let listener, listener.round == round else { return }
                 if let words { listener.heard(words) }
-                if finished { listener.roundEnded() }
+                if finished { listener.roundEnded(failed: failed) }
             }
         }
     }
 
     private func heard(_ words: String) {
+        recognitionFailures = 0
         lastHeard = words
         guard let command = listener.heard(words, materials: materials, arrangements: arrangements, scenes: scenes)
         else { return }
@@ -165,8 +195,17 @@ final class SpeechListener {
 
     /// A round has ended. Another begins on a fresh request, still on the same microphone, for as long as listening
     /// is on.
-    private func roundEnded() {
+    private func roundEnded(failed: Bool) {
         guard isListening, let engine, let recogniser else { return }
+        if failed {
+            recognitionFailures += 1
+            guard recognitionFailures < 3 else {
+                fail("Speech recognition kept stopping. Try again when the phone has a better connection.")
+                return
+            }
+        } else {
+            recognitionFailures = 0
+        }
         task = nil
         request?.endAudio()
         let fresh = SFSpeechAudioBufferRecognitionRequest()

@@ -31,6 +31,8 @@ final class AudioListener {
     @ObservationIgnored
     private var engine: AVAudioEngine?
     @ObservationIgnored
+    private var wantsListening = false
+    @ObservationIgnored
     private var follower = ParticleAudioFollower()
 
     /// How many samples go into one look at the frequencies.
@@ -91,16 +93,29 @@ final class AudioListener {
 
     /// Starts listening, asking for permission if it has not been given.
     func start() {
+        wantsListening = true
         guard !isListening else { return }
         problem = nil
+        guard transform != nil else {
+            wantsListening = false
+            problem = "This phone could not prepare its sound analyser."
+            return
+        }
+        guard AudioSessionUsers.claimMicrophone(for: .music) else {
+            wantsListening = false
+            problem = "The microphone is already listening for speech. Switch Talk off first."
+            return
+        }
 
         // Asked by waiting rather than with a callback. The callback arrives on a background thread, and a
         // callback written inside this main-thread-only class is treated as belonging to the main thread —
         // which in this language mode is checked as it runs, and stops the app.
         Task { @MainActor [weak self] in
             let granted = await AVAudioApplication.requestRecordPermission()
-            guard let self else { return }
+            guard let self, self.wantsListening, AudioSessionUsers.microphone == .music else { return }
             guard granted else {
+                self.wantsListening = false
+                AudioSessionUsers.releaseMicrophone(for: .music)
                 self.problem = "Crucible needs permission to use the microphone. "
                     + "It is in Settings, under Crucible."
                 return
@@ -111,13 +126,14 @@ final class AudioListener {
 
     /// Stops listening and releases the microphone.
     func stop() {
+        wantsListening = false
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         engine = nil
         isListening = false
         follower.reset()
         signal = .silence
-        AudioSessionUsers.microphone = false
+        AudioSessionUsers.releaseMicrophone(for: .music)
         let session = AVAudioSession.sharedInstance()
         if AudioSessionUsers.speaker {
             // The app's own sounds are still using the session, so it is put back into their mode rather
@@ -144,7 +160,7 @@ final class AudioListener {
             )
             try session.setActive(true)
         } catch {
-            problem = "The microphone could not be opened."
+            fail("The microphone could not be opened.")
             return
         }
 
@@ -152,7 +168,7 @@ final class AudioListener {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            problem = "This device reported no microphone."
+            fail("This device reported no microphone.")
             return
         }
 
@@ -168,12 +184,25 @@ final class AudioListener {
         do {
             try engine.start()
         } catch {
-            problem = "The microphone could not be started."
+            input.removeTap(onBus: 0)
+            engine.stop()
+            fail("The microphone could not be started.")
             return
         }
         self.engine = engine
         isListening = true
-        AudioSessionUsers.microphone = true
+    }
+
+    private func fail(_ message: String) {
+        wantsListening = false
+        problem = message
+        AudioSessionUsers.releaseMicrophone(for: .music)
+        let session = AVAudioSession.sharedInstance()
+        if AudioSessionUsers.speaker {
+            try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+        } else {
+            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     /// What runs on the audio thread for every window of sound.

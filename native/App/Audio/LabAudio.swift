@@ -34,8 +34,23 @@ import Observation
 /// neither changes it out from under the other.
 @MainActor
 enum AudioSessionUsers {
-    static var microphone = false
+    enum MicrophoneOwner: Equatable {
+        case music
+        case speech
+    }
+
+    private(set) static var microphone: MicrophoneOwner?
     static var speaker = false
+
+    static func claimMicrophone(for owner: MicrophoneOwner) -> Bool {
+        guard microphone == nil || microphone == owner else { return false }
+        microphone = owner
+        return true
+    }
+
+    static func releaseMicrophone(for owner: MicrophoneOwner) {
+        if microphone == owner { microphone = nil }
+    }
 }
 
 @MainActor
@@ -202,7 +217,7 @@ final class LabAudio {
             let session = AVAudioSession.sharedInstance()
             // Ambient: the silent switch works, and other audio is left alone. Not while the microphone is
             // open, whose record-and-play mode already plays sound — switching to ambient would stop it.
-            if !AudioSessionUsers.microphone {
+            if AudioSessionUsers.microphone == nil {
                 try session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
             }
             try session.setActive(true)
@@ -283,7 +298,7 @@ final class LabAudio {
         // Let go of the session, so the app stops appearing in the now-playing machinery and stops
         // holding any audio hardware awake — unless the microphone is still using it.
         AudioSessionUsers.speaker = false
-        if !AudioSessionUsers.microphone {
+        if AudioSessionUsers.microphone == nil {
             try? AVAudioSession.sharedInstance().setActive(false)
         }
         // Cleared so that turning sound back on plays immediately rather than waiting out an
