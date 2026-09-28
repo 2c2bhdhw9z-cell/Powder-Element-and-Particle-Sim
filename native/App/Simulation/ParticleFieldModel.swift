@@ -1170,6 +1170,7 @@ final class ParticleFieldModel {
         advanceFlight()
         // And the movie, which is a way of looking too, so it plays on a paused field as well.
         advanceMovie(now: now)
+        advanceLivePhoto(now: now)
 
         // Sound is applied before the pause check as well: a paused field reacting to music is a
         // perfectly sensible thing to want, and it is how somebody would set the mappings up in the first
@@ -3206,6 +3207,50 @@ final class ParticleFieldModel {
     private(set) var movieCaptionOpacity = 0.0
     /// A clip that has just been finished, waiting to be handed to somebody.
     var finishedClip: URL?
+    /// While a Live Photo is being recorded, the identifier that pairs its video with its still. See `LivePhotoSaver`.
+    private(set) var clipPairing: String?
+    /// The Live Photo's still picture, once the frame it is taken from has been drawn.
+    @ObservationIgnored var liveStill: UIImage?
+    /// What happened to the last Live Photo, in words.
+    var livePhotoNote: String?
+    /// When the Live Photo began, on the frame clock. Negative until its first frame.
+    @ObservationIgnored private var liveStartedAt = -1.0
+    /// How long a Live Photo runs, in seconds: the length of the phone's own.
+    static let liveSeconds = 3.0
+
+    /// A 3D moment just written, waiting to be handed to somebody. See `ParticleMoment3D.swift`.
+    var momentFile: URL?
+
+    /// Writes the field as it is now as a file that opens in 3D, and offers it to be sent.
+    func sendMoment3D() {
+        let bytes = engine.moment3D()
+        let stamp = Int(Date().timeIntervalSince1970)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Crucible moment \(stamp).usdz")
+        do {
+            try Data(bytes).write(to: url, options: .atomic)
+            momentFile = url
+        } catch {
+            clipProblem = "The 3D moment could not be written: \(error.localizedDescription)"
+        }
+    }
+
+    /// Records three seconds of the field as a Live Photo and puts it in the photo library.
+    func recordLivePhoto() {
+        guard !isRecordingClip else { return }
+        clipPairing = UUID().uuidString
+        liveStill = nil
+        liveStartedAt = -1
+        livePhotoNote = "Recording three seconds…"
+        clipProblem = nil
+        isRecordingClip = true
+    }
+
+    /// Ends a Live Photo once it has run its three seconds.
+    private func advanceLivePhoto(now: Double) {
+        guard clipPairing != nil, isRecordingClip, !isPlayingMovie else { return }
+        if liveStartedAt < 0 { liveStartedAt = now }
+        if (now - liveStartedAt) / 1000 >= Self.liveSeconds { isRecordingClip = false }
+    }
     /// Why the last clip could not be made, if it could not.
     var clipProblem: String?
     /// When this playing began, on the frame clock. Negative until the first frame of it.
@@ -3235,7 +3280,7 @@ final class ParticleFieldModel {
 
     /// Plays the movie from the start, and writes it into a clip as well if asked.
     func playMovie(recording: Bool) {
-        guard movie.canPlay, !isPlayingMovie else { return }
+        guard movie.canPlay, !isPlayingMovie, clipPairing == nil else { return }
         stopTurntable()
         // Nothing else steering the view while the movie does.
         flyTarget = nil
@@ -3266,8 +3311,20 @@ final class ParticleFieldModel {
 
     /// Told by the field's view once a clip is written, or could not be.
     func clipDidFinish(_ url: URL?, problem: String?) {
-        finishedClip = url
-        clipProblem = problem
+        guard let pairing = clipPairing else {
+            finishedClip = url
+            clipProblem = problem
+            return
+        }
+        clipPairing = nil
+        guard let url, let still = liveStill ?? snapshot() else {
+            livePhotoNote = problem ?? "Nothing was recorded, so there is no Live Photo."
+            return
+        }
+        livePhotoNote = "Saving…"
+        LivePhotoSaver.save(video: url, still: still, pairing: pairing) { [weak self] said in
+            self?.livePhotoNote = said
+        }
     }
 
     /// Moves the movie on to this frame.

@@ -66,6 +66,32 @@ struct FieldMovieControls: View {
                     .accessibilityIdentifier("movie.record")
                 }
             }
+            // Two more ways to keep a moment, beside the movie because they are the same sort of thing.
+            LabFlow(spacing: 6) {
+                pill("Send this moment in 3D", symbol: "cube", lit: false, enabled: true) {
+                    Haptics.firm()
+                    model.sendMoment3D()
+                }
+                .accessibilityIdentifier("movie.moment3d")
+                pill("Keep three seconds as a Live Photo", symbol: "livephoto", lit: model.clipPairing != nil,
+                     enabled: !model.isRecordingClip) {
+                    Haptics.firm()
+                    model.recordLivePhoto()
+                }
+                .accessibilityIdentifier("movie.live")
+            }
+            Text("The 3D moment opens on any iPhone, iPad or Mac to be turned in the hand or stood in the room. The Live "
+                + "Photo goes into your photos and moves when pressed. Neither has been tried on a phone yet.")
+                .font(.labBody(10))
+                .foregroundStyle(Palette.subtleForeground)
+                .fixedSize(horizontal: false, vertical: true)
+            if let note = model.livePhotoNote {
+                Text(note)
+                    .font(.labBody(10))
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("movie.liveNote")
+            }
             if let problem = model.clipProblem {
                 Text(problem)
                     .font(.labBody(10))

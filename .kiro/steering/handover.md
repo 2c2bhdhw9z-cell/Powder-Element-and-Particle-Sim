@@ -140,9 +140,13 @@ failure via its own `report(_:_:)`, which is how to see what was actually on scr
 - `#expect` cannot be handed a call that changes the thing it is looking at. Assign to a local first.
 - `deinit` in a `@MainActor` class may not touch actor-isolated stored properties. The pattern used is a separate
   non-isolated holder class (`PowerWatchers`, `SenseWatchers`, `BigScreenWatchers`).
-- `ContentView.body` is split five ways — `lab` → `labWithWatchers` → `labKeepingTime` → `labWithPanels` → `body` —
-  because the compiler refused it as one expression (it refused `labWithWatchers` again once it grew). Put anything
-  new **inside** whichever of the five it belongs to, and split again rather than lengthen one.
+- `ContentView.body` is split six ways — `lab` → `labWithWatchers` → `labKeepingTime` → `labSensing` →
+  `labWithPanels` → `body` — because the compiler refused it as one expression (it refused `labWithWatchers` again
+  once it grew). Put anything new **inside** whichever of the six it belongs to, and split again rather than lengthen
+  one past about a dozen modifiers.
+- A closure handed to something that calls it off the main thread — an audio node, a camera, a canvas — must be made
+  in a `nonisolated static func` (see `LabAudio.soundscapeNode`, `SpeechListener.tap`). Written inline in a
+  main-actor class it belongs to the main thread and the first call from elsewhere closes the app.
 - The welcome screen must be an overlay, not `.fullScreenCover`: the cover took the view's one presentation slot and
   silently broke *every* panel in the app. Found only by the App tour.
 - `git checkout <file>` throws away uncommitted work. It has cost real work here once.

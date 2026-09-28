@@ -304,6 +304,7 @@ struct ShareTarget: Identifiable {
         case "png": url.lastPathComponent.contains("-poster") ? "Share the poster" : "Share this picture"
         case "crucible", "json": "Share this world"
         case "mp4", "mov": "Share the clip"
+        case "usdz": "Share this moment in 3D"
         default: "Share"
         }
     }
@@ -315,6 +316,7 @@ struct ShareTarget: Identifiable {
         case "csv": "tablecells"
         case "png": "photo"
         case "mp4", "mov": "film"
+        case "usdz": "cube"
         default: "square.and.arrow.up"
         }
     }

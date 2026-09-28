@@ -619,15 +619,21 @@ final class FieldView: MTKView {
             return
         }
         if clipWriter == nil {
-            guard let writer = ClipWriter(width: field.width, height: field.height, device: device) else {
+            guard let writer = ClipWriter(
+                width: field.width, height: field.height, device: device, pairing: model.clipPairing
+            ) else {
                 model.clipDidFinish(nil, problem: "This phone would not start a video file.")
                 model.stopMovie()
                 return
             }
             clipWriter = writer
         }
-        guard let writer = clipWriter, let slot = writer.frame(at: CACurrentMediaTime()) else { return }
+        let now = CACurrentMediaTime()
+        guard let writer = clipWriter, let slot = writer.frame(at: now) else { return }
         encodeFinalPicture(frame, field: field, glow: glow, to: slot.texture, in: buffer)
+        // The Live Photo's still, from the frame that is its moment. The last frame drawn is the one before this, a
+        // thirtieth of a second earlier, which nobody can tell apart.
+        if writer.wantsStill(at: now), let still = snapshot() { model.liveStill = still }
         let caption = model.movieCaption
         let opacity = model.movieCaptionOpacity
         buffer.addCompletedHandler { _ in writer.write(slot, caption: caption, opacity: opacity) }

@@ -48,10 +48,18 @@ final class ClipWriter: @unchecked Sendable {
     let url: URL
     let width: Int
     let height: Int
+    /// For the video half of a Live Photo, the identifier that pairs it with its still picture. Nothing for a clip.
+    let pairing: String?
+    /// When, in seconds into the clip, the Live Photo's still picture is taken from.
+    static let stillAt = 1.5
+    /// The still picture, once the frame it comes from has been drawn. See ``wantsStill(at:)``.
+    private var stillTaken = false
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private let cache: CVMetalTextureCache
+    /// The track saying which moment the still picture is from, for a Live Photo.
+    private let stillTrack: AVAssetWriterInputMetadataAdaptor?
     /// Everything that touches the writer after it has started happens in here, in order.
     private let queue = DispatchQueue(label: "crucible.clip-writer")
     /// Read and written only on the main thread, where frames are asked for.
@@ -62,17 +70,30 @@ final class ClipWriter: @unchecked Sendable {
     private var isFinished = false
 
     /// Starts a clip the size of the field's picture, or returns nothing if the phone will not make one.
-    init?(width: Int, height: Int, device: MTLDevice) {
+    init?(width: Int, height: Int, device: MTLDevice, pairing: String? = nil) {
+        self.pairing = pairing
         // Even, because the video format stores colour at half size in each direction.
         let evenWidth = max(2, width & ~1)
         let evenHeight = max(2, height & ~1)
         self.width = evenWidth
         self.height = evenHeight
         let stamp = Int(Date().timeIntervalSince1970)
-        url = FileManager.default.temporaryDirectory.appendingPathComponent("Crucible movie \(stamp).mp4")
+        url = FileManager.default.temporaryDirectory.appendingPathComponent(
+            pairing == nil ? "Crucible movie \(stamp).mp4" : "Crucible live \(stamp).mov"
+        )
         try? FileManager.default.removeItem(at: url)
 
-        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { return nil }
+        // A Live Photo's video is a QuickTime movie carrying the same identifier as its still picture, which is the
+        // whole of what pairs the two in the photo library.
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: pairing == nil ? .mp4 : .mov) else { return nil }
+        if let pairing {
+            let identifier = AVMutableMetadataItem()
+            identifier.keySpace = .quickTimeMetadata
+            identifier.key = "com.apple.quicktime.content.identifier" as NSString
+            identifier.value = pairing as NSString
+            identifier.dataType = "com.apple.metadata.datatype.UTF-8"
+            writer.metadata = [identifier]
+        }
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: evenWidth,
@@ -95,6 +116,30 @@ final class ClipWriter: @unchecked Sendable {
         )
         guard writer.canAdd(input) else { return nil }
         writer.add(input)
+
+        // And the moment the still is from, as a track of its own.
+        if pairing != nil {
+            let spec: [String: Any] = [
+                kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier as String:
+                    "mdta/com.apple.quicktime.still-image-time",
+                kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType as String:
+                    "com.apple.metadata.datatype.int8",
+            ]
+            var description: CMFormatDescription?
+            CMMetadataFormatDescriptionCreateWithMetadataSpecifications(
+                allocator: kCFAllocatorDefault,
+                metadataType: kCMMetadataFormatType_Boxed,
+                metadataSpecifications: [spec] as CFArray,
+                formatDescriptionOut: &description
+            )
+            let track = AVAssetWriterInput(mediaType: .metadata, outputSettings: nil, sourceFormatHint: description)
+            track.expectsMediaDataInRealTime = true
+            guard writer.canAdd(track) else { return nil }
+            writer.add(track)
+            stillTrack = AVAssetWriterInputMetadataAdaptor(assetWriterInput: track)
+        } else {
+            stillTrack = nil
+        }
 
         var made: CVMetalTextureCache?
         guard CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &made) == kCVReturnSuccess,
@@ -141,6 +186,25 @@ final class ClipWriter: @unchecked Sendable {
         )
     }
 
+    /// Whether the frame at this moment is the one a Live Photo's still picture should be taken from. Yes once.
+    func wantsStill(at now: CFTimeInterval) -> Bool {
+        guard pairing != nil, !stillTaken, let startedAt, now - startedAt >= Self.stillAt else { return false }
+        stillTaken = true
+        let item = AVMutableMetadataItem()
+        item.keySpace = .quickTimeMetadata
+        item.key = "com.apple.quicktime.still-image-time" as NSString
+        item.value = 0 as NSNumber
+        item.dataType = "com.apple.metadata.datatype.int8"
+        let at = CMTime(seconds: now - startedAt, preferredTimescale: 600)
+        let group = AVTimedMetadataGroup(items: [item], timeRange: CMTimeRange(start: at, duration: CMTime(value: 20, timescale: 600)))
+        let track = StillBox(stillTrack)
+        queue.async { [self] in
+            guard !isFinished, let adaptor = track.adaptor, adaptor.assetWriterInput.isReadyForMoreMediaData else { return }
+            adaptor.append(group)
+        }
+        return true
+    }
+
     /// Writes a drawn frame into the clip, with the caption laid over it. Called once the drawing has finished.
     func write(_ frame: Frame, caption: String?, opacity: Double) {
         queue.async { [self] in
@@ -168,6 +232,7 @@ final class ClipWriter: @unchecked Sendable {
                 return
             }
             input.markAsFinished()
+            stillTrack?.assetWriterInput.markAsFinished()
             // Through this object rather than the writer itself, which is not safe to hand between threads; this is
             // looked after by its own queue, and so is.
             writer.finishWriting { [self] in
@@ -238,4 +303,10 @@ final class ClipWriter: @unchecked Sendable {
         context.textPosition = CGPoint(x: x, y: baseline)
         CTLineDraw(text, context)
     }
+}
+
+/// The still-time track, carried onto the writer's queue.
+final class StillBox: @unchecked Sendable {
+    let adaptor: AVAssetWriterInputMetadataAdaptor?
+    init(_ adaptor: AVAssetWriterInputMetadataAdaptor?) { self.adaptor = adaptor }
 }

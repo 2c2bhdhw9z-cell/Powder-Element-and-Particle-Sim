@@ -755,6 +755,58 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "coming back from the table")
     }
 
+    /// A 3D moment sent, and three seconds kept as a Live Photo.
+    ///
+    /// The moment is a file written by the engine and handed to the system's share sheet; the Live Photo is a video
+    /// and a picture written by the field's drawing and handed to the photo library, which on a simulated phone first
+    /// asks permission. Either could close the app on the way; the walk waits for each to say how it went.
+    func testMomentAndLivePhoto() {
+        let app = launch()
+        tap("header.chamber.field", "the Field chamber", in: app)
+        guard isRunning(app) else { return }
+        tap("fieldTray.handle", "the Field tray's handle", in: app)
+        guard let moment = find("movie.moment3d", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("sending a 3D moment was not offered")
+            report(app, "No 3D moment button")
+            return
+        }
+        moment.tap()
+        let offered = app.buttons["Share this moment in 3D"]
+        if offered.waitForExistence(timeout: 20) {
+            picture(app, "56 A 3D moment, offered to be sent")
+            app.swipeDown()
+        } else {
+            XCTFail("the 3D moment was never offered")
+            report(app, "No 3D moment offered")
+        }
+        guard isRunning(app) else { return }
+        guard let live = find("movie.live", in: app, scrollingIn: trayScroll(in: app)) else {
+            XCTFail("keeping a Live Photo was not offered")
+            report(app, "No Live Photo button")
+            return
+        }
+        live.tap()
+        stillRunning(app, after: "starting a Live Photo")
+        // Three seconds of recording, then the library, which may ask first.
+        let note = element("movie.liveNote", in: app)
+        var settled = false
+        for _ in 0 ..< 60 {
+            Thread.sleep(forTimeInterval: 0.5)
+            guard isRunning(app) else { break }
+            let said = note.exists ? note.label : ""
+            if said.contains("Saved") || said.contains("permission") || said.contains("could not") || said.contains("Nothing") {
+                settled = true
+                break
+            }
+        }
+        stillRunning(app, after: "keeping a Live Photo")
+        picture(app, "57 After a Live Photo")
+        if !settled {
+            XCTFail("the Live Photo never said how it went: \(note.exists ? note.label : "no note")")
+            report(app, "Live Photo unsettled")
+        }
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

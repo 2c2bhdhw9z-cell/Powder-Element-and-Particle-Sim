@@ -186,9 +186,10 @@ struct ContentView: View {
     /// size it works at it for a while and then gives up outright — "unable to type-check this expression in
     /// reasonable time". The build machine refused the app twice before this was split.
     ///
-    /// So: the world and its furniture, then what it watches (in two parts, since it outgrew one), then the panels,
-    /// then the alerts. Each is a property of its own, which is a separate problem for the compiler and reads better
-    /// besides. Anything new belongs inside whichever of the five it is, rather than on the end of all of them.
+    /// So: the world and its furniture, then what it watches (in three parts, since it outgrew one and then two), then
+    /// the panels, then the alerts. Each is a property of its own, which is a separate problem for the compiler and
+    /// reads better besides. Anything new belongs inside whichever of the six it is, rather than on the end of all of
+    /// them — and when one grows long, split it again rather than wait for the compiler to refuse it.
     var body: some View {
         labWithPanels
         .alert(
@@ -487,12 +488,25 @@ struct ContentView: View {
             audio.isEnabled = wanted
         }
         .onChange(of: soundscapeEnabled) { _, wanted in audio.soundscapeEnabled = wanted }
+    }
+
+    /// What arrives from outside the screen: a hand and a head at the front camera, and the files made to be sent — a
+    /// 3D moment, a movie's clip. A piece of its own for the same reason as the two before it.
+    private var labSensing: some View {
+        labKeepingTime
         // A hand waved at the front camera, touching whichever world is on screen.
         .onChange(of: cameraSenses.hand) { was, now in handMoved(from: was, to: now) }
         // A head moved in front of it, turning the field's view.
         .onChange(of: cameraSenses.headTurn.yaw) { _, _ in followHead() }
         .onChange(of: cameraSenses.headTurn.pitch) { _, _ in followHead() }
         .onChange(of: cameraSenses.watchesHead) { _, _ in followHead() }
+        // A 3D moment, written, offered straight away to be sent.
+        .onChange(of: field.momentFile) { _, file in
+            guard let file else { return }
+            breadcrumbs.record("made a 3D moment")
+            field.momentFile = nil
+            shareTarget = ShareTarget(url: file)
+        }
         // A movie's clip, finished, offered straight away to be kept or sent.
         .onChange(of: field.finishedClip) { _, clip in
             guard let clip else { return }
@@ -504,7 +518,7 @@ struct ContentView: View {
 
     /// Every panel that slides up over the world.
     private var labWithPanels: some View {
-        labKeepingTime
+        labSensing
         .sheet(isPresented: $showingScenes) {
             ScenePicker(simple: isSimple) { recipe in
                 breadcrumbs.record("loaded the \(recipe.name) scene")
