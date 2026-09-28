@@ -1067,9 +1067,8 @@ final class ParticleFieldModel {
     }
 
     /// Whether the room is dark enough to hold the glow back, as `WorldSenses` decides. Set by the app.
-    @ObservationIgnored var isDarkRoom = false {
-        didSet { if isDarkRoom != oldValue { engineDidChange() } }
-    }
+    /// Like power advice, this changes drawing cost only and is read directly by the renderer; it is not a world edit.
+    @ObservationIgnored var isDarkRoom = false
 
     /// Whether the picture keeps its luxuries — the shadows on the floor of the box, the glow, the fog on the far side.
     ///
