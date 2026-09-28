@@ -27,6 +27,9 @@ public final class PowderHistory {
         /// Each cell's own colour, or nothing when no cell had one — which is almost always, so a world
         /// nobody has painted in colour costs no more to undo than it did before colour existed.
         public var tint: [UInt32]? = nil
+        /// The people and next identity. A value rather than an optional because every newly captured world knows it;
+        /// the default keeps hand-built legacy snapshots source-compatible and means nobody.
+        public var population: PowderPopulation = PowderPopulation()
 
         /// How many cells this snapshot describes.
         public var cellCount: Int { width * height }
@@ -59,7 +62,8 @@ public final class PowderHistory {
             gravityY: engine.gravityY,
             windX: engine.windX,
             ambientTemp: engine.ambientTemp,
-            tint: engine.tintMayExist ? Array(UnsafeBufferPointer(start: engine.tint, count: count)) : nil
+            tint: engine.tintMayExist ? Array(UnsafeBufferPointer(start: engine.tint, count: count)) : nil,
+            population: engine.capturePopulation()
         )
     }
 
@@ -85,7 +89,7 @@ public final class PowderHistory {
         // fills the grid with it. Set afterwards, any cell the snapshot did not reach
         // was left holding the temperature of the world being replaced.
         engine.ambientTemp = snapshot.ambientTemp
-        engine.resetGrid()
+        engine.resetCellBuffers()
 
         let count = engine.cellCount
         for i in 0 ..< count {
@@ -108,6 +112,7 @@ public final class PowderHistory {
         // anything could have put an out-of-range value in it, and undo used to carry
         // that value straight back out.
         engine.setWind(snapshot.windX)
+        engine.adoptPopulation(snapshot.population)
         return true
     }
 

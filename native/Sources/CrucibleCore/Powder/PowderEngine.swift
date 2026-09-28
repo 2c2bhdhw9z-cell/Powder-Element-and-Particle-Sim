@@ -279,8 +279,15 @@ public final class PowderEngine {
 
     // MARK: - Whole-grid operations
 
-    /// Empties the world, returning every cell to nothing at ambient temperature.
+    /// Empties the whole world: cells and people, with fresh identities for whoever is added next.
     public func resetGrid() {
+        resetCellBuffers()
+        storedPeople.removeAll()
+        storedNextPersonID = 0
+    }
+
+    /// Clears only the cell buffers. Resize, resample, load and history use this while carrying or restoring people.
+    func resetCellBuffers() {
         guard cellCount > 0 else { return }
         type.update(repeating: Element.empty, count: cellCount)
         temperature.update(repeating: JS.toFloat32(ambientTemp), count: cellCount)
@@ -320,6 +327,7 @@ public final class PowderEngine {
         guard newWidth != width || newHeight != height, width > 0, height > 0 else { return }
         let oldWidth = width
         let oldHeight = height
+        let oldPopulation = capturePopulation()
         let oldCount = cellCount
         var oldType = [ElementID](repeating: 0, count: oldCount)
         var oldTemp = [Float](repeating: 0, count: oldCount)
@@ -334,7 +342,7 @@ public final class PowderEngine {
         }
         resize(width: newWidth, height: newHeight)
         guard width == newWidth, height == newHeight else { return }
-        resetGrid()
+        resetCellBuffers()
         for y in 0 ..< height {
             let fromY = min(oldHeight - 1, y * oldHeight / height)
             for x in 0 ..< width {
@@ -349,6 +357,12 @@ public final class PowderEngine {
             }
         }
         tintMayExist = hadTint
+        adoptPopulation(
+            oldPopulation,
+            releaseHeld: false,
+            scalingFromWidth: oldWidth,
+            height: oldHeight
+        )
     }
 
     public func resize(width newWidth: Int, height newHeight: Int) {
@@ -396,7 +410,7 @@ public final class PowderEngine {
         pressureNext = Self.makeBuffer(capacity, Float(0))
         tint = Self.makeBuffer(capacity, UInt32(0))
 
-        resetGrid()
+        resetCellBuffers()
 
         let copyWidth = min(oldWidth, safeWidth)
         let copyHeight = min(oldHeight, safeHeight)
@@ -417,6 +431,7 @@ public final class PowderEngine {
         }
         portalBMayExist = hadPortal
         tintMayExist = hadTint
+        peopleFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: false)
 
         Self.release(oldType, oldCapacity)
         Self.release(oldTemp, oldCapacity)

@@ -280,6 +280,7 @@ public final class PowderRewind {
             + snapshot.temperature.count * MemoryLayout<Float>.size
             + snapshot.life.count * MemoryLayout<UInt16>.size
             + (snapshot.tint?.count ?? 0) * MemoryLayout<UInt32>.size
+            + snapshot.population.people.count * MemoryLayout<PowderPerson>.stride
     }
 
     /// Keeps the world as it is now if it is time to. Call once for every moment the world is stepped.

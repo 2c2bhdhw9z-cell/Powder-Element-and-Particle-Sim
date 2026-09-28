@@ -93,6 +93,20 @@ public struct PowderPerson: Sendable, Hashable, Codable, Identifiable {
     public var isAfraid: Bool { afraid }
 }
 
+/// Everyone in one world, including the next identity that will be given out.
+///
+/// Kept as one value so save, undo, rewind, resize and parallel worlds cannot restore the people but forget which
+/// numbers have already been used. Old save files have no population field and therefore read as an empty one.
+public struct PowderPopulation: Sendable, Hashable, Codable {
+    public var people: [PowderPerson]
+    public var nextID: Int
+
+    public init(people: [PowderPerson] = [], nextID: Int = 0) {
+        self.people = people
+        self.nextID = nextID
+    }
+}
+
 /// The numbers the people live by.
 public enum PowderPeople {
     /// How tall a person is, in cells: feet, body, head.
@@ -144,20 +158,106 @@ extension PowderEngine {
     public func addPerson(atX x: Int, y: Int) -> Int? {
         guard storedPeople.count < PowderPeople.most, isValid(x, y) else { return nil }
         storedNextPersonID += 1
+        // Facing is a stable fact of this person, not a draw from the world's physics random stream. Adding and then
+        // removing somebody must not change where unrelated sand lands later.
+        let facing = ((storedNextPersonID &+ x &* 31 &+ y &* 131) & 1) == 0 ? -1 : 1
         storedPeople.append(
             PowderPerson(
                 id: storedNextPersonID,
                 x: Double(x) + 0.5,
                 y: Double(y),
-                facing: rng.chance(0.5) ? -1 : 1
+                facing: facing
             )
         )
         return storedNextPersonID
     }
 
-    /// Removes everybody.
+    /// Removes everybody, without reusing their old identities if more are added to this same world.
     public func clearPeople() {
         storedPeople.removeAll()
+    }
+
+    /// The complete population for save, history and exact world copying.
+    public func capturePopulation() -> PowderPopulation {
+        PowderPopulation(people: storedPeople, nextID: storedNextPersonID)
+    }
+
+    /// Replaces the population, making every value safe and visible before it can reach drawing or movement.
+    ///
+    /// A width/height may be supplied when a differently sized saved world is stretched onto this one. Held people are
+    /// released for a save or history restore because there is no finger to carry them afterwards; an in-place resize
+    /// keeps the held state while the same live touch continues.
+    func adoptPopulation(
+        _ population: PowderPopulation,
+        releaseHeld: Bool = true,
+        scalingFromWidth oldWidth: Int? = nil,
+        height oldHeight: Int? = nil
+    ) {
+        guard width > 0, height > 0 else {
+            storedPeople = []
+            storedNextPersonID = max(0, min(1_000_000_000, population.nextID))
+            return
+        }
+        var next = max(0, min(1_000_000_000, population.nextID))
+        var used: Set<Int> = []
+        var adopted: [PowderPerson] = []
+        adopted.reserveCapacity(min(PowderPeople.most, population.people.count))
+        for var person in population.people.prefix(PowderPeople.most) {
+            if let oldWidth, let oldHeight, oldWidth > 0, oldHeight > 0 {
+                person.x *= Double(width) / Double(oldWidth)
+                let halfBody = Double(PowderPeople.height - 1) / 2
+                let centre = person.y - halfBody
+                person.y = (centre + 0.5) * Double(height) / Double(oldHeight) - 0.5 + halfBody
+            }
+            if person.id <= 0 || person.id > 1_000_000_000 || used.contains(person.id) {
+                repeat { next += 1 } while used.contains(next)
+                person.id = next
+            }
+            used.insert(person.id)
+            next = max(next, person.id)
+            let place = personPlaceInside(x: person.x, y: person.y)
+            person.x = place.x
+            person.y = place.y
+            person.fall = person.fall.isFinite ? max(0, min(PowderPeople.terminalFall, person.fall)) : 0
+            person.facing = person.facing < 0 ? -1 : 1
+            if releaseHeld, person.doing == .held { person.doing = .falling }
+            person.health = person.health.isFinite ? max(0, min(1, person.health)) : 1
+            person.warmth = person.warmth.isFinite ? max(-10_000, min(10_000, person.warmth)) : ambientTemp
+            person.breath = person.breath.isFinite ? max(0, min(PowderPeople.lungs, person.breath)) : PowderPeople.lungs
+            adopted.append(person)
+        }
+        storedPeople = adopted
+        storedNextPersonID = next
+    }
+
+    /// Keeps the live population visible after a crop/pad, or scales it with a resampled world.
+    func peopleFollowResize(fromWidth oldWidth: Int, height oldHeight: Int, stretched: Bool) {
+        let population = capturePopulation()
+        adoptPopulation(
+            population,
+            releaseHeld: false,
+            scalingFromWidth: stretched ? oldWidth : nil,
+            height: stretched ? oldHeight : nil
+        )
+    }
+
+    /// Turns each person's whole three-cell body over with the cells. Two turns return the exact vertical place.
+    func flipPeopleUpsideDown() {
+        for index in storedPeople.indices {
+            storedPeople[index].y = Double(height + PowderPeople.height - 2) - storedPeople[index].y
+        }
+        adoptPopulation(capturePopulation(), releaseHeld: false)
+    }
+
+    private func personPlaceInside(x: Double, y: Double) -> (x: Double, y: Double) {
+        let safeX = x.isFinite ? x : Double(width) / 2
+        let safeY = y.isFinite ? y : Double(height - 1)
+        let minFeet = Double(min(max(0, PowderPeople.height - 1), max(0, height - 1)))
+        let maxFeet = Double(max(0, height - 1))
+        return (
+            max(0.5, min(max(0.5, Double(width) - 0.5), safeX)),
+            max(minFeet, min(maxFeet, safeY))
+        )
     }
 
     /// The person nearest a place, within a reach, if there is one.
@@ -189,17 +289,21 @@ extension PowderEngine {
         return true
     }
 
-    /// Moves whoever is being held to a place.
+    /// Moves whoever is being held to a place, kept fully on the map even when a finger goes beyond an edge.
     public func carryHeldPeople(toX x: Double, y: Double) {
+        let place = personPlaceInside(x: x, y: y)
         for at in storedPeople.indices where storedPeople[at].doing == .held {
-            storedPeople[at].x = x
-            storedPeople[at].y = y
+            storedPeople[at].x = place.x
+            storedPeople[at].y = place.y
         }
     }
 
     /// Lets go of everybody being held. They fall from wherever they are.
     public func dropHeldPeople() {
         for at in storedPeople.indices where storedPeople[at].doing == .held {
+            let place = personPlaceInside(x: storedPeople[at].x, y: storedPeople[at].y)
+            storedPeople[at].x = place.x
+            storedPeople[at].y = place.y
             storedPeople[at].doing = .falling
             storedPeople[at].fall = 0
         }

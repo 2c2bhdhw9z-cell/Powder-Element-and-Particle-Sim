@@ -64,6 +64,8 @@ public struct PowderState: Codable, Sendable {
     /// A sea rising and falling along one edge, when the world has one. Absent otherwise, and in every file from
     /// before tides existed — both of which open as a world with no tide.
     public var tide: PowderTide?
+    /// Everyone living in the world and the next identity. Absent in old files, which correctly means nobody.
+    public var population: PowderPopulation?
 
     public init(
         width: Int,
@@ -76,7 +78,8 @@ public struct PowderState: Codable, Sendable {
         windX: Double,
         ambientTemp: Double,
         gridTint: String? = nil,
-        tide: PowderTide? = nil
+        tide: PowderTide? = nil,
+        population: PowderPopulation? = nil
     ) {
         self.width = width
         self.height = height
@@ -89,6 +92,7 @@ public struct PowderState: Codable, Sendable {
         self.ambientTemp = ambientTemp
         self.gridTint = gridTint
         self.tide = tide
+        self.population = population
     }
 }
 
@@ -248,7 +252,8 @@ extension PowderEngine {
             windX: windX,
             ambientTemp: ambientTemp,
             gridTint: tintedCellCount > 0 ? encodedTints() : nil,
-            tide: tide
+            tide: tide,
+            population: capturePopulation()
         )
     }
 
@@ -272,7 +277,7 @@ extension PowderEngine {
         // Before the grid is reset, because resetting fills every cell at the ambient temperature and a cell
         // with an unreadable saved temperature falls back to it — both used the previous world's ambient.
         if state.ambientTemp.isFinite { ambientTemp = state.ambientTemp }
-        resetGrid()
+        resetCellBuffers()
         let count = min(cellCount, state.gridType.count)
 
         // Every value is checked. Scene files are user data: an element id of 9999 used
@@ -308,6 +313,7 @@ extension PowderEngine {
         // Through its own initialiser, so a hand-edited file's tide is pulled into range on the way in. Absent means
         // no tide: loading an ordinary world must stop the last one's sea.
         tide = state.tide.map { PowderTide(side: $0.side, period: $0.period, strength: $0.strength) }
+        adoptPopulation(state.population ?? PowderPopulation())
         return true
     }
 

@@ -28,6 +28,7 @@ extension PowderEngine {
             let middle = height / 2
             for x in 0 ..< width { turnOver(middle * width + x) }
         }
+        flipPeopleUpsideDown()
     }
 
     /// Swaps two cells completely and turns both over. Unlike ``swapCells(_:_:)`` it marks nothing as moved: this

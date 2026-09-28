@@ -80,6 +80,8 @@ extension SimulationModel {
     func clearPeople() {
         recordUndoPoint()
         engine.clearPeople()
+        peopleNote = nil
+        engineDidChange()
     }
 
     /// A touch while the hand is in use: grabs whoever is near, or puts somebody new there.
@@ -89,18 +91,23 @@ extension SimulationModel {
     private func peopleBeganStroke(atFractionX fx: Double, fractionY fy: Double) {
         let point = gridPoint(fractionX: fx, fractionY: fy)
         if let found = engine.person(nearX: point.x, y: point.y, within: Self.reachForAPerson) {
-            _ = engine.holdPerson(found.id)
+            let before = history.capture(engine)
+            guard engine.holdPerson(found.id) else { return }
+            history.push(before)
             engine.carryHeldPeople(toX: point.x, y: point.y)
+            engineDidChange()
             Haptics.selection()
             return
         }
         let cell = gridCell(fractionX: fx, fractionY: fy)
+        let before = history.capture(engine)
         guard engine.addPerson(atX: cell.x, y: cell.y) != nil else {
             peopleNote = "Twenty is as many people as a world can hold."
             return
         }
+        history.push(before)
         peopleNote = nil
-        recordUndoPoint()
+        engineDidChange()
         Haptics.firm()
     }
 
@@ -402,6 +409,9 @@ extension SimulationModel {
     /// itself stays in hand, for a loop in the new one.
     func toolsBeforeWorldReplaced() {
         if isRewinding { finishRewind(keeping: false) }
+        // A person in hand is put down before a save/undo point is taken. Restoring a held posture with no finger would
+        // otherwise leave them suspended forever.
+        if engine.isCarryingSomebody { engine.dropHeldPeople() }
         guard heldStamp != nil || !lassoLoop.isEmpty || isDrawingLasso else { return }
         settleHeldPiece()
         clearLassoLoop()
