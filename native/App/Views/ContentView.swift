@@ -472,6 +472,9 @@ struct ContentView: View {
         // is the last reliable moment to keep anything — a timer alone would lose up to eight
         // seconds of work every time.
         .onChange(of: scenePhase) { _, phase in
+            // The lab book has its own pause-aware active clock; it is the one thing here that must distinguish a
+            // genuinely slow foreground frame from time the app spent away.
+            powder.labBookSceneChanged(active: phase == .active)
             // Time spent away is not time the lab was costing anything, so what was being measured is thrown away.
             power.sceneChanged(active: phase == .active)
             if phase == .active { senses.cameBack() }

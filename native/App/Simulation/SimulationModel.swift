@@ -1,4 +1,5 @@
 import CrucibleCore
+import Foundation
 import Observation
 import SwiftUI
 // For UIImage, which a picture of the world is returned as.
@@ -37,6 +38,9 @@ final class SimulationModel {
             // Pressing play while scrubbing back through time carries on from the moment on screen, which is what
             // anybody pressing play at that point means.
             if isRunning, !oldValue, isRewinding { finishRewind(keeping: true) }
+            // Help in the lab book counts only time the world is actually running. Resetting its timestamp here keeps
+            // a pause from being mistaken for time somebody spent trying the experiment.
+            if isRunning != oldValue { labBookRunningChanged() }
         }
     }
 
@@ -466,10 +470,13 @@ final class SimulationModel {
     var labBook: LabBookCard?
     /// The engine moment the experiment was last looked at.
     @ObservationIgnored var labLookedAt = 0
-    /// The running clock (``worldSeconds``) when the guess was made, so help can also be offered by how long somebody
-    /// has actually waited. On a slow or hot phone the world's own seconds pass slower than real ones, and "Show me"
-    /// used to take minutes to appear — on a simulated phone it never did within the walkthrough's two and a half.
-    @ObservationIgnored var labStartedAt = 0.0
+    /// How long the current lab-book experiment has actively been running since the guess, by a monotonic clock.
+    /// Kept separately from ``worldSeconds``: that clock deliberately throws away frame gaps over a quarter-second,
+    /// because it cannot tell a slow frame from the app being put away. The lab book is told explicitly when the app
+    /// is inactive, so it can count a slow foreground second without counting a minute in the background.
+    @ObservationIgnored var labHelpElapsed = 0.0
+    @ObservationIgnored var labHelpLastTime = ProcessInfo.processInfo.systemUptime
+    @ObservationIgnored var labBookSceneIsActive = true
     /// Told when the world answers an experiment, so its progress can be written down.
     var onLabBookAnswered: ((LabBookRun) -> Void)?
 
@@ -637,6 +644,10 @@ final class SimulationModel {
         guard !isStepping else { return }
         isStepping = true
         defer { isStepping = false }
+
+        // Independent of physics steps: on a very slow or hot phone a display callback can take longer than the
+        // world's clock accepts, but somebody doing a lab-book experiment has still genuinely been waiting.
+        advanceLabBookHelpClock()
 
         // Before the pause check, so that tipping the phone still turns the world while time is
         // stopped. Gravity is the state of the world rather than an event in it, and watching a

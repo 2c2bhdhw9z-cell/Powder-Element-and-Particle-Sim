@@ -953,10 +953,17 @@ final class CrucibleTour: XCTestCase {
     private func waitUntilEnabled(_ id: String, _ what: String, in app: XCUIApplication, seconds: Int) -> Bool {
         guard isRunning(app) else { return false }
         let target = element(id, in: app)
-        for _ in 0 ..< seconds * 2 {
-            if target.exists, target.isEnabled, target.isHittable { return true }
-            Thread.sleep(forTimeInterval: 0.5)
-            guard isRunning(app) else { return false }
+        // Let the testing framework wait on one condition rather than asking the app for its whole accessibility tree
+        // three times every half-second. Those repeated questions made an already busy simulated phone slower, so a
+        // nominal 150-second wait took more than five minutes and helped starve the very world it was waiting for.
+        let ready = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND enabled == true"), object: target
+        )
+        if XCTWaiter().wait(for: [ready], timeout: TimeInterval(seconds)) == .completed {
+            for _ in 0 ..< 10 {
+                if target.isHittable { return true }
+                Thread.sleep(forTimeInterval: 0.2)
+            }
         }
         XCTFail(
             "\(what) never became available: "
@@ -1160,8 +1167,10 @@ final class CrucibleTour: XCTestCase {
         add(shot)
     }
 
-    /// Fails if a world is blank: all one colour where it should be drawn. A Metal view that has stopped drawing, or
-    /// never started, looks exactly like this — and nothing else in the checks can see it.
+    /// Fails if the renderer is blank: all one colour in the clear middle and lower part of the world. A Metal view
+    /// that has stopped drawing, or never started, looks exactly like this — and nothing else in the checks can see it.
+    /// Two colours are enough: a sparse or deliberately one-colour arrangement on a dark background is still a real
+    /// picture. This used to demand three and rejected a valid inner world on the larger iPad screen.
     private func expectDrawn(_ world: XCUIElement, _ what: String, in app: XCUIApplication) {
         guard isRunning(app) else { return }
         // Thirty seconds, not ten: the very first walk of a run opens the field on a simulator that has only just
@@ -1171,10 +1180,25 @@ final class CrucibleTour: XCTestCase {
             report(app, "Could not find \(what)")
             return
         }
-        // A moment for the first frames.
-        _ = XCTWaiter.wait(for: [XCTestExpectation(description: "a moment")], timeout: 1.5)
-        let colours = distinctColours(in: world.frame, of: app.screenshot().image)
-        XCTAssertGreaterThan(colours, 2, "\(what) is blank: only \(colours) colour(s) where it should be drawn")
+        // Avoid the header and tool buttons over the top of a full-screen world, and the label over the top of each
+        // parallel pane. Otherwise those controls could make a renderer that was genuinely blank look non-blank.
+        let frame = world.frame
+        let drawing = CGRect(
+            x: frame.minX + frame.width * 0.05,
+            y: frame.minY + frame.height * 0.35,
+            width: frame.width * 0.90,
+            height: frame.height * 0.55
+        )
+        var colours = 0
+        // Existence is not readiness: the Metal view already exists while its first new frame is being drawn. Look at
+        // several frames rather than sleeping once and assuming a busy simulator finished in that exact time.
+        for _ in 0 ..< 20 {
+            colours = distinctColours(in: drawing, of: app.screenshot().image)
+            if colours > 1 { return }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTFail("\(what) is blank: only \(colours) colour(s) where it should be drawn")
+        report(app, "\(what) was blank")
     }
 
     /// How many clearly different colours a grid of points across an area of a picture lands on.
@@ -1196,7 +1220,7 @@ final class CrucibleTour: XCTestCase {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
             ) else { return }
             context.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
-            let steps = 32
+            let steps = 64
             for i in 0 ..< steps {
                 for j in 0 ..< steps {
                     let x = Int((frame.minX + frame.width * (CGFloat(i) + 0.5) / CGFloat(steps)) * scale)

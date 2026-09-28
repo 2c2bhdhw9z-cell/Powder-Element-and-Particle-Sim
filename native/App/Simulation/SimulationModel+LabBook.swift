@@ -42,6 +42,7 @@ extension SimulationModel {
         recordUndoPoint()
         let run = LabBookRun(experiment, in: engine)
         labRun = run
+        resetLabBookHelpClock()
         labLookedAt = engine.frameCount
         if let material = experiment.material { brushElement = material }
         brushShape = .circle
@@ -56,7 +57,7 @@ extension SimulationModel {
         guard var run = labRun else { return }
         run.start(guessing: guess)
         labRun = run
-        labStartedAt = worldSeconds
+        resetLabBookHelpClock()
         isRunning = true
         publishLabBook()
     }
@@ -66,6 +67,7 @@ extension SimulationModel {
         guard var run = labRun, !run.isAnswered else { return }
         run.showMe(in: engine)
         labRun = run
+        resetLabBookHelpClock()
         isRunning = true
         refreshCounts()
         publishLabBook()
@@ -75,6 +77,7 @@ extension SimulationModel {
     func endExperiment() {
         guard labRun != nil else { return }
         labRun = nil
+        resetLabBookHelpClock()
         labBook = nil
     }
 
@@ -98,11 +101,43 @@ extension SimulationModel {
         }
     }
 
-    /// Whether somebody has had a fair go: the world's own seconds, or real seconds of it running, whichever comes
-    /// first. The world's seconds alone fall behind on a slow or hot phone, where a step takes longer than it should.
+    /// Whether somebody has had a fair go: the world's own seconds, or active foreground seconds, whichever comes
+    /// first. The latter is independent of physics and display speed, so help still arrives on a slow or hot phone.
     private func offersHelp(_ run: LabBookRun) -> Bool {
         run.readings.seconds >= run.experiment.patience
-            || (run.hasStarted && worldSeconds - labStartedAt >= run.experiment.patience)
+            || (run.hasStarted && labHelpElapsed >= run.experiment.patience)
+    }
+
+    /// Starts the active-time part of the wait again for a new experiment or guess.
+    func resetLabBookHelpClock() {
+        labHelpElapsed = 0
+        labHelpLastTime = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// A play or pause changed. The next tick begins from now rather than counting across the stopped time.
+    func labBookRunningChanged() {
+        labHelpLastTime = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// The screen was put away or brought back. This explicit fact is why the clock can count a genuinely slow
+    /// foreground frame in full without also counting time spent in the background.
+    func labBookSceneChanged(active: Bool) {
+        labBookSceneIsActive = active
+        labHelpLastTime = ProcessInfo.processInfo.systemUptime
+    }
+
+    /// Counts active time and publishes "Show me" itself. This is called from every display callback, outside the
+    /// physics-step loop: help must not depend on the phone managing another fifteen simulation moments.
+    func advanceLabBookHelpClock() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let gap = max(0, now - labHelpLastTime)
+        labHelpLastTime = now
+        guard labBookSceneIsActive, isRunning, !isFollowingRoom,
+              let run = labRun, run.hasStarted, !run.isAnswered, !run.wasShown,
+              labBook?.offersHelp != true
+        else { return }
+        labHelpElapsed += gap
+        if offersHelp(run) { publishLabBook() }
     }
 
     /// Copies what the card shows out of the running experiment.
