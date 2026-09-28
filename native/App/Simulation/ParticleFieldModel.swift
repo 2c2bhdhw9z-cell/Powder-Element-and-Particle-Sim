@@ -1045,9 +1045,10 @@ final class ParticleFieldModel {
     // MARK: - A hot phone, or a tired one
 
     /// What to do about the phone being hot, asked to save power, or nearly empty. Set by the app; nothing without it.
-    @ObservationIgnored var powerAdvice = PowerPolicy.advice(for: PowerPolicy.Readings()) {
-        didSet { engineDidChange() }
-    }
+    /// Read by the renderer and step directly. It is advice about how much work to do, not a change to the world: this
+    /// used to call `engineDidChange()`, which marked the stand-in opening galaxy as edited before the Field had ever
+    /// appeared. Its first real screen size then could not lay the galaxy out again, leaving it small in the top-left.
+    @ObservationIgnored var powerAdvice = PowerPolicy.advice(for: PowerPolicy.Readings())
 
     /// How many frames a second the view should ask the display for.
     var framesPerSecondWanted: Int { powerAdvice.framesPerSecond }

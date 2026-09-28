@@ -170,9 +170,14 @@ final class CrucibleTour: XCTestCase {
             // usable point to press, and asking anyway is an error rather than a miss — so the ones out of reach are
             // left for another screen size rather than failing the walk. That every recipe lays out is settled by the
             // engine's own checks; what is being walked here is the interface.
-            if choice.waitForExistence(timeout: 3), canReallyTap(choice, in: app) {
-                choice.tap()
+            if choice.waitForExistence(timeout: 3), tapIfReallyPossible(choice, in: app) {
                 stillRunning(app, after: "choosing \(name)")
+                let selected = NSPredicate(format: "label == %@", name)
+                let changed = XCTNSPredicateExpectation(predicate: selected, object: picker)
+                if XCTWaiter().wait(for: [changed], timeout: 5) != .completed {
+                    XCTFail("tapping \(name) did not choose it")
+                    report(app, "Recipe was not chosen")
+                }
                 if let again = find("recipe.make", in: app, scrollingWithin: trayArea(app)) {
                     again.tap()
                     stillRunning(app, after: "making \(name)")
@@ -261,8 +266,7 @@ final class CrucibleTour: XCTestCase {
         if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let copy = app.buttons["layer.copy.1"]
-            if copy.waitForExistence(timeout: 3), canReallyTap(copy, in: app) {
-                copy.tap()
+            if copy.waitForExistence(timeout: 3), tapIfReallyPossible(copy, in: app) {
                 stillRunning(app, after: "copying a layer")
             } else {
                 app.tap()
@@ -273,8 +277,7 @@ final class CrucibleTour: XCTestCase {
         if let more = find("layer.more.1", in: app, scrollingIn: trayScroll(in: app)) {
             more.tap()
             let remove = app.buttons["layer.delete.1"]
-            if remove.waitForExistence(timeout: 3), canReallyTap(remove, in: app) {
-                remove.tap()
+            if remove.waitForExistence(timeout: 3), tapIfReallyPossible(remove, in: app) {
                 stillRunning(app, after: "deleting the layer being looked at")
             } else {
                 app.tap()
@@ -1025,33 +1028,37 @@ final class CrucibleTour: XCTestCase {
         return best
     }
 
-    /// Whether an element can really be pressed.
+    /// Taps a system menu item when it really has a usable place on screen.
     ///
-    /// `isHittable` is not enough on its own, which cost two failures: a menu item hanging off the right-hand edge of a
-    /// phone reports itself hittable and then has no usable point to press, and asking anyway is an error rather than a
-    /// miss. So the frame has to sit inside the window as well.
+    /// `XCUIElement.tap()` asks the system to find the accessibility element's activation point a second time. SwiftUI
+    /// menu rows sometimes say they are hittable, show a perfectly valid frame, then that second lookup returns
+    /// `{-1, -1}` and fails the walk. Once the frame has been proved to be on screen, tapping its centre through the
+    /// window coordinate is the same action without asking the broken question again.
     ///
-    /// ## Why the question is asked inside an expected failure
-    ///
-    /// Because for a menu item a tablet has laid out behind the rest of its menu, asking whether it can be pressed does
-    /// not answer "no" — it fails the walk outright, "activation point invalid", which is the testing framework's own
-    /// fault and not the app's. Both the recipe menu and a layer's menu cost a failed walk that way. Asked inside a
-    /// non-strict expected failure, that outburst is kept to itself and the answer is simply no.
-    private func canReallyTap(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+    /// Asking whether some tablet menu rows are hittable can itself raise an XCTest failure, so that probe remains
+    /// inside a non-strict expected failure. Such a row is simply left for the other screen size.
+    private func tapIfReallyPossible(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         guard element.exists else { return false }
         let window = app.windows.element(boundBy: 0)
         guard window.exists else { return false }
         let frame = element.frame
-        guard frame.width > 1, frame.height > 1, window.frame.insetBy(dx: -1, dy: -1).contains(frame) else {
-            return false
-        }
+        let windowFrame = window.frame
+        guard frame.width > 1, frame.height > 1, windowFrame.insetBy(dx: -1, dy: -1).contains(frame),
+              windowFrame.width > 0, windowFrame.height > 0
+        else { return false }
         var hittable = false
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("asking whether a menu item can be pressed sometimes fails instead of answering", options: options) {
             hittable = element.isHittable
         }
-        return hittable
+        guard hittable else { return false }
+        let centre = CGVector(
+            dx: (frame.midX - windowFrame.minX) / windowFrame.width,
+            dy: (frame.midY - windowFrame.minY) / windowFrame.height
+        )
+        window.coordinate(withNormalizedOffset: centre).tap()
+        return true
     }
 
     /// The scrolling part of whichever panel is open, found by the panel's own title.
