@@ -1,0 +1,34 @@
+import Testing
+@testable import CrucibleCore
+
+@Suite("Review field faults two")
+struct ReviewFieldFaultsTwo {
+    // F15 — a layer's tint is applied once; bodies that join the layer afterwards keep their own colour for ever.
+    @Test("F15 bodies added to a coloured layer later wear its colour too")
+    func laterBodiesUntinted() {
+        let engine = ParticleEngine(width: 300, height: 300, seed: 2)
+        engine.clear()
+        _ = engine.addLayer(named: "Blue", tint: PackedColor(r: 40, g: 60, b: 230))   // what the app's Add does
+        _ = engine.addParticle(x: 10, y: 10)
+        _ = engine.showLayer(1, false); _ = engine.showLayer(1, true)
+        let first = engine.particles[0].color
+        _ = engine.addParticle(x: 20, y: 20)
+        engine.particles[1].color = PackedColor(r: 250, g: 20, b: 20)   // e.g. a red body drawn on the blue layer
+        _ = engine.showLayer(1, false); _ = engine.showLayer(1, true)
+        _ = engine.lockLayer(1, true)
+        let second = engine.particles[1].color
+        print("F15 first=\(String(first.packedRGBA, radix: 16)) second=\(String(second.packedRGBA, radix: 16)) groups=\(engine.particles.map(\.group))")
+        #expect(second.b > second.r, "the second body on the blue layer is not blue")
+    }
+
+    // F16 — duplicateLayer claims to return nil when there is nothing to copy.
+    @Test("F16 duplicating an empty layer is refused")
+    func duplicateEmpty() {
+        let engine = ParticleEngine(width: 300, height: 300, seed: 2)
+        engine.clear()
+        _ = engine.addLayer(named: "Empty")
+        let made = engine.duplicateLayer(1)
+        print("F16 duplicate of empty layer -> \(String(describing: made)), layers=\(engine.layers.count)")
+        #expect(made == nil)
+    }
+}

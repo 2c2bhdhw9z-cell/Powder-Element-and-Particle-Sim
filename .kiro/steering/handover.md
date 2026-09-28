@@ -55,6 +55,54 @@ anything that arrived meanwhile, and refuses rather than guessing if that will n
   **Withdrawn — nothing to do.** It only mattered for the browser version, which the owner does not want. The browser
   work was stopped before anything of it was committed; there is no `browser/` folder and no browser check.
 
+**From the second opinion (28 Sep), every one proved by a failing throwaway test that was run twice.** Details, file
+and line for each, in `docs/second-opinion/`; the tests themselves are the `.txt` files there — copy one into
+`native/Tests/CrucibleCoreTests/` without the `.txt`, fix, and it becomes the regression check.
+
+Little people (`84e3937`) and the notebook (`31c1a16`):
+- Undo, redo, rewind, saving, loading and Clear all ignore people (`PowderHistory.Snapshot`, `PowderState` and
+  `resetGrid` never touch `storedPeople`). Undo after adding someone leaves them; undo after "Nobody" brings nobody
+  back; a saved world opens empty of people; loading or clearing keeps the old people.
+- Rotating the phone or changing the detail (`resize`/`resample`) can leave people past the new edge: alive for good,
+  never drawn, impossible to pick up, and counted in the twenty. Carrying someone past the edge and letting go does the
+  same (`carryHeldPeople` takes the unclamped touch point).
+- People fall through a floor one cell thick in about one drop in ten, and land inside a two-cell floor as often
+  (`PowderPeople.swift` ~350: only the cell under the *new* position is checked, and falling reaches 1.1 cells a moment).
+- Climbing one step takes about 44 moments with three slips back: the climb raises them before they have moved into
+  the step's column.
+- Meteor on an empty world files "Melted stone" and "Fire caught": noticing is on for the whole event, and the event
+  places lava and fire itself (`PowderEvents.swift` ~78 and ~124).
+- The "Twenty is as many people…" message (`peopleNote`) is set and never shown.
+- Three checks pass on broken code: `theyLeaveSomethingBehind` never looks for smoke (and a drowned person leaves
+  none), `obsidianIsFound` accepts steam instead, `paintingIsNotDiscovering` never runs a moment. Run for real, a painted
+  wet sponge files "A sponge that soaked" by itself.
+- Smaller: people always fall down the screen whatever the world's gravity; adding a person draws from the world's own
+  random numbers, so it changes where the sand lands. Also seen: five separate explosions set off while paused count
+  as one chain of five.
+
+Layers (`afa9f4c`) and shape recipes (`71bbedc`):
+- Undo restores bodies but not the layer list, current layer or colour memory (`makeSnapshot`/`apply(_ snapshot:)` in
+  `ParticleEngine.swift`). Undoing a delete leaves A's bodies counted as B's; undoing a colour leaves the layer
+  claiming the colour.
+- `Swarm.spawn` never writes the layer tag and `removeAll()` never resets `hasGroups`, so new crowd bodies inherit tags
+  of removed ones: hide a layer, clear, add 5,000 and only 4,990 show.
+- The crowd is never born into the current layer (only `addParticle` reads it); the layer tests hide this by passing the
+  layer in by hand.
+- Locks leak: freeze stops locked crowd bodies (`Swarm.swift` freeze stage, flat and 3D), and in the flat step the
+  second finger and the kaleidoscope push locked layers (`ParticleStep.swift` ~805 omits `lockedLayers:`).
+- A recipe outlives its scene: `storedRecipe` survives `clear()`, new scenes and undo, and its sliders bend a morph into
+  the old shape.
+- Hiding and showing a layer reorders the crowd, and the morph and recipe hand out targets by position, so bodies walk a
+  third further and criss-cross.
+- Bodies merged or moved onto a coloured layer keep their old colour; bodies that join a coloured layer after its first
+  repaint are never coloured.
+- The recipe code meant to leave out unusable values can never run (the formula already turns them into nought), so
+  `sqrt(u - 0.5)` stacks half the bodies on one line.
+- Hidden cloth still draws its springs (`ParticleFieldModel.swift` ~1529, read not run). Duplicating a layer drops its
+  springs, and duplicating an empty layer still makes one.
+- The engine and the save loader accept a force written in a shape's words (`sin(u * 4)`), which then silently does
+  nothing; the "both directions" check lives only in the app's text box.
+
 ## Commands
 
 ```

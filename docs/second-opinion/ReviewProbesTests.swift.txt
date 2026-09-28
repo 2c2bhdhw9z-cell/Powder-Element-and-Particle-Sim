@@ -1,0 +1,275 @@
+import Foundation
+import Testing
+
+@testable import CrucibleCore
+
+@Suite("Review probes")
+struct ReviewProbes {
+    private func room(_ width: Int = 60, _ height: Int = 30) -> PowderEngine {
+        let engine = PowderEngine(width: width, height: height, seed: 41)
+        for x in 0 ..< width {
+            engine.setElement(x, height - 2, Element.bedrock)
+            engine.setElement(x, height - 1, Element.bedrock)
+        }
+        return engine
+    }
+
+    // P1 undo
+    @Test func undoDoesNotRemoveAPersonNorBringThemBack() {
+        let engine = room()
+        let history = PowderHistory()
+        _ = engine.addPerson(atX: 10, y: 27)
+        history.push(engine) // the app records AFTER adding
+        let undid = history.undo(engine)
+        print("PROBE undo-after-add: undid=\(undid) people=\(engine.people.count)")
+
+        let e2 = room()
+        _ = e2.addPerson(atX: 10, y: 27)
+        let h2 = PowderHistory()
+        h2.push(e2) // app: recordUndoPoint then clearPeople
+        e2.clearPeople()
+        _ = h2.undo(e2)
+        print("PROBE undo-after-Nobody: people=\(e2.people.count)")
+    }
+
+    // P2 save/load
+    @Test func saveLoadLosesPeople() throws {
+        let engine = room()
+        _ = engine.addPerson(atX: 10, y: 27)
+        let data = try JSONEncoder().encode(engine.captureState())
+        let other = room()
+        _ = other.apply(try JSONDecoder().decode(PowderState.self, from: data))
+        print("PROBE save/load: before=\(engine.people.count) after=\(other.people.count)")
+        // And loading a world over one that has people keeps the old people.
+        _ = engine.addPerson(atX: 40, y: 3)
+        let empty = PowderEngine(width: 60, height: 30, seed: 1)
+        _ = engine.apply(empty.captureState())
+        print("PROBE load-over: people kept after loading an empty world=\(engine.people.count)")
+        engine.resetGrid()
+        print("PROBE resetGrid: people kept after clear=\(engine.people.count)")
+    }
+
+    // P3 resize shrink -> ghost
+    @Test func shrinkingLeavesGhosts() {
+        let engine = room(100, 30)
+        _ = engine.addPerson(atX: 90, y: 27)
+        engine.resize(width: 50, height: 30)
+        for _ in 0 ..< 2_000 { engine.step() }
+        let p = engine.people.first
+        let pixels = engine.renderToArray()
+        let blank = PowderEngine(width: 50, height: 30, seed: 41)
+        for x in 0 ..< 50 { blank.setElement(x, 28, Element.bedrock); blank.setElement(x, 29, Element.bedrock) }
+        var diff = 0
+        let b = blank.renderToArray()
+        for i in 0 ..< pixels.count where pixels[i] != b[i] { diff += 1 }
+        let grab = engine.person(nearX: 49.5, y: 26, within: 6)
+        print("PROBE shrink: alive=\(p != nil) x=\(p?.x ?? -1) y=\(p?.y ?? -1) health=\(p?.health ?? -1) pixelsDrawn=\(diff) grabbableFromEdge=\(grab != nil)")
+    }
+
+    // P4 carried off the edge
+    @Test func droppedOffTheEdge() {
+        let engine = room(60, 30)
+        let id = engine.addPerson(atX: 5, y: 27)!
+        _ = engine.holdPerson(id)
+        engine.carryHeldPeople(toX: -4, y: 20) // finger dragged past the left edge
+        engine.dropHeldPeople()
+        var minX = 99.0, maxX = -99.0
+        for _ in 0 ..< 3_000 {
+            engine.step()
+            if let p = engine.people.first { minX = min(minX, p.x); maxX = max(maxX, p.x) }
+        }
+        let p = engine.people.first
+        print("PROBE off-edge: alive=\(p != nil) x-range=\(minX)...\(maxX) y=\(p?.y ?? -1) doing=\(String(describing: p?.doing)) count=\(engine.people.count)")
+    }
+
+    // P5 tunnelling through a one-cell floor
+    @Test func tunnelling() {
+        var passedThrough = 0
+        var landedInside = 0
+        var trials = 0
+        for startOffset in 0 ..< 20 {
+            for floorY in [80, 81, 82, 83, 84] {
+                trials += 1
+                let engine = PowderEngine(width: 20, height: 200, seed: 3)
+                for x in 0 ..< 20 { engine.setElement(x, floorY, Element.glass) }
+                _ = engine.addPerson(atX: 10, y: 2 + startOffset)
+                for _ in 0 ..< 400 { engine.step() }
+                if let p = engine.people.first {
+                    if p.y > Double(floorY) + 0.5 { passedThrough += 1 }
+                }
+                // two-thick floor: does anybody end up with feet inside it?
+                let e2 = PowderEngine(width: 20, height: 200, seed: 3)
+                for x in 0 ..< 20 { e2.setElement(x, floorY, Element.glass); e2.setElement(x, floorY + 1, Element.glass) }
+                _ = e2.addPerson(atX: 10, y: 2 + startOffset)
+                for _ in 0 ..< 200 {
+                    e2.step()
+                    if let p = e2.people.first, p.fall == 0, p.doing != .falling {
+                        if Int(p.y) >= floorY { landedInside += 1 }
+                        break
+                    }
+                }
+            }
+        }
+        print("PROBE tunnelling: trials=\(trials) passedThroughOneCellGlassFloor=\(passedThrough) landedWithFeetInsideTwoCellFloor=\(landedInside)")
+    }
+
+    // P6 climbing bob
+    @Test func climbBob() {
+        let engine = room()
+        for x in 30 ..< 60 { engine.setElement(x, 27, Element.bedrock) }
+        _ = engine.addPerson(atX: 26, y: 27)
+        engine.storedPeople[0].facing = 1
+        var falls = 0
+        var prev = engine.people[0].doing
+        var steps = 0
+        for s in 0 ..< 400 {
+            engine.step()
+            let p = engine.people[0]
+            if p.doing == .falling, prev != .falling { falls += 1 }
+            prev = p.doing
+            if p.x > 30.2, p.y == 26 { steps = s; break }
+        }
+        print("PROBE climb: fell back \(falls) times; took \(steps) moments to get on top of one step")
+    }
+
+    // P7 smoke
+    @Test func smokeOnDeath() {
+        func smokeCells(_ e: PowderEngine) -> Int {
+            var n = 0
+            for i in 0 ..< e.cellCount where e.type[i] == Element.smoke { n += 1 }
+            return n
+        }
+        // drowning
+        let wet = room(40, 40)
+        for y in 10 ..< 38 { for x in 0 ..< 40 { wet.setElement(x, y, Element.water) } }
+        _ = wet.addPerson(atX: 20, y: 37)
+        wet.storedPeople[0].health = 0.005
+        wet.storedPeople[0].breath = 0
+        var smokeSeenWet = 0
+        for _ in 0 ..< 5 { wet.step(); smokeSeenWet = max(smokeSeenWet, smokeCells(wet)) }
+        // buried
+        let dry = room(40, 30)
+        _ = dry.addPerson(atX: 20, y: 27)
+        for y in 25 ... 27 { dry.setElement(20, y, Element.sand) }
+        dry.storedPeople[0].health = 0.005
+        var smokeSeenDry = 0
+        for _ in 0 ..< 5 { dry.step(); smokeSeenDry = max(smokeSeenDry, smokeCells(dry)) }
+        // the shipped test's own scenario (standing in lava)
+        let lava = room(40, 30)
+        _ = lava.addPerson(atX: 20, y: 27)
+        lava.storedPeople[0].health = 0.02
+        for y in 25 ... 27 { lava.setElement(20, y, Element.lava, temp: 1_500) }
+        var smokeSeenLava = 0
+        for _ in 0 ..< 10 { lava.step(); smokeSeenLava = max(smokeSeenLava, smokeCells(lava)) }
+        print("PROBE smoke: drowned=\(wet.people.isEmpty) smoke=\(smokeSeenWet); buried=\(dry.people.isEmpty) smoke=\(smokeSeenDry); lava(shipped test)=\(lava.people.isEmpty) smoke=\(smokeSeenLava)")
+    }
+
+    // P8 meteor
+    @Test func meteorDiscoversLavaAndFire() {
+        let engine = room(120, 80)
+        _ = engine.takeNewlyMade()
+        _ = engine.start(.meteor)
+        let made = engine.takeNewlyMade().compactMap { Discoveries.forElement($0)?.id }
+        print("PROBE meteor on an empty world: notebook pages = \(made)")
+    }
+
+    // P9 painted things, then run: is the painted material itself reported?
+    @Test func paintedThenRun() {
+        var falsePositives: [String] = []
+        for (id, discovery) in Discoveries.byElement.sorted(by: { $0.key < $1.key }) {
+            let engine = room(40, 40)
+            for x in 15 ..< 25 { for y in 20 ..< 26 { engine.setElement(x, y, id) } }
+            _ = engine.takeNewlyMade()
+            var seen = false
+            for _ in 0 ..< 120 {
+                engine.step()
+                if engine.takeNewlyMade().contains(id) { seen = true }
+            }
+            if seen { falsePositives.append(discovery.id) }
+        }
+        print("PROBE painted-alone-then-run reports itself: \(falsePositives)")
+    }
+
+    // P10 chain from one small blob
+    @Test func chainFromOneBlob() {
+        for element in [Element.gunpowder, Element.nitro, Element.c4] {
+            let engine = room(80, 60)
+            for x in 38 ..< 42 { for y in 40 ..< 42 { engine.setElement(x, y, element) } }
+            engine.setElement(40, 39, Element.fire, temp: 900)
+            var longest = 0
+            for _ in 0 ..< 120 { engine.step(); longest = max(longest, engine.takeLongestChain()) }
+            print("PROBE chain from one 4x2 blob of \(element): longest=\(longest) (>=5 writes 'chain reaction')")
+        }
+    }
+
+    // P11 paused taps chain
+    @Test func pausedExplosionsAreAChain() {
+        let engine = room(200, 60)
+        for i in 0 ..< 5 { engine.triggerExplosion(centerX: 20 + i * 40, centerY: 20, radius: 3) }
+        print("PROBE five separate explosions with the world paused: chain=\(engine.takeLongestChain())")
+    }
+
+    // P12 flip
+    @Test func flipLeavesPeople() {
+        let engine = room(40, 30)
+        _ = engine.addPerson(atX: 20, y: 27)
+        engine.flipUpsideDown()
+        let p = engine.people[0]
+        let feetCell = engine.typeAt(20, Int(p.y))
+        print("PROBE flip: person still at y=\(p.y), cell at their feet now=\(feetCell) (bedrock=\(Element.bedrock))")
+    }
+}
+
+@Suite("Review probes 2")
+struct ReviewProbes2 {
+    @Test func replayWithPeopleIsIdentical() {
+        func run() -> ([ElementID], [PowderPerson]) {
+            let e = PowderEngine(width: 80, height: 60, seed: 9)
+            for x in 0 ..< 80 { e.setElement(x, 58, Element.bedrock) }
+            for x in 20 ..< 40 { for y in 10 ..< 20 { e.setElement(x, y, Element.sand) } }
+            for x in 50 ..< 55 { e.setElement(x, 57, Element.lava, temp: 1200) }
+            for i in 0 ..< 10 { _ = e.addPerson(atX: 5 + i * 7, y: 30) }
+            for _ in 0 ..< 600 { e.step() }
+            return (Array(UnsafeBufferPointer(start: e.type, count: e.cellCount)), e.people)
+        }
+        let a = run(), b = run()
+        print("PROBE replay identical grid=\(a.0 == b.0) people=\(a.1 == b.1) survivors=\(a.1.count)")
+    }
+
+    @Test func addingAPersonChangesTheSand() {
+        func run(_ withPerson: Bool) -> [ElementID] {
+            let e = PowderEngine(width: 80, height: 60, seed: 9)
+            for x in 20 ..< 40 { for y in 10 ..< 20 { e.setElement(x, y, Element.sand) } }
+            if withPerson { _ = e.addPerson(atX: 70, y: 5); e.clearPeople() }
+            for _ in 0 ..< 100 { e.step() }
+            return Array(UnsafeBufferPointer(start: e.type, count: e.cellCount))
+        }
+        print("PROBE add-then-remove a person far away changes where the sand lands: \(run(true) != run(false))")
+    }
+
+    @Test func oneBlastEvent() {
+        let e = PowderEngine(width: 200, height: 120, seed: 4)
+        let start = e.start(.blast)
+        var longest = e.takeLongestChain()
+        if let f = start.followUp { e.finish(f) }
+        longest = max(longest, e.takeLongestChain())
+        print("PROBE one press of the blast event: chain=\(longest)")
+    }
+}
+
+@Suite("Review probes 3")
+struct ReviewProbes3 {
+    @Test func obsidianTestScenario() {
+        let engine = PowderEngine(width: 60, height: 40, seed: 31)
+        for x in 18 ... 22 { engine.setElement(x, 20, Element.lava, temp: 600) }
+        for x in 18 ... 22 { engine.setElement(x, 19, Element.water, temp: 20) }
+        var all = Set<ElementID>()
+        for _ in 0 ..< 40 { engine.step(); all.formUnion(engine.takeNewlyMade()) }
+        print("PROBE obsidian scenario (mutated build) noticed obsidian=\(all.contains(Element.obsidian)) steam=\(all.contains(Element.steam))")
+    }
+    @Test func twoBlastPresses() {
+        let e = PowderEngine(width: 200, height: 120, seed: 4)
+        _ = e.start(.blast); e.step(); _ = e.start(.blast)
+        print("PROBE two presses of Blast one moment apart: chain=\(e.takeLongestChain())")
+    }
+}
