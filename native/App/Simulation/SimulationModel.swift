@@ -443,6 +443,12 @@ final class SimulationModel {
     /// materials the world made, the longest run of explosions, and the largest blast, all since the last frame.
     var onDiscovery: (([ElementID], Int, Int) -> Void)?
 
+    /// Listens to the world for the soundscape. See `Soundscape.swift`.
+    @ObservationIgnored private var soundscapeListener = SoundscapeListener()
+    /// When the world was last listened to, and the biggest explosion since.
+    @ObservationIgnored private var lastListened = 0.0
+    @ObservationIgnored private var burstSinceListening = 0
+
     /// The lab book experiment being done, if one is. See `SimulationModel+LabBook.swift`.
     ///
     /// Not watched: it is looked at every few moments and changes each time, and the card reads ``labBook`` instead,
@@ -633,6 +639,26 @@ final class SimulationModel {
         // before this tick. Called whether or not time is running: a paused host still has a world worth
         // sending, and a follower still needs a regular moment to notice the link has gone quiet.
         onTicked?()
+
+        listenForSoundscape()
+    }
+
+    /// Tells the soundscape what the world is doing, four times a second.
+    ///
+    /// Silence while the world is paused: a frozen fire makes no sound. Nothing at all when nobody wants the sound,
+    /// so the listening costs nothing then either.
+    private func listenForSoundscape() {
+        guard let audio, audio.wantsSoundscape else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        guard now - lastListened >= 0.25 else { return }
+        lastListened = now
+        guard isRunning || isFollowingRoom else {
+            audio.setSoundscape(.silence)
+            return
+        }
+        let levels = soundscapeListener.listen(to: engine, burst: burstSinceListening)
+        burstSinceListening = 0
+        audio.setSoundscape(levels)
     }
 
     /// Runs the simulation forward by this frame's share of time.
@@ -682,6 +708,7 @@ final class SimulationModel {
         // entirely unnoticed off to one side of the screen.
         let blast = engine.takeLargestBurst()
         if blast > 0 { Haptics.impact(strength: Double(blast) / 24) }
+        burstSinceListening = max(burstSinceListening, blast)
 
         // What the world made by itself this frame, for the notebook. Emptied whether or not anybody is listening, so
         // nothing piles up unread — and the list is empty in a world where nothing is happening, which is most of them.

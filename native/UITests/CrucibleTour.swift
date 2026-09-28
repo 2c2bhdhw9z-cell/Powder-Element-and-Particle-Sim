@@ -501,6 +501,44 @@ final class CrucibleTour: XCTestCase {
         stillRunning(app, after: "recording a clip of the movie")
     }
 
+    /// The world's own sound: water poured and lava dropped with the soundscape on, then the switch off and on again.
+    ///
+    /// Nothing here can hear, but it can see the app survive. The soundscape is made on the phone's audio thread, which
+    /// is where a fault closes the app with nothing on screen to say why — so pouring things while it plays, and
+    /// switching it while it plays, is the walk.
+    func testSoundscape() {
+        let app = launch()
+        let world = element("world.powder", in: app)
+        tap("tray.arrow", "the powder tray's arrow", in: app)
+        if let water = find("material.Water", in: app, scrollingWithin: trayArea(app)) {
+            water.tap()
+        }
+        tap("tray.arrow", "the powder tray's arrow, to close it", in: app)
+        guard isRunning(app) else { return }
+        drag(across: world, from: CGVector(dx: 0.3, dy: 0.2), to: CGVector(dx: 0.7, dy: 0.25))
+        stillRunning(app, after: "pouring water with the world's sound on")
+        Thread.sleep(forTimeInterval: 3)
+        stillRunning(app, after: "listening to water")
+
+        tap("header.menu", "the menu", in: app)
+        guard let toggle = find("switch.The world's own sound", in: app, kind: .switch, scrollingIn: panelScroll(in: app))
+        else {
+            XCTFail("the switch for the world's own sound was not in the Lab panel")
+            report(app, "No soundscape switch")
+            return
+        }
+        picture(app, "44 The world's own sound")
+        toggle.tap()
+        stillRunning(app, after: "switching the world's sound off")
+        toggle.tap()
+        stillRunning(app, after: "switching the world's sound on again")
+        tap("sheet.close", "the Lab panel's close button", in: app)
+        guard isRunning(app) else { return }
+        drag(across: world, from: CGVector(dx: 0.2, dy: 0.3), to: CGVector(dx: 0.8, dy: 0.3))
+        Thread.sleep(forTimeInterval: 3)
+        stillRunning(app, after: "listening to the world again")
+    }
+
     // MARK: - Starting
 
     private func launch() -> XCUIApplication {

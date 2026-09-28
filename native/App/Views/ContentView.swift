@@ -105,6 +105,8 @@ struct ContentView: View {
     @AppStorage("chamber") private var chamberRaw = Chamber.powder.rawValue
     @AppStorage("showDebugOverlay") private var showDebugOverlay = false
     @AppStorage("soundEnabled") private var soundEnabled = true
+    /// Whether the powder world makes its own sound as well as the one-off effects. See `Soundscape.swift`.
+    @AppStorage("soundscapeEnabled") private var soundscapeEnabled = true
     /// Whether the chamber you are not looking at keeps running. Off by default, matching the
     /// reference: stepping a world nobody is watching spends the frame budget of the one they are.
     @AppStorage("bothChambersRun") private var bothChambersRun = false
@@ -356,6 +358,7 @@ struct ContentView: View {
             field.tilt = tilt
             powder.audio = audio
             audio.isEnabled = soundEnabled
+            audio.soundscapeEnabled = soundscapeEnabled
             powder.detail = SimulationModel.Detail(rawValue: detailRaw) ?? .balanced
             if bridge == nil {
                 let connected = ChamberBridge(powder: powder, field: field)
@@ -456,6 +459,12 @@ struct ContentView: View {
         }
         .onChange(of: soundEnabled) { _, wanted in
             audio.isEnabled = wanted
+        }
+        .onChange(of: soundscapeEnabled) { _, wanted in audio.soundscapeEnabled = wanted }
+        // The world that is not on screen is not heard either. The powder world stops being ticked when it is not
+        // on screen, so it cannot say so itself.
+        .onChange(of: chamberRaw) { _, _ in
+            if chamber != .powder, !isSplit { audio.setSoundscape(.silence) }
         }
         // A movie's clip, finished, offered straight away to be kept or sent.
         .onChange(of: field.finishedClip) { _, clip in

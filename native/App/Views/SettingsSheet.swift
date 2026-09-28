@@ -43,6 +43,8 @@ struct SettingsSheet: View {
     /// Whether the phone buzzes: a tick when something is chosen, a tap for a button, a thump for an
     /// explosion. Read by `Haptics` everywhere else, so this one switch covers all of them.
     @AppStorage(Haptics.settingKey) private var hapticsEnabled = true
+    /// The same preference the screen reads to tell the sound what to do. See `Soundscape.swift`.
+    @AppStorage("soundscapeEnabled") private var soundscapeEnabled = true
 
     /// A spreadsheet of measurements waiting to be sent somewhere.
     @State private var shareTarget: ShareTarget?
@@ -381,6 +383,12 @@ struct SettingsSheet: View {
 
             LabDivider()
             LabToggle(label: "Sound", isOn: $soundEnabled)
+            if soundEnabled {
+                LabDivider()
+                // Under Sound, because it is a kind of sound: water, fire, glass, electricity and things landing,
+                // turned up and down by what the world is doing.
+                LabToggle(label: "The world's own sound", isOn: $soundscapeEnabled)
+            }
             LabDivider()
             LabToggle(label: "Haptics", isOn: $hapticsEnabled)
             LabDivider()

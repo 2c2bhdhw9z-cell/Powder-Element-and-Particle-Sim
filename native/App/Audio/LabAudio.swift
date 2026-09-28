@@ -67,6 +67,21 @@ final class LabAudio {
 
     private var throttle = SoundThrottle()
 
+    /// Whether the world's own sound plays: water, fire, glass, electricity and things landing, mixed by what the
+    /// world is doing. See `Soundscape.swift` in the engine. Only while ``isEnabled`` too.
+    var soundscapeEnabled = true {
+        didSet {
+            if !soundscapeEnabled { soundscape.set(.silence, volume: volume) }
+        }
+    }
+
+    /// Whether the world should bother listening for the soundscape at all.
+    var wantsSoundscape: Bool { isEnabled && soundscapeEnabled && volume > 0 }
+
+    /// The soundscape's synthesiser, handed to the audio thread. See `SoundscapeVoice`.
+    private let soundscape = SoundscapeVoice(sampleRate: LabAudio.sampleRate)
+    private var soundscapeNode: AVAudioSourceNode?
+
     /// How many sounds can overlap.
     ///
     /// Eight is generous for this: the throttle already stops any one sound repeating quickly, so
@@ -118,6 +133,18 @@ final class LabAudio {
                 self?.schedule(samples)
             }
         }
+    }
+
+    /// Tells the soundscape how loud each of its beds should now be. Called a few times a second by the powder world.
+    ///
+    /// Silence does not start anything: a session is only opened once there is something to hear.
+    func setSoundscape(_ levels: SoundscapeLevels) {
+        guard wantsSoundscape else { return }
+        if levels.isSilent, !isStarted { return }
+        guard start() else { return }
+        if !engine.isRunning { try? engine.start() }
+        // Quieter than the one-shot sounds: this is a room's sound, under everything else, not an event.
+        soundscape.set(levels, volume: volume * 0.8)
     }
 
     /// Convenience for the set-piece events, which report the sound they want as part of their
@@ -194,6 +221,12 @@ final class LabAudio {
             players.append(player)
         }
 
+        // The soundscape: a node the audio thread asks for samples, which the engine's synthesiser makes.
+        let node = Self.soundscapeNode(voice: soundscape, format: format)
+        engine.attach(node)
+        engine.connect(node, to: engine.mainMixerNode, format: format)
+        soundscapeNode = node
+
         do {
             try engine.start()
         } catch {
@@ -201,12 +234,36 @@ final class LabAudio {
             // instead of attaching a second set of players to a dead engine.
             for player in players { engine.detach(player) }
             players.removeAll()
+            if let soundscapeNode { engine.detach(soundscapeNode) }
+            soundscapeNode = nil
             return false
         }
 
         isStarted = true
         AudioSessionUsers.speaker = true
         return true
+    }
+
+    /// The node the audio thread asks for the soundscape's samples.
+    ///
+    /// Made outside the main actor on purpose. A closure written inside this class would belong to the main thread,
+    /// and in this language mode a closure that belongs to the main thread checks, when called, that it is on the main
+    /// thread — which the audio thread never is, so the first buffer would close the app.
+    private nonisolated static func soundscapeNode(voice: SoundscapeVoice, format: AVAudioFormat) -> AVAudioSourceNode {
+        AVAudioSourceNode(format: format) { @Sendable _, _, frameCount, bufferList in
+            let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
+            let count = Int(frameCount)
+            guard let first = buffers.first, let data = first.mData?.assumingMemoryBound(to: Float.self) else {
+                return noErr
+            }
+            voice.render(into: UnsafeMutableBufferPointer(start: data, count: count))
+            // The format is one channel, but copied into any others rather than leaving them with old memory.
+            for other in buffers.dropFirst() {
+                guard let copy = other.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                copy.update(from: data, count: count)
+            }
+            return noErr
+        }
     }
 
     /// Shuts everything down and releases the audio session.
@@ -217,6 +274,9 @@ final class LabAudio {
             engine.detach(player)
         }
         players.removeAll()
+        if let soundscapeNode { engine.detach(soundscapeNode) }
+        soundscapeNode = nil
+        soundscape.set(.silence, volume: volume)
         engine.stop()
         isStarted = false
         nextPlayer = 0
@@ -229,5 +289,44 @@ final class LabAudio {
         // Cleared so that turning sound back on plays immediately rather than waiting out an
         // interval measured from before it was switched off.
         throttle.reset()
+    }
+}
+
+/// The soundscape's synthesiser, shared between the main thread, which says how loud things should be, and the audio
+/// thread, which asks for samples.
+///
+/// ## Why the audio thread never waits here
+///
+/// It must never wait for anything: a late buffer is a click. So the main thread leaves its new levels under a lock,
+/// and the audio thread only *tries* the lock — if the main thread happens to be holding it at that instant, the
+/// audio thread carries on with the levels it already had, and picks the new ones up a few milliseconds later on its
+/// next turn. The synthesiser itself is only ever touched by the audio thread.
+final class SoundscapeVoice: @unchecked Sendable {
+    private let lock = NSLock()
+    private var waiting: (levels: SoundscapeLevels, volume: Double)?
+    private var synth: SoundscapeSynth
+
+    init(sampleRate: Double) {
+        synth = SoundscapeSynth(sampleRate: sampleRate)
+    }
+
+    /// Leaves new levels for the audio thread. Called on the main thread.
+    func set(_ levels: SoundscapeLevels, volume: Double) {
+        lock.lock()
+        waiting = (levels, volume)
+        lock.unlock()
+    }
+
+    /// Makes the next samples. Called on the audio thread.
+    func render(into samples: UnsafeMutableBufferPointer<Float>) {
+        if lock.try() {
+            if let waiting {
+                synth.target = waiting.levels
+                synth.volume = waiting.volume
+                self.waiting = nil
+            }
+            lock.unlock()
+        }
+        synth.render(into: samples)
     }
 }
