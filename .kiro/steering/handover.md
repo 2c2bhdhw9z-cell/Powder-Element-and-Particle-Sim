@@ -322,3 +322,16 @@ separately. Not yet confirmed on the owner's phone.
   locals. Same Linux machine, before → after: powder 200×430 5.9 → 2.9 ms, 420×910 25.4 → 12.6 ms, 25,000 colliding
   36 → 28 ms, 500,000 free 3.6 → 3.3 ms. `bench-baseline.json` not changed: it was recorded on the CI machine, whose
   gate will show the real figures. 1,309 tests pass in plain and optimised builds.
+
+## Owner's phone test, 28 September (build-175) → fixed in `ca4e4d8` / build-176
+
+- Kaleidoscope crash: `kaleidoscopeFolds` had a `didSet` assigning itself; in an `@Observable` class that recurses
+  forever. **Never assign a property inside its own `didSet` in an `@Observable` class** — use a stored backing value.
+- Lasso Heat/Cool: now 400° a press, only on filled cells, and says the new average temperature (`lassoWarmthNote`).
+- Powder gravity: a "Gravity · Down" menu in the powder tray's top row (`dock.gravity`). Still also in Lab → World.
+- Own creatures: "Take them away" shows whenever any creature exists or is half drawn, and clears the drawn plan too.
+- Field scrolling tray: every part now loads on a timer (`.task`), instead of waiting to be seen.
+- Cleaner top: the bar is solid up through the clock strip; floating tools fold behind "…" (Undo stays out,
+  `@AppStorage("labToolsShown")`; the App tour launches with it on).
+- Intro: every page shows a small live demo run by the real engines (`App/Views/IntroDemo.swift`).
+- Owner unsure about Field tests 6 (hidden layer) and 7 (morph + layer); not confirmed either way.
