@@ -202,9 +202,14 @@ final class SimulationModel {
     var brushTint: UInt32 = 0
 
     /// How many times every touch is copied evenly round the middle of the world. One is no kaleidoscope at all.
-    var kaleidoscopeFolds: Int = 1 {
-        didSet { kaleidoscopeFolds = max(1, min(12, kaleidoscopeFolds)) }
+    ///
+    /// Kept in range by the setter, not by a `didSet` that assigns to itself. In an `@Observable` class that assignment
+    /// goes through the setter again, which calls `didSet` again, forever — tapping Kaleidoscope closed the app.
+    var kaleidoscopeFolds: Int {
+        get { storedKaleidoscopeFolds }
+        set { storedKaleidoscopeFolds = max(1, min(12, newValue)) }
     }
+    private var storedKaleidoscopeFolds = 1
     /// Whether every other copy is mirrored, which is what makes a snowflake rather than a pinwheel.
     var kaleidoscopeMirrors = true
 
@@ -227,7 +232,11 @@ final class SimulationModel {
     /// Whether a loop is being drawn right now.
     var isDrawingLasso = false
     /// The cells inside the loop, once it is closed.
-    var lassoSelection: [Int] = []
+    var lassoSelection: [Int] = [] {
+        didSet { lassoWarmthNote = nil }
+    }
+    /// What the last press of the lasso's Heat or Cool did, in words.
+    var lassoWarmthNote: String?
     /// What was lifted, while it is waiting to be put down.
     var heldStamp: PowderStamp?
     /// Whether the next touch puts what was lifted down, and whether it was moved or copied.

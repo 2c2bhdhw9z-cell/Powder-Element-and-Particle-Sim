@@ -2733,6 +2733,11 @@ final class ParticleFieldModel {
         // to reverse.
         engine.clear()
         additionNote = nil
+        // A creature half drawn on the world is cleared with everything else, rather than staying painted on top.
+        creaturePlan = CreaturePlan()
+        creatureStroke = nil
+        isBuildingCreature = false
+        creatureReports = []
         afterArrangementChange()
     }
 
@@ -3140,9 +3145,21 @@ final class ParticleFieldModel {
         afterCreaturesChanged()
     }
 
-    /// Takes every creature out of the field.
+    /// Whether there is a creature to take away: alive in the field, or drawn and not yet brought to life.
+    var hasAnyCreature: Bool {
+        observeEngine()
+        return !engine.creatures.isEmpty || !creaturePlan.isEmpty || !creatureReports.isEmpty
+    }
+
+    /// Takes every creature out of the field, and anything half drawn with it.
     func removeCreatures() {
         engine.removeCreatures()
+        creaturePlan = CreaturePlan()
+        creatureStroke = nil
+        isBuildingCreature = false
+        creatureProblem = nil
+        creatureReports = []
+        Haptics.firm()
         afterCreaturesChanged()
     }
 

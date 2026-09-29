@@ -100,8 +100,14 @@ struct SleepingBodiesTests {
         // Warmed first, so neither pays for the first touch of its own memory.
         _ = time(sleeping)
         _ = time(awake)
-        let withSleep = time(sleeping)
-        let without = time(awake)
+        // The best of three each, taken in turn. The checks run many suites at once, and one unlucky moment on a busy
+        // machine made a single measurement say sleeping was slower than walking every body.
+        var withSleep = Double.infinity
+        var without = Double.infinity
+        for _ in 0 ..< 3 {
+            withSleep = min(withSleep, time(sleeping))
+            without = min(without, time(awake))
+        }
         #expect(
             withSleep < without * 0.6,
             "a resting crowd of twenty thousand cost \(withSleep)s left alone and \(without)s walked every moment"

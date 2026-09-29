@@ -344,15 +344,30 @@ extension SimulationModel {
     }
 
     /// Heats or cools everything inside the loop.
+    ///
+    /// It used to change the numbers and nothing else: a press moved sand from 20 to 270 degrees, which looks exactly
+    /// the same, and material that had fallen out of the loop since it was drawn was not touched at all. Now each
+    /// press says what the loop holds afterwards, and the step is big enough to see — sand glows, water boils, ice
+    /// melts within a press or two.
     func warmLasso(by degrees: Double) {
         guard hasLassoSelection else { return }
+        let filled = lassoSelection.filter { $0 >= 0 && $0 < engine.cellCount && engine.typeAt($0 % engine.width, $0 / engine.width) != Element.empty }
+        guard !filled.isEmpty else {
+            lassoWarmthNote = "Nothing is inside the loop any more — it has fallen or moved out. Draw the loop again."
+            Haptics.selection()
+            return
+        }
         recordUndoPoint()
-        engine.warm(cells: lassoSelection, by: degrees)
+        engine.warm(cells: filled, by: degrees)
+        var total = 0.0
+        for cell in filled { total += Double(engine.temperature[cell]) }
+        lassoWarmthNote = "Now about \(Int((total / Double(filled.count)).rounded())) °C inside the loop."
+        engineDidChange()
         Haptics.selection()
     }
 
     /// How much one press of the lasso's heat or cool buttons changes what it holds, in degrees.
-    static let lassoWarmth = 250.0
+    static let lassoWarmth = 400.0
 
     /// Recolours everything inside the loop, or gives it its own colours back with nought.
     ///

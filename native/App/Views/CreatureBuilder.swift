@@ -31,7 +31,9 @@ struct FieldCreatureControls: View {
                         pill(kind.name, symbol: "figure.walk", lit: false) { model.addReadyCreature(kind) }
                             .accessibilityIdentifier("creature.ready.\(kind.rawValue)")
                     }
-                    if !model.creatureReports.isEmpty {
+                    // Whenever there is anything to take away — a living creature or one half drawn. It used to wait for
+                    // the once-a-second report, so a creature you had just made could have no way to remove it.
+                    if model.hasAnyCreature {
                         pill("Take them away", symbol: "trash", lit: false) { model.removeCreatures() }
                             .accessibilityIdentifier("creature.removeAll")
                     }

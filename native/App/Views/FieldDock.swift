@@ -1463,22 +1463,15 @@ struct FieldDock: View {
                 expandedSection(section)
                     .id(section)
             }
-            if expandedSectionLimit < ExpandedSection.allCases.count {
-                Color.clear
-                    .frame(height: 1)
-                    .id(expandedSectionLimit)
-                    .accessibilityHidden(true)
-                    .onAppear {
-                        // Move this work out of the layout pass that noticed the end of the current chunk.
-                        Task { @MainActor in
-                            // A breath between parts, so opening never does all the work in one go.
-                            try? await Task.sleep(for: .milliseconds(40))
-                            expandedSectionLimit = min(
-                                ExpandedSection.allCases.count,
-                                expandedSectionLimit + 4
-                            )
-                        }
-                    }
+        }
+        // Every part arrives in turn, four at a time, whatever is on screen. This used to wait for an invisible marker
+        // at the bottom to be "seen" before loading the next four; on a phone that chain could stop partway, and the
+        // bottom of the tray was simply missing.
+        .task {
+            while expandedSectionLimit < ExpandedSection.allCases.count {
+                try? await Task.sleep(for: .milliseconds(40))
+                if Task.isCancelled { return }
+                expandedSectionLimit = min(ExpandedSection.allCases.count, expandedSectionLimit + 4)
             }
         }
     }

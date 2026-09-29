@@ -346,6 +346,7 @@ struct LassoBar: View {
             return "Drag or tap to put a copy down, as many as you like. Each one can be undone by itself."
         case nil:
             if let problem = model.lassoProblem { return problem }
+            if model.hasLassoSelection, let note = model.lassoWarmthNote { return note }
             if model.hasLassoSelection {
                 let cells = model.lassoSelection.count
                 return "\(cells.formatted()) cells inside the loop. Heat and cool change them by "

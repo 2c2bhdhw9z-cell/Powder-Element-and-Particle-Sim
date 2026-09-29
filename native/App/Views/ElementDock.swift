@@ -200,8 +200,41 @@ struct ElementDock: View {
                 destination("Invent", "wand.and.stars", action: onShowEditor)
                 destination("Periodic", "atom", action: onShowPeriodic)
             }
+            gravityChoice
             destination("Lab", "slider.horizontal.3", action: onShowSettings)
         }
+    }
+
+    /// Which way things fall, where it can be found. It was only in Lab → World → "Which way is down", which nobody
+    /// looking for "gravity" found. A menu of the five directions; while Tilt is steering, it says so instead.
+    private var gravityChoice: some View {
+        Menu {
+            ForEach(SimulationModel.GravityDirection.allCases) { direction in
+                Button {
+                    Haptics.selection()
+                    model.setGravity(direction)
+                } label: {
+                    if model.gravityDirection == direction {
+                        Label(direction.title, systemImage: "checkmark")
+                    } else {
+                        Text(direction.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.down.to.line.compact")
+                    .font(.labBody(11, .medium))
+                Text(model.isSteeredByTilt ? "Gravity · Tilt" : "Gravity · \(model.gravityDirection.title)")
+                    .font(.labBody(12, .medium))
+            }
+            .foregroundStyle(Palette.foreground)
+            .padding(.horizontal, 11)
+            .frame(height: 34)
+            .background(Capsule().fill(Color.white.opacity(0.10)))
+        }
+        .disabled(model.isSteeredByTilt)
+        .accessibilityIdentifier("dock.gravity")
     }
 
     private func destination(

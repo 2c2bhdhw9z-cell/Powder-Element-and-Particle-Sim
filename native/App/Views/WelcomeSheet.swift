@@ -23,7 +23,7 @@ struct WelcomeSheet: View {
             heading
             TabView(selection: $at) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                    page(step)
+                    page(step, index: index)
                         .tag(index)
                 }
             }
@@ -67,7 +67,7 @@ struct WelcomeSheet: View {
         .padding(.bottom, 8)
     }
 
-    private func page(_ step: LabIntroduction.Step) -> some View {
+    private func page(_ step: LabIntroduction.Step, index: Int) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Image(systemName: step.symbol)
                 .font(.system(size: 34, weight: .light))
@@ -83,7 +83,15 @@ struct WelcomeSheet: View {
                 .lineSpacing(4)
                 .foregroundStyle(Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
+            // The empty half of the page, filled with the thing itself happening. Only the page on screen runs.
+            if index == at {
+                IntroDemo(page: index)
+                    .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 360)
+                    .padding(.top, 6)
+                    .padding(.bottom, 34)
+            } else {
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: 520, alignment: .leading)
         .padding(.horizontal, 24)

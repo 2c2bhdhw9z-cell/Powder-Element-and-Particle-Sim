@@ -61,6 +61,8 @@ struct ContentView: View {
     @State private var isDockOpen = false
     /// The last body batch chosen in the Field tray. Shared by its compact and overlay presentations.
     @State private var fieldBatch = 10_000
+    /// Whether the floating tools are open, or folded behind one button.
+    @AppStorage("labToolsShown") private var toolsShown = false
     /// Whether the Field's controls open as the list menu or as the one scrolling tray. Chosen at the top of either.
     @AppStorage(FieldDock.listMenuKey) private var fieldUsesListMenu = true
     @State private var showingScenes = false
@@ -344,6 +346,9 @@ struct ContentView: View {
                 // Down by exactly the strip the stack just reached up into, so the bar ends up where it
                 // has always been while the world beneath it does not.
                 .padding(.top, screen.safeAreaInsets.top)
+                // Solid up through the clock and battery strip too. The world used to show in the gap above the bar,
+                // a stripe of moving bodies over the time that looked like a mistake.
+                .background(Palette.background)
             }
             // Upward only. This used to ignore the bottom safe area too, and it took the dock's controls
             // down with it: the play button and the clear button ended up inside the home-indicator strip,
@@ -1300,8 +1305,49 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
+    /// The floating tools, folded away behind one button unless they have been opened.
+    ///
+    /// Undo stays out, because it is the one reached for all the time. Everything else — redo, shake, turn over,
+    /// picture, record, speed and tilt — is one tap away, so the world is not covered in pills. The choice is
+    /// remembered.
     private var tools: some View {
+        HStack(alignment: .top, spacing: 6) {
+            if toolsShown {
+                chamberTools
+            } else {
+                Button {
+                    Haptics.tap()
+                    if chamber == .powder { powder.undo() } else { field.undo() }
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.labBody(14, .medium))
+                        .foregroundStyle((chamber == .powder ? powder.canUndo : field.canUndo)
+                            ? Palette.foreground : Palette.subtleForeground)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.plain)
+                .disabled(!(chamber == .powder ? powder.canUndo : field.canUndo))
+                .solidPanel()
+                .accessibilityLabel("Undo")
+            }
+            Button {
+                Haptics.selection()
+                withAnimation(.easeOut(duration: 0.18)) { toolsShown.toggle() }
+            } label: {
+                Image(systemName: toolsShown ? "chevron.left" : "ellipsis")
+                    .font(.labBody(14, .medium))
+                    .foregroundStyle(Palette.muted)
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
+            .solidPanel()
+            .accessibilityLabel(toolsShown ? "Fold the tools away" : "More tools")
+            .accessibilityIdentifier("tools.toggle")
+        }
+    }
+
+    @ViewBuilder
+    private var chamberTools: some View {
         switch chamber {
         case .powder:
             ToolCluster(
