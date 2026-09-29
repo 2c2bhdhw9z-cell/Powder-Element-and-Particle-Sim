@@ -1,5 +1,6 @@
 import CoreGraphics
 import CrucibleCore
+import Foundation
 import SwiftUI
 
 /// A small moving picture on each page of the introduction, doing what the page says.
@@ -7,18 +8,26 @@ import SwiftUI
 /// Not a recorded video: the real engines, tiny, running live. So it always matches what the app really does, it
 /// costs nothing to ship, and a change to the physics changes the introduction with it. A ghost finger shows where a
 /// touch would be.
+@MainActor
 struct IntroDemo: View {
     /// Which page: the same order as `LabIntroduction.steps`.
     let page: Int
 
-    @State private var player: IntroDemoPlayer?
+    /// Created before the timeline, and owned for this page's whole life. The first version made this optional in
+    /// `onAppear`; on a real phone the timeline rendered once while it was nil and every page stayed a black box.
+    @StateObject private var player: IntroDemoPlayer
+
+    init(page: Int) {
+        self.page = page
+        _player = StateObject(wrappedValue: IntroDemoPlayer(page: page))
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
             // Worked out here, on the main thread, and handed to the canvas finished: a canvas may draw elsewhere.
-            let frame = player?.frame(at: timeline.date)
+            let frame = player.frame(at: timeline.date)
             Canvas { context, size in
-                frame?.draw(in: &context, size: size)
+                frame.draw(in: &context, size: size)
             }
         }
         .background(
@@ -29,15 +38,13 @@ struct IntroDemo: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Palette.border, lineWidth: 1)
         )
-        .onAppear { if player == nil { player = IntroDemoPlayer(page: page) } }
-        .onDisappear { player = nil }
         .accessibilityHidden(true)
     }
 }
 
 /// Runs one page's demo. A class so the engines live between frames; only ever touched on the main thread.
 @MainActor
-final class IntroDemoPlayer {
+final class IntroDemoPlayer: ObservableObject {
     private let page: Int
     private let started = Date()
     private var lastStep = Date.distantPast
@@ -57,6 +64,8 @@ final class IntroDemoPlayer {
         self.page = page
         powder = PowderEngine(width: Self.gridWidth, height: Self.gridHeight, seed: 7)
         reset()
+        // The very first frame is already visible, even before the animation clock's second callback.
+        for _ in 0 ..< 4 { advance(time: 0) }
     }
 
     // MARK: Setting each page up
@@ -208,20 +217,28 @@ final class IntroDemoPlayer {
     }
 
     private func powderImage() -> CGImage? {
-        var pixels = powder.renderToArray()
+        let pixels = powder.renderToArray()
         let width = Self.gridWidth
         let height = Self.gridHeight
-        guard pixels.count == width * height else { return nil }
-        return pixels.withUnsafeMutableBytes { raw -> CGImage? in
-            guard let base = raw.baseAddress,
-                  let bitmap = CGContext(
-                      data: base, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                      space: CGColorSpaceCreateDeviceRGB(),
-                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-                  )
-            else { return nil }
-            return bitmap.makeImage()
-        }
+        let bytes = PixelExport.rgbaBytes(from: pixels, width: width, height: height)
+        guard bytes.count == width * height * PixelExport.bytesPerPixel,
+              let provider = CGDataProvider(data: Data(bytes) as CFData)
+        else { return nil }
+        // Own copied bytes, using the same tested bridge as LabSnapshot. The first version pointed a bitmap context at
+        // a temporary Swift array; Core Graphics was free to read it after that array had gone away on a device.
+        return CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * PixelExport.bytesPerPixel,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+        )
     }
 }
 

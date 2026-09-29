@@ -335,3 +335,30 @@ separately. Not yet confirmed on the owner's phone.
   `@AppStorage("labToolsShown")`; the App tour launches with it on).
 - Intro: every page shows a small live demo run by the real engines (`App/Views/IntroDemo.swift`).
 - Owner unsure about Field tests 6 (hidden layer) and 7 (morph + layer); not confirmed either way.
+
+## Owner's phone test, build-176 — current unfinished list
+
+Confirmed on a real iPhone: Kaleidoscope no longer crashes. The six introduction demo boxes appear, but every one is
+black and nothing moves; this is a current bug, not a test left for the owner.
+
+**Keep every item below until the owner explicitly reports its result. Do not infer a pass from simulator/CI.**
+
+- Field hidden layer: add a layer, hide it, clear, add bodies; the new bodies should remain visible.
+- Field morph plus layer: begin a morph, hide/show a layer, move the morph slider; bodies should glide to their own
+  places rather than crossing to other bodies' places.
+- Field one-piece scrolling tray after the build-176 loading change: scroll to the very bottom; every part should exist.
+- Powder lasso Heat/Cool after build-176: loop material, press Heat/Cool; temperature message and visible changes.
+- Powder gravity menu after build-176: powder tray → Gravity; Down/Up/Left/Right/None should be reachable and work.
+- Own-creature removal after build-176: Take them away while half drawn and after bringing one to life.
+- Cleaner top after build-176: no world above the Crucible bar; “…” opens/closes the floating tools.
+- Rewind after painting and running for several seconds.
+- Large powder/Field worlds feel smoother and remain usable.
+- Talk, wave, look with head, and On your table (real camera/microphone/AR permissions and behavior).
+- Save a 3D moment and a Live Photo to Photos; open and play them there.
+- Movie studio: record, save and share a clip without the app closing.
+- Living soundscape: fire, water and glass sound different and stop when disabled/backgrounded.
+- Parallel worlds and worlds within worlds: open, run both views, keep/return, and get back to one world.
+- Guided lab book: complete one experiment through its answer.
+- Very large save: save, relaunch/reload, and verify counts/content are not shortened.
+- Rotate the phone in Powder, Field and split screen; worlds and controls should not jump, disappear or lose undo.
+- Introduction demos after the next fix: all six show visible motion and do not make the first launch stutter or close.

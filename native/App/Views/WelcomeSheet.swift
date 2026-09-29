@@ -86,6 +86,7 @@ struct WelcomeSheet: View {
             // The empty half of the page, filled with the thing itself happening. Only the page on screen runs.
             if index == at {
                 IntroDemo(page: index)
+                    .id(index)
                     .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 360)
                     .padding(.top, 6)
                     .padding(.bottom, 34)
