@@ -34,9 +34,11 @@ extension PowderEngine {
             let turn = Double(fold) / Double(count) * 6.283185307179586
             let cosTurn = jsCos(turn)
             let sinTurn = jsSin(turn)
-            let across = mirrors && fold % 2 == 1 ? -dx : dx
-            let copyX = Int((centreX + across * cosTurn - dy * sinTurn).rounded())
-            let copyY = Int((centreY + across * sinTurn + dy * cosTurn).rounded())
+            // Mirror across the fold's local axis, then rotate. Negating x instead made every odd copy point half a
+            // turn away; on a symmetry axis a six-fold stroke collapsed to only three distinct copies.
+            let mirroredY = mirrors && fold % 2 == 1 ? -dy : dy
+            let copyX = Int((centreX + dx * cosTurn - mirroredY * sinTurn).rounded())
+            let copyY = Int((centreY + dx * sinTurn + mirroredY * cosTurn).rounded())
             guard isValid(copyX, copyY) else { continue }
             if cells.contains(where: { $0.x == copyX && $0.y == copyY }) { continue }
             cells.append((copyX, copyY))

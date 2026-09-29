@@ -24,6 +24,10 @@ public final class PowderHistory {
         public var gravityY: Double
         public var windX: Double
         public var ambientTemp: Double
+        public var pressureEnabled: Bool = true
+        public var heatConductionEnabled: Bool = true
+        public var textureMode: PowderTextureMode = .naturalGrain
+        public var tide: PowderTide? = nil
         /// Each cell's own colour, or nothing when no cell had one — which is almost always, so a world
         /// nobody has painted in colour costs no more to undo than it did before colour existed.
         public var tint: [UInt32]? = nil
@@ -62,6 +66,10 @@ public final class PowderHistory {
             gravityY: engine.gravityY,
             windX: engine.windX,
             ambientTemp: engine.ambientTemp,
+            pressureEnabled: engine.pressureEnabled,
+            heatConductionEnabled: engine.heatConductionEnabled,
+            textureMode: engine.textureMode,
+            tide: engine.tide,
             tint: engine.tintMayExist ? Array(UnsafeBufferPointer(start: engine.tint, count: count)) : nil,
             population: engine.capturePopulation()
         )
@@ -112,6 +120,10 @@ public final class PowderHistory {
         // anything could have put an out-of-range value in it, and undo used to carry
         // that value straight back out.
         engine.setWind(snapshot.windX)
+        engine.pressureEnabled = snapshot.pressureEnabled
+        engine.heatConductionEnabled = snapshot.heatConductionEnabled
+        engine.textureMode = snapshot.textureMode
+        engine.tide = snapshot.tide
         engine.adoptPopulation(snapshot.population)
         return true
     }

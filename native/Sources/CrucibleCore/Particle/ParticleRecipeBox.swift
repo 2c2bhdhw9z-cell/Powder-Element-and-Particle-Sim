@@ -388,6 +388,7 @@ extension ParticleEngine {
         let room = maxParticles - particles.count - swarm.count
         guard room > 0 else {
             storedRecipe = nil
+            storedRecipeSlots = []
             return .failure(.noRoom)
         }
         let count = min(wanted.count, room)

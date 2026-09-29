@@ -143,6 +143,22 @@ public struct SwarmRecord: Codable, Sendable {
     public var layer: [UInt8]?
 }
 
+/// One endpoint of a saved morph. The live engine keeps the same four values as a tuple; a named record makes them
+/// Codable without changing the hot in-memory path.
+public struct MorphPointRecord: Codable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var z: Double
+    public var c: UInt32
+
+    public init(x: Double, y: Double, z: Double, c: UInt32) {
+        self.x = x
+        self.y = y
+        self.z = z
+        self.c = c
+    }
+}
+
 /// A whole particle field, as saved.
 public struct ParticleState: Codable, Sendable {
     public var width: Double
@@ -247,6 +263,15 @@ public struct ParticleState: Codable, Sendable {
     public var layerAt: Int?
     /// The formula and knob values that own a held recipe shape. Absent in files from before recipes existed.
     public var recipe: ParticleRecipe?
+    /// The formula place owned by each crowd body. Needed after layers have reordered the crowd.
+    public var recipeSlots: [Int]?
+    /// A morph's two arrangements, slider position, and stable endpoints. Without these, a saved mid-morph field
+    /// reopened looking right but its morph controls were dead.
+    public var morphFrom: String?
+    public var morphTo: String?
+    public var morphAt: Double?
+    public var morphA: [MorphPointRecord]?
+    public var morphB: [MorphPointRecord]?
     public var particles: [ParticleRecord]
 }
 
@@ -258,6 +283,26 @@ extension ParticleEngine {
     public static let saveBodyLimit = Swarm.maximumCount
     /// Largest crowd kept in the old readable-array form. Larger crowds use ``PackedSwarmRecord`` without loss.
     public static let saveSwarmLimit = 24_000
+
+    /// Checks every condition that can reject a field save, without touching this engine. Whole-lab restoration uses
+    /// it to validate both chambers before either one is changed.
+    public static func canApply(_ state: ParticleState) -> Bool {
+        guard state.width > 0, state.height > 0, state.width.isFinite, state.height.isFinite,
+              state.width <= largestWorldSide, state.height <= largestWorldSide
+        else { return false }
+        let packedCount: Int?
+        if let packed = state.packedSwarm {
+            guard let decoded = packed.snapshot(width: state.width, height: state.height) else { return false }
+            packedCount = decoded.count
+        } else {
+            packedCount = nil
+        }
+        let savedSwarmCount = packedCount ?? state.swarm?.n ?? 0
+        let savedLimit = max(1_000, min(Swarm.maximumCount, state.maxParticles))
+        return state.particles.count <= savedLimit
+            && savedSwarmCount >= 0
+            && savedSwarmCount <= savedLimit - state.particles.count
+    }
 
     /// Captures the whole field. Every body is kept; a save that quietly loses bodies is not a save.
     public func captureState() -> ParticleState {
@@ -357,6 +402,16 @@ extension ParticleEngine {
             layers: storedLayers.isEmpty ? nil : storedLayers,
             layerAt: storedLayers.isEmpty ? nil : storedCurrentLayer,
             recipe: storedRecipe,
+            recipeSlots: storedRecipe != nil && storedRecipeSlots.count == swarm.count ? storedRecipeSlots : nil,
+            morphFrom: storedMorphFrom,
+            morphTo: storedMorphTo,
+            morphAt: storedMorphFrom != nil && storedMorphTo != nil ? storedMorphAt : nil,
+            morphA: storedMorphA.isEmpty ? nil : storedMorphA.map {
+                MorphPointRecord(x: $0.x, y: $0.y, z: $0.z, c: $0.color)
+            },
+            morphB: storedMorphB.isEmpty ? nil : storedMorphB.map {
+                MorphPointRecord(x: $0.x, y: $0.y, z: $0.z, c: $0.color)
+            },
             // Every number made writable on the way out. A save file is text, and text has no way to say
             // "not a number" — so one corrupt body used to make the whole save fail, and because the failure
             // was swallowed, autosave simply stopped working with nothing on screen to say so.
@@ -473,7 +528,7 @@ extension ParticleEngine {
     /// velocity into nonsense on the next step — and because the forces couple every body to
     /// every other, the whole field was unusable one frame later with nothing to point at.
     @discardableResult
-    public func apply(_ state: ParticleState) -> Bool {
+    public func apply(_ state: ParticleState, recordingUndo: Bool = false) -> Bool {
         guard state.width > 0, state.height > 0, state.width.isFinite, state.height.isFinite else {
             return false
         }
@@ -496,6 +551,9 @@ extension ParticleEngine {
         guard state.particles.count <= savedLimit, savedSwarmCount >= 0,
               savedSwarmCount <= savedLimit - state.particles.count
         else { return false }
+
+        // Only after every rejecting check. A failed import must leave Redo and the undo trail exactly as they were.
+        if recordingUndo { pushUndo() }
 
         // The saved canvas size is applied. It was exported and then ignored, so a scene
         // captured on a large display dropped most of its bodies outside a smaller field.
@@ -645,10 +703,45 @@ extension ParticleEngine {
         storedLabels = []
         storedShowsLabels = false
         storedRecipe = nil
+        storedRecipeSlots = []
         if let saved = state.recipe?.sanitized, case .success = saved.compiled(), swarm.hasRoles {
             storedRecipe = saved
+            // A valid table is a permutation: every body owns exactly one formula place. Never guess when a damaged
+            // file duplicates or omits a place; disabling the knobs is safer than making bodies cross through one
+            // another on the first change.
+            if let slots = state.recipeSlots,
+               slots.count == swarm.count,
+               slots.allSatisfy({ $0 >= 0 && $0 < swarm.count }),
+               Set(slots).count == swarm.count
+            {
+                storedRecipeSlots = slots
+            } else if state.recipeSlots == nil {
+                // Old recipe saves predate layers reordering bodies; their original order is the right fallback.
+                storedRecipeSlots = Array(0 ..< swarm.count)
+            } else {
+                storedRecipe = nil
+            }
             storedLabels = saved.title.isEmpty ? [] : [ParticleLabel(saved.title, x: width / 2, y: height * 0.08)]
             storedShowsLabels = !saved.title.isEmpty
+        }
+
+        storedMorphFrom = nil
+        storedMorphTo = nil
+        storedMorphAt = 0
+        storedMorphA = []
+        storedMorphB = []
+        if let from = state.morphFrom.flatMap({ ParticleArrangement.named($0)?.id }),
+           let to = state.morphTo.flatMap({ ParticleArrangement.named($0)?.id }),
+           let first = state.morphA, let second = state.morphB,
+           first.count == swarm.count, second.count == swarm.count, !first.isEmpty,
+           first.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite }),
+           second.allSatisfy({ $0.x.isFinite && $0.y.isFinite && $0.z.isFinite })
+        {
+            storedMorphFrom = from
+            storedMorphTo = to
+            storedMorphAt = state.morphAt.map { $0.isFinite ? max(0, min(1, $0)) : 0 } ?? 0
+            storedMorphA = first.map { ($0.x, $0.y, $0.z, $0.c) }
+            storedMorphB = second.map { ($0.x, $0.y, $0.z, $0.c) }
         }
 
         // Where the hidden bodies are has to be worked out for the loaded crowd, not inherited from whatever the field

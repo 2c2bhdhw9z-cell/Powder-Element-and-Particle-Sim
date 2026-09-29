@@ -1,6 +1,7 @@
 import CrucibleCore
 import Foundation
 import Observation
+import UIKit
 
 /// One saved lab: both chambers, and what they were set to.
 ///
@@ -253,48 +254,96 @@ final class SceneStore {
     /// - Parameter now: write it before returning rather than in the background. For the moment the app
     ///   is leaving the screen: a background write started then could be frozen along with the app before it
     ///   ran, and lost for good if the phone then closed the app to reclaim memory.
-    /// The newest captured autosave. A background encoding may finish out of order; only this generation may write.
+    /// The newest captured autosave. At most one is being encoded and one newer capture is waiting; an eight-second
+    /// timer can never build an unbounded queue of giant worlds on a slow or hot phone.
     private var autosaveGeneration = 0
+    private var pendingAutosave: (scene: LabScene, generation: Int, url: URL)?
+    private var autosaveTask: Task<Void, Never>?
+    private var backgroundSave: UIBackgroundTaskIdentifier = .invalid
+    private var autosaveIsBlocked = false
 
     func writeAutosave(_ scene: LabScene, now: Bool = false) {
-        guard let url = autosaveURL, !autosaveIsForgotten else { return }
+        guard let url = autosaveURL, !autosaveIsForgotten, !autosaveIsBlocked else { return }
         autosaveGeneration &+= 1
-        let generation = autosaveGeneration
-        if now {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            guard let data = try? encoder.encode(scene) else { return }
-            try? data.write(to: url, options: .atomic)
-            return
+        pendingAutosave = (scene, autosaveGeneration, url)
+
+        if now, backgroundSave == .invalid {
+            // The phone may suspend the app moments after it leaves the screen. Ask for enough time to finish the one
+            // coalesced write, rather than blocking the main thread at exactly the moment iOS is watching it.
+            backgroundSave = UIApplication.shared.beginBackgroundTask(withName: "Keep Crucible world") { [weak self] in
+                Task { @MainActor in self?.finishBackgroundSave() }
+            }
         }
-        let encoding = Task.detached(priority: .background) {
-            // Built inside the task rather than captured: an encoder is not safe to share across threads.
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            return try? encoder.encode(scene)
+        guard autosaveTask == nil else { return }
+        autosaveTask = Task { @MainActor [weak self] in
+            await self?.drainAutosaves()
         }
-        Task { @MainActor [weak self] in
-            guard let self, let data = await encoding.value,
-                  generation == autosaveGeneration, !autosaveIsForgotten
-            else { return }
-            // Serialized on the main actor only after the expensive encoding. If a newer synchronous save happened
-            // while this was being encoded, the generation check above prevents this older one replacing it.
-            try? data.write(to: url, options: .atomic)
+    }
+
+    private func drainAutosaves() async {
+        while !Task.isCancelled, let pending = pendingAutosave {
+            pendingAutosave = nil
+            let data = await Task.detached(priority: .utility) {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                return try? encoder.encode(pending.scene)
+            }.value
+            guard let data,
+                  pending.generation == autosaveGeneration,
+                  !autosaveIsForgotten,
+                  !autosaveIsBlocked
+            else { continue }
+
+            // Disk I/O is off the main actor too. The old code moved only JSON encoding away, then atomically wrote a
+            // potentially huge file on the interface thread every eight seconds.
+            _ = await Task.detached(priority: .utility) {
+                do {
+                    try data.write(to: pending.url, options: .atomic)
+                    return true
+                } catch {
+                    return false
+                }
+            }.value
         }
+        autosaveTask = nil
+        finishBackgroundSave()
+    }
+
+    private func finishBackgroundSave() {
+        guard backgroundSave != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundSave)
+        backgroundSave = .invalid
     }
 
     func readAutosave() -> LabScene? {
         guard let url = autosaveURL, files.fileExists(atPath: url.path) else { return nil }
-        guard let data = try? Data(contentsOf: url),
-              let scene = try? decoder.decode(LabScene.self, from: data),
-              scene.version <= LabScene.currentVersion
-        else {
-            // A damaged autosave is removed rather than left to fail on every launch. It is a
-            // convenience, and one that cannot be read has no value to preserve.
-            try? files.removeItem(at: url)
+        do {
+            let data = try Data(contentsOf: url)
+            let scene = try decoder.decode(LabScene.self, from: data)
+            guard scene.version <= LabScene.currentVersion else {
+                preserveUnreadableAutosave(url, reason: "The automatic save came from a newer version and was kept for recovery.")
+                return nil
+            }
+            lastProblem = nil
+            return scene
+        } catch {
+            preserveUnreadableAutosave(url, reason: "The automatic save could not be read and was kept for recovery.")
             return nil
         }
-        return scene
+    }
+
+    /// Moves a save this build cannot read aside instead of deleting it. If even that fails, all later autosaves are
+    /// blocked for this run so the only remaining copy can never be overwritten by the opening scene.
+    private func preserveUnreadableAutosave(_ url: URL, reason: String) {
+        let recovery = url.deletingLastPathComponent()
+            .appendingPathComponent("autosave-recovery-\(Int(Date().timeIntervalSince1970)).json")
+        do {
+            try files.moveItem(at: url, to: recovery)
+            lastProblem = reason
+        } catch {
+            autosaveIsBlocked = true
+            lastProblem = "The automatic save could not be read. It was left untouched and new automatic saves are paused."
+        }
     }
 
     /// Removes the autosave, and stops it being written again until the app is next opened.
@@ -303,9 +352,16 @@ final class SceneStore {
     /// straight back, and the world "forgotten" came back on the next launch.
     func clearAutosave() {
         autosaveGeneration &+= 1
+        pendingAutosave = nil
         autosaveIsForgotten = true
         guard let url = autosaveURL else { return }
-        try? files.removeItem(at: url)
+        let active = autosaveTask
+        // If a disk write is already in flight, remove the file after it finishes so it cannot reappear behind Clear.
+        Task { @MainActor [weak self] in
+            _ = await active?.value
+            try? FileManager.default.removeItem(at: url)
+            self?.finishBackgroundSave()
+        }
     }
 
     /// Set once the autosave has been forgotten, for the rest of this run of the app.

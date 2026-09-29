@@ -965,6 +965,13 @@ final class SimulationModel {
     ///
     /// Called once when a stroke begins, not per touch.
     func beginStroke(atFractionX fx: Double, fractionY fy: Double) {
+        // A set-piece with a delayed second half is one undoable action. For its very short pause, it owns the world;
+        // accepting a brush stroke between the two halves made Undo remove the stroke and blast together while leaving
+        // the meteor behind. Ignore that touch rather than split either action into a misleading history entry.
+        guard pendingEvent == nil else {
+            toolOwnsStroke = true
+            return
+        }
         // Held at a past moment while rewinding: painting now would be painted into a world about to be replaced.
         guard !isRewinding else {
             toolOwnsStroke = true
@@ -1201,6 +1208,77 @@ final class SimulationModel {
         engine.registry.customElements
     }
 
+    /// Why the last scene's invented materials could not be adopted.
+    private(set) var customImportProblem: String?
+
+    /// Registers a scene's invented materials and rewrites its cell IDs when this phone already uses one of those
+    /// numbers for a different invention. A save stores IDs in the grid, so silently keeping this phone's definition
+    /// would turn every imported cell into the wrong material and the scene would still pretend it loaded correctly.
+    func prepareImportedPowder(_ state: PowderState, elements incoming: [ElementDefinition]) -> PowderState? {
+        guard PowderEngine.canApply(state) else {
+            customImportProblem = "That scene's powder world is incomplete or damaged."
+            return nil
+        }
+        let definitions = incoming.filter {
+            $0.id >= Element.customIDStart && $0.id <= Element.customIDEnd
+        }
+        var mapping: [ElementID: ElementID] = [:]
+        var reserved = Set(engine.registry.customElements.map(\.id))
+
+        // Keep the old ID where it is free, or where both phones already mean exactly the same thing by it. Reserve
+        // every such place before finding new places for collisions, so one collision cannot steal another material's
+        // natural free slot.
+        for definition in definitions {
+            let id = definition.id
+            if !engine.registry.table[id].isDefined {
+                mapping[id] = id
+                reserved.insert(id)
+            } else if engine.registry.element(id) == definition {
+                mapping[id] = id
+            }
+        }
+        for definition in definitions where mapping[definition.id] == nil {
+            guard let free = (Element.customIDStart ... Element.customIDEnd).first(where: { !reserved.contains($0) })
+            else {
+                customImportProblem = "That scene uses an invented material, but all invented-material places on this phone are full."
+                return nil
+            }
+            mapping[definition.id] = free
+            reserved.insert(free)
+        }
+
+        // References inside a custom reaction use the same IDs as the grid, so move those too.
+        func mapped(_ id: ElementID?) -> ElementID? { id.map { mapping[$0] ?? $0 } }
+        for original in definitions {
+            var definition = original
+            definition.id = mapping[original.id] ?? original.id
+            definition.decayIntoID = mapped(original.decayIntoID)
+            definition.interactions = original.interactions.map { originalRule in
+                var rule = originalRule
+                rule.targetElementID = mapping[rule.targetElementID] ?? rule.targetElementID
+                rule.resultSelfID = mapped(rule.resultSelfID)
+                rule.resultTargetID = mapped(rule.resultTargetID)
+                rule.spawnElementID = mapped(rule.spawnElementID)
+                return rule
+            }
+            _ = engine.registry.register(definition)
+        }
+
+        var prepared = state
+        if mapping.contains(where: { $0.key != $0.value }) {
+            prepared.gridType = state.gridType.map { mapping[$0] ?? $0 }
+        }
+        customImportProblem = nil
+        return prepared
+    }
+
+    /// Keeps the old behavior for local material restoration that has no world grid to rewrite.
+    func adopt(_ elements: [ElementDefinition]) {
+        for element in elements where !engine.registry.table[element.id].isDefined {
+            _ = engine.registry.register(element)
+        }
+    }
+
     /// The categories that actually contain something, in the order the reference lists them.
     ///
     /// Computed rather than fixed, so the "Yours" category disappears when nothing has been invented
@@ -1287,7 +1365,9 @@ final class SimulationModel {
     ///   the alternative is wiping what someone was working on in order to fail.
     @discardableResult
     func apply(_ state: PowderState) -> Bool {
-        // An undo point first, so loading the wrong scene is recoverable.
+        // Validate before cancelling tools, clearing Redo, or recording a no-op Undo entry. Rejected user data must
+        // leave every part of the current world untouched.
+        guard PowderEngine.canApply(state) else { return false }
         cancelPendingEvent()
         toolsBeforeWorldReplaced()
         recordUndoPoint()
@@ -1320,16 +1400,6 @@ final class SimulationModel {
         engine.resample(width: wanted.width, height: wanted.height)
         toolsFollowResize(fromWidth: oldWidth, height: oldHeight, stretched: true)
         activeCells = engine.activeParticleCount
-    }
-
-    /// Registers materials that came with a scene.
-    ///
-    /// Already-present ones are skipped rather than overwritten. A scene should not be able to
-    /// silently redefine something the person made themselves.
-    func adopt(_ elements: [ElementDefinition]) {
-        for element in elements where !engine.registry.table[element.id].isDefined {
-            _ = engine.registry.register(element)
-        }
     }
 
     // MARK: - Health

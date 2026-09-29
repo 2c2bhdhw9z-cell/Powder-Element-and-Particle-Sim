@@ -140,6 +140,11 @@ public final class ParticleEngine {
     /// down, or on a flat field.
     var activeFingerRay: ParticleFingerRay?
 
+    /// View-owned state mirrored here only so one engine undo entry can return the complete scene in one press. The
+    /// engine never reads either during physics; ParticleFieldModel keeps them current.
+    public var historyCamera: ParticleCamera = .identity
+    public var historyMovie = ParticleMovie()
+
     // MARK: - Presentation and limits
 
     public var colorMode: ParticleColorMode = .native
@@ -521,11 +526,60 @@ public final class ParticleEngine {
             storedEmitters = refit(storedEmitters)
             storedCurrent = refit(storedCurrent)
 
+            func shifted(_ points: [(x: Double, y: Double, z: Double, color: UInt32)])
+                -> [(x: Double, y: Double, z: Double, color: UInt32)]
+            {
+                points.map { ($0.x + shiftX, $0.y + shiftY, $0.z, $0.color) }
+            }
+            func shifted(_ ribbons: [ParticleRibbon]) -> [ParticleRibbon] {
+                ribbons.map { original in
+                    var ribbon = original
+                    ribbon.pointsX = original.pointsX.map { $0 + shiftX }
+                    ribbon.pointsY = original.pointsY.map { $0 + shiftY }
+                    return ribbon
+                }
+            }
+            func shifted(_ loops: [ParticleForceLoop]) -> [ParticleForceLoop] {
+                loops.map { original in
+                    var loop = original
+                    loop.points = original.points.map { ParticleFingerPoint(x: $0.x + shiftX, y: $0.y + shiftY, z: $0.z) }
+                    loop.rays = original.rays.map { originalRay in
+                        var ray = originalRay
+                        ray.originX += shiftX
+                        ray.originY += shiftY
+                        return ray
+                    }
+                    return loop
+                }
+            }
+            func shifted(_ creatures: [ParticleCreature]) -> [ParticleCreature] {
+                creatures.map { original in
+                    var creature = original
+                    creature.startX += shiftX
+                    return creature
+                }
+            }
+            func shifted(_ labels: [ParticleLabel]) -> [ParticleLabel] {
+                labels.map { original in
+                    guard original.body == nil else { return original }
+                    var label = original
+                    label.x += shiftX
+                    label.y += shiftY
+                    return label
+                }
+            }
+
             // And every point undo and redo can go back to, which were all written in the old world's places.
             // Left as they were, undoing after zooming out brought the field back up and to the left of the
             // middle — where it had been in the smaller world — and after zooming in, partly outside it.
             func recentred(_ snapshot: Snapshot) -> Snapshot {
                 var moved = snapshot
+                moved.worldWidth = safeWidth
+                moved.worldHeight = safeHeight
+                // Zoom itself is not an undoable edit. Every older content snapshot is deliberately translated into
+                // the newly grown world, so it must use the current zoom too; keeping its old camera paired a scale-1
+                // view with a scale-2 world and made Undo jump to the wrong viewport.
+                moved.camera = historyCamera
                 moved.particles = snapshot.particles.map { body in
                     var shifted = body
                     shifted.x += shiftX
@@ -539,10 +593,23 @@ public final class ParticleEngine {
                 moved.walls = refit(snapshot.walls)
                 moved.emitters = refit(snapshot.emitters)
                 moved.current = refit(snapshot.current)
+                moved.ribbons = shifted(snapshot.ribbons)
+                moved.forceLoops = shifted(snapshot.forceLoops)
+                moved.creatures = shifted(snapshot.creatures)
+                moved.labels = shifted(snapshot.labels)
+                moved.morphA = shifted(snapshot.morphA)
+                moved.morphB = shifted(snapshot.morphB)
                 return moved
             }
             if !undoStack.isEmpty { undoStack = undoStack.map(recentred) }
             if !redoStack.isEmpty { redoStack = redoStack.map(recentred) }
+
+            storedRibbons = shifted(storedRibbons)
+            storedForceLoops = shifted(storedForceLoops)
+            storedCreatures = shifted(storedCreatures)
+            storedLabels = shifted(storedLabels)
+            storedMorphA = shifted(storedMorphA)
+            storedMorphB = shifted(storedMorphB)
         }
 
         guard shiftX != 0 || shiftY != 0 else { return }
@@ -592,6 +659,7 @@ public final class ParticleEngine {
         // A formula owns the homes in the scene it made. Clear/new content must not leave its knobs attached to an
         // unrelated crowd.
         storedRecipe = nil
+        storedRecipeSlots = []
         // A recording left playing would overwrite, on the very next moment, whatever the field is about to
         // be set up as. Paused rather than deleted: it is somebody's work.
         storedPlayhead.isPlaying = false
@@ -848,6 +916,11 @@ public final class ParticleEngine {
         public var particles: [ParticleObject]
         public var springs: [Spring]
         public var swarm: Swarm.Snapshot?
+        public var worldWidth: Double = 800
+        public var worldHeight: Double = 600
+        public var screenWidth: Double = 0
+        public var screenHeight: Double = 0
+        public var maxParticles: Int = 1_000_000
         public var flockEnabled: Bool
         public var nbodyEnabled: Bool
         public var fluidEnabled: Bool
@@ -892,6 +965,54 @@ public final class ParticleEngine {
         public var recipe: ParticleRecipe?
         public var labels: [ParticleLabel] = []
         public var showsLabels: Bool = false
+        /// The rest of the field's behavior and presentation. An undo entry is the whole field: bringing bodies back
+        /// with the loaded scene's wall/friction/palette/morph settings is a different world.
+        public var elasticity: Double = 0.8
+        public var electrostaticFactor: Double = 100
+        public var mouseRadius: Double = 120
+        public var mouseForceMultiplier: Double = 1
+        public var particleSize: Double = 2
+        public var showTrails: Bool = true
+        public var sleepingEnabled: Bool = false
+        public var gravityZ: Double = 0
+        public var depthRatio: Double = 1
+        public var colorMode: ParticleColorMode = .native
+        public var paletteEnabled: Bool = false
+        public var palette: ParticlePaletteSpec = .default
+        public var particleShape: ParticleShape = .circle
+        public var backdrop: ParticleBackdrop = .none
+        public var backdropStrength: Double = 1
+        public var glow: ParticleGlow = .default
+        public var emitterTemplate = ParticleEmitter(atFractionX: 0.5, atFractionY: 0.15)
+        public var currentSettings: CurrentSettings = .default
+        public var wallSettings: WallSettings = .default
+        public var flockSettings: FlockSettings = .default
+        public var trailSettings: TrailSettings = .default
+        public var contactSettings: ContactSettings = .default
+        public var flowSettings: SwarmFlow.Settings = .default
+        public var fluidSettings: SwarmFluid.Settings = .default
+        public var bodyGravitySettings: SwarmGravity.Settings = .default
+        public var timeline = ParticleTimeline()
+        public var playhead = ParticlePlayhead()
+        public var writtenForceAcross: ParticleForceExpression = .blank
+        public var writtenForceDown: ParticleForceExpression = .blank
+        public var writtenForceStrength: Double = 1
+        public var ribbons: [ParticleRibbon] = []
+        public var morphFrom: String?
+        public var morphTo: String?
+        public var morphAt: Double = 0
+        public var morphA: [(x: Double, y: Double, z: Double, color: UInt32)] = []
+        public var morphB: [(x: Double, y: Double, z: Double, color: UInt32)] = []
+        public var recipeSlots: [Int] = []
+        public var joinsArrangement: Bool = false
+        public var matchesArrangementSize: Bool = true
+        public var lampWarmth: [Double] = []
+        public var lampBlobs: [[Int]] = []
+        public var elapsedSeconds: Double = 0
+        public var rng = Mulberry32(seed: 1)
+        public var nextSerial: Int = 0
+        public var camera: ParticleCamera = .identity
+        public var movie = ParticleMovie()
 
         /// Approximate heap memory owned by this complete entry. The large flat arrays dominate; small value and array
         /// headers are intentionally ignored so calculating the budget does not itself allocate anything.
@@ -907,6 +1028,11 @@ public final class ParticleEngine {
                     + (jelly.restX.count + jelly.restY.count) * MemoryLayout<Double>.stride
             }
             for creature in creatures { bytes += creature.ids.count * MemoryLayout<Int>.stride }
+            bytes += ribbons.reduce(0) {
+                $0 + ($1.pointsX.count + $1.pointsY.count + $1.pointsZ.count) * MemoryLayout<Double>.stride
+            }
+            bytes += (morphA.count + morphB.count) * (MemoryLayout<Double>.stride * 3 + MemoryLayout<UInt32>.stride)
+            bytes += recipeSlots.count * MemoryLayout<Int>.stride
             return bytes
         }
     }
@@ -930,6 +1056,11 @@ public final class ParticleEngine {
             particles: particles,
             springs: springs,
             swarm: swarm.count > 0 ? swarm.snapshot() : nil,
+            worldWidth: width,
+            worldHeight: height,
+            screenWidth: storedScreenWidth,
+            screenHeight: storedScreenHeight,
+            maxParticles: maxParticles,
             flockEnabled: flockEnabled,
             nbodyEnabled: nbodyEnabled,
             fluidEnabled: fluidEnabled,
@@ -965,7 +1096,53 @@ public final class ParticleEngine {
             appliedTints: storedAppliedTints,
             recipe: storedRecipe,
             labels: storedLabels,
-            showsLabels: storedShowsLabels
+            showsLabels: storedShowsLabels,
+            elasticity: elasticity,
+            electrostaticFactor: electrostaticFactor,
+            mouseRadius: mouseRadius,
+            mouseForceMultiplier: mouseForceMultiplier,
+            particleSize: particleSize,
+            showTrails: showTrails,
+            sleepingEnabled: sleepingEnabled,
+            gravityZ: storedGravityZ,
+            depthRatio: storedDepthRatio,
+            colorMode: colorMode,
+            paletteEnabled: paletteEnabled,
+            palette: palette,
+            particleShape: particleShape,
+            backdrop: storedBackdrop,
+            backdropStrength: storedBackdropStrength,
+            glow: storedGlow,
+            emitterTemplate: storedEmitterTemplate,
+            currentSettings: storedCurrentSettings,
+            wallSettings: storedWallSettings,
+            flockSettings: storedFlockSettings,
+            trailSettings: storedTrailSettings,
+            contactSettings: storedContactSettings,
+            flowSettings: storedFlowSettings,
+            fluidSettings: fluidSettings,
+            bodyGravitySettings: bodyGravitySettings,
+            timeline: storedTimeline,
+            playhead: storedPlayhead,
+            writtenForceAcross: writtenForceAcross,
+            writtenForceDown: writtenForceDown,
+            writtenForceStrength: writtenForceStrength,
+            ribbons: storedRibbons,
+            morphFrom: storedMorphFrom,
+            morphTo: storedMorphTo,
+            morphAt: storedMorphAt,
+            morphA: storedMorphA,
+            morphB: storedMorphB,
+            recipeSlots: storedRecipeSlots,
+            joinsArrangement: storedJoinsArrangement,
+            matchesArrangementSize: storedMatchesArrangementSize,
+            lampWarmth: storedLampWarmth,
+            lampBlobs: storedLampBlobs,
+            elapsedSeconds: elapsedSeconds,
+            rng: rng,
+            nextSerial: nextSerial,
+            camera: historyCamera,
+            movie: historyMovie
         )
     }
 
@@ -978,11 +1155,61 @@ public final class ParticleEngine {
     }
 
     private func apply(_ snapshot: Snapshot) {
+        width = snapshot.worldWidth
+        height = snapshot.worldHeight
+        storedScreenWidth = snapshot.screenWidth
+        storedScreenHeight = snapshot.screenHeight
+        maxParticles = snapshot.maxParticles
         storedLayers = snapshot.layers
         storedCurrentLayer = min(max(0, snapshot.currentLayer), layers.count - 1)
         storedRecipe = snapshot.recipe
+        storedRecipeSlots = snapshot.recipeSlots
         storedLabels = snapshot.labels
         storedShowsLabels = snapshot.showsLabels
+        elasticity = snapshot.elasticity
+        electrostaticFactor = snapshot.electrostaticFactor
+        mouseRadius = snapshot.mouseRadius
+        mouseForceMultiplier = snapshot.mouseForceMultiplier
+        particleSize = snapshot.particleSize
+        showTrails = snapshot.showTrails
+        storedGravityZ = snapshot.gravityZ
+        storedDepthRatio = snapshot.depthRatio
+        colorMode = snapshot.colorMode
+        paletteEnabled = snapshot.paletteEnabled
+        palette = snapshot.palette
+        particleShape = snapshot.particleShape
+        storedBackdrop = snapshot.backdrop
+        storedBackdropStrength = snapshot.backdropStrength
+        storedGlow = snapshot.glow
+        storedEmitterTemplate = snapshot.emitterTemplate
+        storedCurrentSettings = snapshot.currentSettings
+        storedWallSettings = snapshot.wallSettings
+        storedFlockSettings = snapshot.flockSettings
+        storedTrailSettings = snapshot.trailSettings
+        storedContactSettings = snapshot.contactSettings
+        storedFlowSettings = snapshot.flowSettings
+        fluidSettings = snapshot.fluidSettings
+        bodyGravitySettings = snapshot.bodyGravitySettings
+        storedTimeline = snapshot.timeline
+        storedPlayhead = snapshot.playhead
+        writtenForceAcross = snapshot.writtenForceAcross
+        writtenForceDown = snapshot.writtenForceDown
+        writtenForceStrength = snapshot.writtenForceStrength
+        storedRibbons = snapshot.ribbons
+        storedMorphFrom = snapshot.morphFrom
+        storedMorphTo = snapshot.morphTo
+        storedMorphAt = snapshot.morphAt
+        storedMorphA = snapshot.morphA
+        storedMorphB = snapshot.morphB
+        storedJoinsArrangement = snapshot.joinsArrangement
+        storedMatchesArrangementSize = snapshot.matchesArrangementSize
+        storedLampWarmth = snapshot.lampWarmth
+        storedLampBlobs = snapshot.lampBlobs
+        elapsedSeconds = snapshot.elapsedSeconds
+        rng = snapshot.rng
+        nextSerial = snapshot.nextSerial
+        historyCamera = snapshot.camera
+        historyMovie = snapshot.movie
         particles = snapshot.particles
         springs = snapshot.springs
         flockEnabled = snapshot.flockEnabled
@@ -1025,6 +1252,7 @@ public final class ParticleEngine {
         } else {
             swarm.removeAll()
         }
+        swarm.sleepEnabled = snapshot.sleepingEnabled
         normalizeLayerTags(colorsAlreadyTinted: true)
         if !snapshot.appliedTints.isEmpty { storedAppliedTints = snapshot.appliedTints }
     }

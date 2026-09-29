@@ -15,6 +15,8 @@ import Foundation
 /// materials should lose the one that broke, not the twelve.
 final class CustomElementFileStore: CustomElementStore {
     private let url: URL?
+    /// False when the existing file could not be moved out of harm's way. Never overwrite the only recoverable copy.
+    private var maySave = true
 
     init() {
         let directory = FileManager.default
@@ -32,18 +34,35 @@ final class CustomElementFileStore: CustomElementStore {
     }
 
     func loadCustomElements() -> [ElementDefinition] {
-        guard let url, let data = try? Data(contentsOf: url) else { return [] }
+        guard let url else { return [] }
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            // Unreadable is not empty. Stop future saves from replacing a file that may still be recovered.
+            maySave = false
+            return []
+        }
 
         // Decoded to an intermediate array of raw values first, so each element can then be decoded
         // on its own and a single bad one can be skipped.
         guard let fragments = try? JSONDecoder().decode([RawElement].self, from: data) else {
+            // Keep damaged data beside the new file instead of silently treating it as an empty, writable baseline.
+            let recovery = url.deletingPathExtension()
+                .appendingPathExtension("recovery-\(Int(Date().timeIntervalSince1970)).json")
+            do {
+                try FileManager.default.moveItem(at: url, to: recovery)
+            } catch {
+                maySave = false
+            }
             return []
         }
         return fragments.compactMap(\.decoded)
     }
 
     func saveCustomElements(_ elements: [ElementDefinition]) {
-        guard let url else { return }
+        guard maySave, let url else { return }
         guard let data = try? JSONEncoder().encode(elements) else { return }
         // Written whole or not at all. A partial write is exactly the corruption the per-entry
         // decoding above exists to survive, and there is no reason to invite it.

@@ -120,6 +120,7 @@ jobs:
         if: github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           DAY: ${{ steps.draw.outputs.day }}
         run: |
           set -eu

@@ -48,6 +48,12 @@ public struct PowderState: Codable, Sendable {
     public var gravityY: Double
     public var windX: Double
     public var ambientTemp: Double
+    /// Whether trapped gas pushes through openings. Optional for worlds saved before this setting was kept.
+    public var pressureEnabled: Bool?
+    /// Whether heat spreads between neighbouring cells. Optional for old worlds.
+    public var heatConductionEnabled: Bool?
+    /// How grains are textured, by raw name so a future mode does not make an old app reject the whole world.
+    public var textureMode: String?
     /// Each cell's own colour, as three bytes per cell — red, green, blue — written as base64. See `PowderTint.swift`.
     ///
     /// All three nought means the cell has no colour of its own. A grain that really is pure black is written one
@@ -77,6 +83,9 @@ public struct PowderState: Codable, Sendable {
         gravityY: Double,
         windX: Double,
         ambientTemp: Double,
+        pressureEnabled: Bool? = nil,
+        heatConductionEnabled: Bool? = nil,
+        textureMode: String? = nil,
         gridTint: String? = nil,
         tide: PowderTide? = nil,
         population: PowderPopulation? = nil
@@ -90,6 +99,9 @@ public struct PowderState: Codable, Sendable {
         self.gravityY = gravityY
         self.windX = windX
         self.ambientTemp = ambientTemp
+        self.pressureEnabled = pressureEnabled
+        self.heatConductionEnabled = heatConductionEnabled
+        self.textureMode = textureMode
         self.gridTint = gridTint
         self.tide = tide
         self.population = population
@@ -251,10 +263,25 @@ extension PowderEngine {
             gravityY: gravityY,
             windX: windX,
             ambientTemp: ambientTemp,
+            pressureEnabled: pressureEnabled,
+            heatConductionEnabled: heatConductionEnabled,
+            textureMode: textureMode.rawValue,
             gridTint: tintedCellCount > 0 ? encodedTints() : nil,
             tide: tide,
             population: capturePopulation()
         )
+    }
+
+    /// Checks the full payload without touching an engine. The app uses this before it records Undo or registers any
+    /// custom materials, so a rejected import has no side effects at all.
+    public static func canApply(_ state: PowderState) -> Bool {
+        guard isValidSize(width: state.width, height: state.height) else { return false }
+        let expected = state.width * state.height
+        // A save is all-or-nothing. The old loader accepted short arrays, resized and cleared the current world, copied
+        // the surviving prefix, and returned success. Extras are refused too: exact lengths make corruption visible.
+        return state.gridType.count == expected
+            && state.gridTemp.count == expected
+            && state.gridLife.count == expected
     }
 
     /// Loads a whole world, validating every value on the way in.
@@ -268,7 +295,7 @@ extension PowderEngine {
     /// is why this returns a result at all.
     @discardableResult
     public func apply(_ state: PowderState) -> Bool {
-        guard Self.isValidSize(width: state.width, height: state.height) else { return false }
+        guard Self.canApply(state) else { return false }
         if state.width != width || state.height != height {
             resize(width: state.width, height: state.height)
             guard state.width == width, state.height == height else { return false }
@@ -277,8 +304,13 @@ extension PowderEngine {
         // Before the grid is reset, because resetting fills every cell at the ambient temperature and a cell
         // with an unreadable saved temperature falls back to it — both used the previous world's ambient.
         if state.ambientTemp.isFinite { ambientTemp = state.ambientTemp }
+        // Missing means a world from before these fields existed, so use the historical defaults rather than whatever
+        // unrelated settings the destination world happened to have.
+        pressureEnabled = state.pressureEnabled ?? true
+        heatConductionEnabled = state.heatConductionEnabled ?? true
+        textureMode = state.textureMode.flatMap(PowderTextureMode.init(rawValue:)) ?? .naturalGrain
         resetCellBuffers()
-        let count = min(cellCount, state.gridType.count)
+        let count = cellCount
 
         // Every value is checked. Scene files are user data: an element id of 9999 used
         // to sit in the grid behaving as air while counting as a real particle forever,
@@ -333,7 +365,9 @@ extension PowderEngine {
     ///
     /// - Returns: whether the world was adopted. `false` leaves it untouched.
     func adoptCompactCells(_ bytes: [UInt8], width newWidth: Int, height newHeight: Int) -> Bool {
-        guard Self.isValidSize(width: newWidth, height: newHeight) else { return false }
+        guard Self.isValidSize(width: newWidth, height: newHeight),
+              bytes.count == newWidth * newHeight
+        else { return false }
 
         if newWidth != width || newHeight != height {
             resize(width: newWidth, height: newHeight)
@@ -350,7 +384,7 @@ extension PowderEngine {
         // arrived damaged — wiped the receiving player's world and left them staring at
         // nothing.
         resetGrid()
-        let count = min(cellCount, bytes.count)
+        let count = cellCount
         for i in 0 ..< count {
             let id = ElementID(bytes[i])
             let usable = Element.isKnown(id) ? id : Element.empty

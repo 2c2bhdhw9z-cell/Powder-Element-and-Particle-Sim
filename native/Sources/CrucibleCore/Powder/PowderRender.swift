@@ -102,7 +102,7 @@ extension PowderEngine {
                 if id == Element.empty {
                     // Air is only drawn when it is notably hotter or colder than the room,
                     // and only in the tinted mode, so that a hot draught is visible.
-                    if overlay == .temperatureOverlay, abs(temp - 20) > 10 {
+                    if overlay == .temperatureOverlay, abs(temp - Double(ambientTemp)) > 10 {
                         pixels[i] = Self.airGlow(temp)
                     } else {
                         pixels[i] = background

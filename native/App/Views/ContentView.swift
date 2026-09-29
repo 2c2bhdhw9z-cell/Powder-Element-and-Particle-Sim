@@ -1203,9 +1203,30 @@ struct ContentView: View {
             arrivalProblem = store.lastProblem ?? "That file could not be opened."
             return
         }
-        powder.adopt(scene.customElements)
-        if let state = scene.powder { _ = powder.apply(state) }
-        if let state = scene.particle { _ = field.apply(state) }
+        // A lab is one file and one action. Validate both halves before registering materials or changing either world,
+        // so one damaged half cannot leave the other half imported and permanently alter this phone's material list.
+        if let state = scene.powder, !PowderEngine.canApply(state) {
+            arrivalProblem = "That scene's powder world is incomplete or damaged. Nothing was changed."
+            return
+        }
+        if let state = scene.particle, !ParticleEngine.canApply(state) {
+            arrivalProblem = "That scene's particle field is incomplete or damaged. Nothing was changed."
+            return
+        }
+        if let state = scene.powder {
+            guard let prepared = powder.prepareImportedPowder(state, elements: scene.customElements),
+                  powder.apply(prepared)
+            else {
+                arrivalProblem = powder.customImportProblem ?? "That scene's powder world could not be used."
+                return
+            }
+        } else {
+            powder.adopt(scene.customElements)
+        }
+        if let state = scene.particle, !field.apply(state) {
+            arrivalProblem = "That scene's particle field could not be used. Nothing was changed."
+            return
+        }
         // Onto whichever chamber the file is really about: a world with nothing in its powder is a field.
         if scene.powder == nil, scene.particle != nil { select(.field) } else if scene.powder != nil { select(.powder) }
         Haptics.firm()
@@ -1214,9 +1235,29 @@ struct ContentView: View {
     private func restoreAutosaveOnce() {
         guard !hasRestored else { return }
         hasRestored = true
-        guard let scene = store.readAutosave() else { return }
-        powder.adopt(scene.customElements)
-        if let state = scene.powder, powder.apply(state) { powder.acceptStartupRestore() }
+        guard let scene = store.readAutosave() else {
+            if let problem = store.lastProblem { arrivalProblem = problem }
+            return
+        }
+        if let state = scene.powder, !PowderEngine.canApply(state) {
+            arrivalProblem = "The automatic powder save is incomplete. It was not loaded and the current lab was left alone."
+            return
+        }
+        if let state = scene.particle, !ParticleEngine.canApply(state) {
+            arrivalProblem = "The automatic particle save is incomplete. It was not loaded and the current lab was left alone."
+            return
+        }
+        if let state = scene.powder {
+            guard let prepared = powder.prepareImportedPowder(state, elements: scene.customElements),
+                  powder.apply(prepared)
+            else {
+                arrivalProblem = powder.customImportProblem ?? "The automatic powder save could not be restored. Nothing was changed."
+                return
+            }
+            powder.acceptStartupRestore()
+        } else {
+            powder.adopt(scene.customElements)
+        }
         if let state = scene.particle, field.apply(state) { field.acceptStartupRestore() }
     }
 

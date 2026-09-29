@@ -273,10 +273,24 @@ struct SavesSheet: View {
     /// The invented materials go in **before** the worlds, or a cell referring to one of them lands
     /// in a world that does not know what it is and is quietly turned into air.
     private func restore(_ scene: LabScene) {
-        powder.adopt(scene.customElements)
-        if let state = scene.powder, !powder.apply(state) {
-            note = "That scene's powder world could not be used."
+        // Both halves are accepted before either is touched. A lab file is one scene, not two unrelated loads.
+        if let state = scene.powder, !PowderEngine.canApply(state) {
+            note = "That scene's powder world is incomplete or damaged. Nothing was changed."
             return
+        }
+        if let state = scene.particle, !ParticleEngine.canApply(state) {
+            note = "That scene's particle field is incomplete or damaged. Nothing was changed."
+            return
+        }
+        if let state = scene.powder {
+            guard let prepared = powder.prepareImportedPowder(state, elements: scene.customElements),
+                  powder.apply(prepared)
+            else {
+                note = powder.customImportProblem ?? "That scene's powder world could not be used."
+                return
+            }
+        } else {
+            powder.adopt(scene.customElements)
         }
         if let state = scene.particle, !field.apply(state) {
             note = "That scene's particle field could not be used."

@@ -141,6 +141,7 @@ extension ParticleEngine {
         storedCurrentLayer = 0
         storedAppliedTints = []
         storedRecipe = nil
+        storedRecipeSlots = []
         swarm.normalizeGroups(layerCount: 1)
         for index in particles.indices { particles[index].group = 0 }
         restackLayers()

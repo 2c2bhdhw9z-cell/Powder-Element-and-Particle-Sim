@@ -362,3 +362,38 @@ black and nothing moves; this is a current bug, not a test left for the owner.
 - Very large save: save, relaunch/reload, and verify counts/content are not shortened.
 - Rotate the phone in Powder, Field and split screen; worlds and controls should not jump, disappear or lose undo.
 - Introduction demos after the next fix: all six show visible motion and do not make the first launch stutter or close.
+
+## Deep bug audit after build-176
+
+Intro black boxes fixed in `fca5527`: `IntroDemoPlayer` is created before `TimelineView` as a `@StateObject`, every
+first frame advances immediately, and powder pictures use owned RGBA bytes/`CGDataProvider` like `LabSnapshot` rather
+than a temporary bitmap buffer. The iOS archive compiled; real-phone motion is still in the unfinished list above.
+
+The following were proved by code tracing and temporary probes, then fixed (the probes were removed):
+
+- Powder full and compact loads now require exactly one type, temperature and life value per declared cell before
+  resizing or clearing. A cut file cannot erase a world and report success.
+- Powder saves now retain Pressure, Heat spreads and Grain. Undo/Redo/Rewind also retain those, plus tides.
+- Temperature-overlay air compares with the world's real ambient temperature, not hard-coded 20°C.
+- Mirrored powder Kaleidoscope now reflects the local y-axis; six folds no longer collapse to three on an axis.
+- A brush touch during a set-piece event's 0.18-second delayed half is ignored, keeping the event one Undo action.
+- Imported invented materials whose IDs clash with this phone are moved to free IDs. Grid cells, decay targets and all
+  reaction references move together. Both Powder and Field halves are validated before either is changed or materials
+  are registered, so a bad lab can never half-load.
+- Field Undo/Redo snapshots now retain world/screen size, all physical and visual settings, ribbons, morph endpoints,
+  recipe body slots, timeline, RNG/IDs, camera and movie. A loaded scene or 3D switch returns completely in one Undo.
+- Morph endpoints and formula-slot ownership survive save/reload. Damaged ownership metadata disables the control
+  rather than guessing and crossing bodies.
+- Growing a Field translates morphs, ribbons, repeating force loops, free labels and creature starting positions, in
+  both the live world and all Undo/Redo entries. Older entries use the current zoom because zoom is not an edit.
+- Rejected Powder and Field loads leave Undo/Redo untouched. Saved labs and autosaves are all-or-nothing across both
+  chambers.
+- Autosave has at most one active job and one replaceable newest waiting scene. Encoding and disk writing are off the
+  main actor; leaving the app requests iOS background time instead of freezing the UI. Newer/corrupt autosaves are
+  moved to recovery, never deleted; if preservation fails, overwriting is blocked. Custom-material storage does the
+  same for unreadable data.
+- The daily-world release supplies `GH_REPO`, avoiding the Swift container's Git ownership failure.
+
+Verification: temporary behavior probes passed; 1,309 engine tests / 102 suites passed in debug and release; focused
+Powder and Field suites passed after final edits; `git diff --check` passed; final semantic review was APPROVED with
+zero issues. The UIKit app code still requires GitHub's Xcode build, since the local sandbox is Linux.

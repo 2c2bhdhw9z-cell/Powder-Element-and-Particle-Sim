@@ -893,9 +893,7 @@ final class ParticleFieldModel {
     /// - Returns: whether it was applied. `false` leaves the current field alone.
     @discardableResult
     func apply(_ state: ParticleState) -> Bool {
-        // An undo point first, so loading the wrong scene is recoverable.
-        recordUndoPoint()
-        let applied = engine.apply(state)
+        let applied = engine.apply(state, recordingUndo: true)
         // A world opened from a file is the field itself, not the inside of anything.
         if applied {
             worldsOutside = []
@@ -2254,6 +2252,7 @@ final class ParticleFieldModel {
         set {
             let grew = newValue.worldScale != storedCamera.worldScale
             storedCamera = newValue
+            engine.historyCamera = newValue
             if grew { matchWorldToCamera() }
             cameraDidChange()
         }
@@ -2359,6 +2358,7 @@ final class ParticleFieldModel {
         var next = storedCamera
         next.advance(bySeconds: (now - last) / 1000)
         storedCamera = next
+        engine.historyCamera = next
         // Deliberately not through `camera`, which would wipe the leftover picture every frame and
         // so destroy trails for as long as the spin was running. A spin is a continuous change; the
         // smear it leaves is the same smear a moving body leaves, which is the point of a trail.
@@ -2746,7 +2746,12 @@ final class ParticleFieldModel {
     /// every slider, exactly as they were.
     func undo() {
         let wasInDepth = engine.depthEnabled
-        _ = engine.undo()
+        guard engine.undo() else { return }
+        // The camera and movie were captured in the same engine history entry. Set the stored camera directly: the
+        // engine has already restored the matching world size, so running the zoom-resize setter again would move it.
+        storedCamera = engine.historyCamera
+        movie = engine.historyMovie
+        cameraDidChange()
         additionNote = nil
         depthModeMayHaveChanged(from: wasInDepth)
         afterArrangementChange()
@@ -2754,7 +2759,10 @@ final class ParticleFieldModel {
 
     func redo() {
         let wasInDepth = engine.depthEnabled
-        _ = engine.redo()
+        guard engine.redo() else { return }
+        storedCamera = engine.historyCamera
+        movie = engine.historyMovie
+        cameraDidChange()
         additionNote = nil
         depthModeMayHaveChanged(from: wasInDepth)
         afterArrangementChange()
@@ -3248,7 +3256,9 @@ final class ParticleFieldModel {
     // MARK: - The movie studio
 
     /// The movie being made: places to look from, in order. Saved with the world. See `ParticleMovie`.
-    var movie = ParticleMovie()
+    var movie = ParticleMovie() {
+        didSet { engine.historyMovie = movie }
+    }
     /// Whether the movie is playing.
     private(set) var isPlayingMovie = false
     /// Whether this playing is also being written into a clip. The field's view watches this: it starts a clip when
@@ -3411,6 +3421,7 @@ final class ParticleFieldModel {
         // than a new view every frame. The world's room never changes on the way — see `ParticleMovie.forMovie`.
         if moment.camera.worldScale == storedCamera.worldScale {
             storedCamera = moment.camera
+            engine.historyCamera = moment.camera
             // The trails are in screen space, so a moving view wipes them; the view is always moving here.
             invalidateTrailHistory()
         } else {
@@ -4137,6 +4148,7 @@ final class ParticleFieldModel {
         // Straight into the stored view rather than through `camera`, as the automatic spin does, so the glide is a
         // continuous change and not a new view every frame.
         storedCamera = next
+        engine.historyCamera = next
         engineDidChange()
     }
 
@@ -4388,6 +4400,7 @@ final class ParticleFieldModel {
             // Not through `camera`: changing the pace of a spin is not moving the view, and wiping the trails
             // at every step of the slider would be a flicker for nothing.
             storedCamera = next
+            engine.historyCamera = next
             engineDidChange()
         }
     }
