@@ -1252,7 +1252,7 @@ final class SimulationModel {
         for original in definitions {
             var definition = original
             definition.id = mapping[original.id] ?? original.id
-            definition.decayIntoID = mapped(original.decayIntoID)
+            definition.decayIntoID = mapping[original.decayIntoID] ?? original.decayIntoID
             definition.interactions = original.interactions.map { originalRule in
                 var rule = originalRule
                 rule.targetElementID = mapping[rule.targetElementID] ?? rule.targetElementID
