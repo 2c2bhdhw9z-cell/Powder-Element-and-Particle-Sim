@@ -61,29 +61,44 @@ struct LabHeader: View {
 
     // MARK: Rows
 
+    private var usesWideNotchLayout: Bool {
+        // Classic notches report about 44–50 points. A Dynamic Island is about 59 and leaves enough separate room at
+        // the right for two buttons; an iPad/flat top is below 40 and has no central cutout to avoid.
+        topInset >= 40 && topInset < 55
+    }
+
     private var titleRow: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Crucible")
-                    .font(.labDisplay(16))
-                    .tracking(-0.4)
-                    .foregroundStyle(Palette.foreground)
-                Text(chamber.subtitle)
-                    .font(.labBody(11))
-                    .foregroundStyle(Palette.muted)
+            title
+            Spacer(minLength: 8)
+            if !usesWideNotchLayout {
+                playButton
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            roundButton(
-                isRunning ? "pause.fill" : "play.fill",
-                label: isRunning ? "Pause" : "Play",
-                id: "header.play",
-                action: onToggleRunning
-            )
             roundButton("line.3.horizontal", label: "Menu", id: "header.menu", action: onShowMenu)
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
+    }
+
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Crucible")
+                .font(.labDisplay(16))
+                .tracking(-0.4)
+                .foregroundStyle(Palette.foreground)
+            Text(chamber.subtitle)
+                .font(.labBody(11))
+                .foregroundStyle(Palette.muted)
+        }
+    }
+
+    private var playButton: some View {
+        roundButton(
+            isRunning ? "pause.fill" : "play.fill",
+            label: isRunning ? "Pause" : "Play",
+            id: "header.play",
+            action: onToggleRunning
+        )
     }
 
     private var chamberRow: some View {
@@ -91,6 +106,10 @@ struct LabHeader: View {
             chamberSwitch
             splitButton
             Spacer(minLength: 0)
+            if usesWideNotchLayout {
+                // One button fits safely on the right of a classic notch; Play moves below it without adding a row.
+                playButton
+            }
             frameRateChip
         }
         .padding(.horizontal, 8)

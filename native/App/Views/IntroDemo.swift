@@ -49,15 +49,27 @@ private struct IntroDemoFrame {
     func draw(in context: inout GraphicsContext, size: CGSize) {
         guard size.width > 20, size.height > 20 else { return }
         drawBackdrop(in: &context, size: size)
+
+        // Every scene is composed on one known stage and scaled uniformly into whatever height the welcome screen can
+        // offer. The previous fixed coordinates overlapped at the declared 160-point minimum. Uniform fitting keeps
+        // circles round, labels apart and every timed state inside the frame on compact phones and split iPad views.
+        let stageSize = CGSize(width: 400, height: 280)
+        let scale = min(size.width / stageSize.width, size.height / stageSize.height)
+        var stage = context
+        stage.translateBy(
+            x: (size.width - stageSize.width * scale) / 2,
+            y: (size.height - stageSize.height * scale) / 2
+        )
+        stage.scaleBy(x: scale, y: scale)
         switch page {
-        case 0: drawTwoWorlds(in: &context, size: size)
-        case 1: drawPainting(in: &context, size: size)
-        case 2: drawReactions(in: &context, size: size)
-        case 3: drawTilt(in: &context, size: size)
-        case 4: drawUndo(in: &context, size: size)
-        default: drawSimple(in: &context, size: size)
+        case 0: drawTwoWorlds(in: &stage, size: stageSize)
+        case 1: drawPainting(in: &stage, size: stageSize)
+        case 2: drawReactions(in: &stage, size: stageSize)
+        case 3: drawTilt(in: &stage, size: stageSize)
+        case 4: drawUndo(in: &stage, size: stageSize)
+        default: drawSimple(in: &stage, size: stageSize)
         }
-        drawPlayingMark(in: &context, size: size)
+        drawPlayingMark(in: &stage, size: stageSize)
     }
 
     // MARK: - Common pieces
@@ -485,14 +497,19 @@ private struct IntroDemoFrame {
             let y = screen.maxY - 10 - depth + slope
             dot(CGPoint(x: x, y: y), radius: 2.0 + CGFloat(noise(index, salt: 22)), colour: paleGold.opacity(0.86), in: &contents)
         }
-        // Gravity arrow stays screen-down while the phone turns around it.
+        // Gravity belongs to the room, not the phone. Draw this in the unrotated canvas so it stays screen-down while
+        // the device turns around it.
+        let arrowX = size.width / 2
+        let arrowTop = size.height / 2 - 25
+        let arrowBottom = size.height / 2 + 16
         var arrow = Path()
-        arrow.move(to: CGPoint(x: 0, y: -25))
-        arrow.addLine(to: CGPoint(x: 0, y: 16))
-        arrow.move(to: CGPoint(x: -7, y: 8))
-        arrow.addLine(to: CGPoint(x: 0, y: 16))
-        arrow.addLine(to: CGPoint(x: 7, y: 8))
-        phone.stroke(arrow, with: .color(blue.opacity(0.85)), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        arrow.move(to: CGPoint(x: arrowX, y: arrowTop))
+        arrow.addLine(to: CGPoint(x: arrowX, y: arrowBottom))
+        arrow.move(to: CGPoint(x: arrowX - 7, y: arrowBottom - 8))
+        arrow.addLine(to: CGPoint(x: arrowX, y: arrowBottom))
+        arrow.addLine(to: CGPoint(x: arrowX + 7, y: arrowBottom - 8))
+        context.stroke(arrow, with: .color(blue.opacity(0.85)),
+                       style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
 
         drawText("TIP THE PHONE", at: CGPoint(x: size.width / 2, y: size.height - 18), size: 9,
                  colour: .white.opacity(0.38), in: &context)
