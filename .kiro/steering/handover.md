@@ -397,3 +397,10 @@ The following were proved by code tracing and temporary probes, then fixed (the 
 Verification: temporary behavior probes passed; 1,309 engine tests / 102 suites passed in debug and release; focused
 Powder and Field suites passed after final edits; `git diff --check` passed; final semantic review was APPROVED with
 zero issues. The UIKit app code still requires GitHub's Xcode build, since the local sandbox is Linux.
+
+## New real-phone report after build-179
+
+- Audio "sounds funny." Treat this as an unresolved bug, not a pass. The owner has not yet said whether this means
+  the living world soundscape, explosions/events, interface sounds, recording playback, or all audio. Ask which sound,
+  what it resembles (buzzing/choppy/distorted/wrong pitch/repeating), and whether it happens through the phone speaker,
+  headphones, or both before changing the audio engine.
