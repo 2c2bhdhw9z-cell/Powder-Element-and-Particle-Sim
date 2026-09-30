@@ -240,31 +240,14 @@ struct ContentView: View {
 
     /// The world itself: two chambers, the bar over them, and the tray under them.
     private var lab: some View {
-        // The world reaches the top of the screen; the bar floats over it.
-        //
-        // ## Why this is not a stack of three any more
-        //
-        // It was, and the band above the title was the price. Keeping every piece of content inside the
-        // safe area left the strip beside the sensor housing painted flat black and holding nothing at
-        // all — on a tall phone that is a sixteenth of the screen doing no work, directly above a
-        // simulation that wants every pixel it can get. The status bar is switched off in Info.plist, so
-        // there was not even a clock up there to justify it.
-        //
-        // So the world is full-bleed at the top now and the bar sits over it. Two consequences, both
-        // deliberate:
-        //
-        //   - The world runs *behind* the bar as well as above it. That cannot be avoided: filling the
-        //     strip means reaching past where the bar is. The bar is solid, so those ninety-six points
-        //     are not visible — the gain is the strip above it, and a world that is no longer boxed in.
-        //   - The floating tools have to be pushed clear of the bar by hand, since they are no longer
-        //     laid out below it. ``LabHeader/height`` is what they are pushed by, which is why that is a
-        //     stated constant rather than whatever the bar's rows happen to add up to.
-        //
-        // The bottom is untouched. Anything pressable still stays above the home indicator.
+        // The world still reaches the top, but the header now uses that upper space rather than covering it with an
+        // empty band. Because the status bar is hidden, the title and two round buttons can sit to either side of the
+        // island/notch; the chamber switch then starts immediately below it. The world gains roughly one title row on
+        // modern iPhones, while every touch target stays clear of the sensor housing.
         GeometryReader { screen in
-            // How far down the floating controls have to start to clear the bar: the strip the bar sits
-            // in, the bar itself, and the eight points everything floating uses as its margin.
-            let clearance = screen.safeAreaInsets.top + LabHeader.height + 8
+            let headerHeight = LabHeader.height(topInset: screen.safeAreaInsets.top)
+            // How far down the floating controls have to start to clear the compact header and its margin.
+            let clearance = headerHeight + 8
             // A wide screen has room for two chambers beside one another; an upright phone reads better stacked.
             let splitSideBySide = isSplit && screen.size.width >= 700
 
@@ -341,14 +324,9 @@ struct ContentView: View {
                         // leaves almost no world visible, which defeats the point of looking at both.
                         isDockOpen = false
                         updateCompanionStepping()
-                    }
+                    },
+                    topInset: screen.safeAreaInsets.top
                 )
-                // Down by exactly the strip the stack just reached up into, so the bar ends up where it
-                // has always been while the world beneath it does not.
-                .padding(.top, screen.safeAreaInsets.top)
-                // Solid up through the clock and battery strip too. The world used to show in the gap above the bar,
-                // a stripe of moving bodies over the time that looked like a mistake.
-                .background(Palette.background)
             }
             // Upward only. This used to ignore the bottom safe area too, and it took the dock's controls
             // down with it: the play button and the clear button ended up inside the home-indicator strip,

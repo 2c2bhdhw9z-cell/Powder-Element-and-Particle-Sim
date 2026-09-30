@@ -404,3 +404,22 @@ zero issues. The UIKit app code still requires GitHub's Xcode build, since the l
   the living world soundscape, explosions/events, interface sounds, recording playback, or all audio. Ask which sound,
   what it resembles (buzzing/choppy/distorted/wrong pitch/repeating), and whether it happens through the phone speaker,
   headphones, or both before changing the audio engine.
+
+## Owner correction: top UI and first-run demos
+
+The owner rejected build-179's top treatment and the low-resolution intro demos:
+
+- **Do not gain apparent cleanliness by painting unused safe-area space black or taking room from the world.** The
+  status bar is hidden, so use the upper safe area: place the title and round buttons to the left/right of the sensor
+  island or notch, put the chamber row immediately below, and move the rest upward. Keep touch targets clear of the
+  sensor. This is implemented after `e143513` with a safe-area-aware `LabHeader` whose total height is
+  `max(48, topInset) + 48`, replacing `topInset + 96`.
+- **First-run demonstrations must not look like blocky AI/programmer mockups.** The owner specifically rejected the
+  stretched 96×72 engine cells, vertical material pipes and noisy piles shown in build-179. Use intentional, smooth,
+  video-like motion that plainly demonstrates each sentence. Do not defend technical authenticity when the result
+  looks bad. `IntroDemo.swift` was replaced with six hand-composed vector scenes: two worlds, drag-to-paint, three
+  material reactions, tilt, undo/rewind and Simple mode.
+
+All unfinished real-phone tests in “Owner's phone test, build-176 — current unfinished list” remain open. This UI/demo
+correction adds two replacement checks: confirm the header actually gives the world more vertical room, and confirm all
+six new demos look deliberate and move smoothly.

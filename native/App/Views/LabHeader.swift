@@ -30,23 +30,25 @@ struct LabHeader: View {
     let isSplit: Bool
     let onToggleSplit: () -> Void
 
-    /// How tall the bar is.
-    ///
-    /// Fixed, and stated here rather than left to come out of the layout, because the bar now floats over
-    /// a world that reaches the top of the screen — so the floating controls underneath it have to be
-    /// pushed clear of it, and something has to know by how much. Enforced below rather than merely
-    /// believed: the rows add up to this, and the frame makes it so even if they ever stop.
-    ///
-    /// Forty-eight and forty-eight. The title row is a forty-four point button with four points under it,
-    /// and the chamber row a forty point pill with eight.
-    static let height: CGFloat = 96
+    /// The empty top safe area is part of the header, not padding above it. The title and round buttons sit to the
+    /// left and right of the sensor island/notch, with the chamber row immediately below. On an island phone this is
+    /// about 107 points total instead of 155 (59 empty + 96), giving nearly fifty points back to the world.
+    let topInset: CGFloat
+
+    static let rowHeight: CGFloat = 48
+
+    static func height(topInset: CGFloat) -> CGFloat {
+        max(rowHeight, topInset) + rowHeight
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             titleRow
+                .frame(height: max(Self.rowHeight, topInset))
             chamberRow
+                .frame(height: Self.rowHeight)
         }
-        .frame(height: Self.height)
+        .frame(height: Self.height(topInset: topInset))
         .background(headerBackground)
         .overlay(alignment: .bottom) {
             // Twelve percent, deliberately weaker than the fifteen the floating panels use, so the
